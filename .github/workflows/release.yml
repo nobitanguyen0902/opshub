@@ -1,0 +1,29 @@
+name: Release macOS app
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release archive
+        run: ./scripts/package-macos-app.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/OpsHub.zip --clobber
+          else
+            gh release create "$TAG" dist/OpsHub.zip --generate-notes
+          fi
