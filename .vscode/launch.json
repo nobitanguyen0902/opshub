@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:opshub}",
+            "name": "Debug OpsHub",
+            "target": "OpsHub",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug OpsHub"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:opshub}",
+            "name": "Release OpsHub",
+            "target": "OpsHub",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release OpsHub"
+        }
+    ]
+}
