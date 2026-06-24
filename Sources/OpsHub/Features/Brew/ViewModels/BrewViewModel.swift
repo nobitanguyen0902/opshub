@@ -123,6 +123,14 @@ final class BrewViewModel: ObservableObject {
 
     private func appendLog(_ message: String) {
         guard !message.isEmpty else { return }
-        commandLogs.append(message.trimmingCharacters(in: .whitespacesAndNewlines))
+        let timestamp = Self.logTimestampFormatter.string(from: .now)
+        let entry = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        commandLogs.append("[\(timestamp)] \(entry)")
     }
+
+    private static let logTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 }

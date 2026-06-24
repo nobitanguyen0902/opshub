@@ -2,8 +2,9 @@ import SwiftUI
 
 struct BrewListView: View {
     @StateObject private var viewModel = BrewViewModel()
-    @State private var updatingPackageNames = Set<String>()
+    @State private var updatingPackageIDs = Set<BrewPackage.ID>()
     @State private var isShowingError = false
+    @State private var isShowingUpdateAllConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -37,6 +38,18 @@ struct BrewListView: View {
         } message: {
             Text(viewModel.errorMessage ?? "An unknown error occurred.")
         }
+        .confirmationDialog(
+            "Update all outdated packages?",
+            isPresented: $isShowingUpdateAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Update All") {
+                Task { await viewModel.updateAll() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Homebrew will upgrade all outdated formulae and casks.")
+        }
     }
 
     private var header: some View {
@@ -54,11 +67,12 @@ struct BrewListView: View {
                 Button("Refresh", systemImage: "arrow.clockwise") {
                     Task { await viewModel.loadPackages() }
                 }
+                .keyboardShortcut("r", modifiers: .command)
                 Button("Check Outdated", systemImage: "checkmark.circle") {
                     Task { await viewModel.checkOutdated() }
                 }
                 Button("Update All", systemImage: "arrow.up.circle") {
-                    Task { await viewModel.updateAll() }
+                    isShowingUpdateAllConfirmation = true
                 }
                 .disabled(viewModel.outdatedCount == 0 || viewModel.isLoading)
             }
@@ -123,7 +137,7 @@ struct BrewListView: View {
                     statusLabel(for: package)
                 }
                 TableColumn("Action") { package in
-                    if updatingPackageNames.contains(package.name) {
+                    if updatingPackageIDs.contains(package.id) {
                         ProgressView()
                             .controlSize(.small)
                     } else if package.status == .outdated {
@@ -131,7 +145,7 @@ struct BrewListView: View {
                             update(package)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(viewModel.isLoading)
+                        .disabled(viewModel.isLoading || !updatingPackageIDs.isEmpty)
                     } else {
                         Text("—")
                             .foregroundStyle(.secondary)
@@ -151,22 +165,39 @@ struct BrewListView: View {
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
     private func statusLabel(for package: BrewPackage) -> some View {
-        if package.status == .outdated {
-            Label("Outdated", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                .foregroundStyle(.orange)
-        } else {
-            Label("Up to date", systemImage: "checkmark.circle")
-                .foregroundStyle(.green)
+        let status: (title: String, systemImage: String, color: Color)
+
+        switch package.status {
+        case .outdated:
+            status = ("Outdated", "exclamationmark.arrow.triangle.2.circlepath", .orange)
+        case .updating:
+            status = ("Updating", "arrow.triangle.2.circlepath", .blue)
+        case .error:
+            status = ("Update failed", "exclamationmark.circle", .red)
+        case .upToDate:
+            status = ("Up to date", "checkmark.circle", .green)
         }
+
+        return Label(
+            status.title,
+            systemImage: status.systemImage
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(status.color)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            status.color.opacity(0.14),
+            in: Capsule()
+        )
     }
 
     private func update(_ package: BrewPackage) {
-        updatingPackageNames.insert(package.name)
+        updatingPackageIDs.insert(package.id)
         Task {
             await viewModel.updatePackage(package)
-            updatingPackageNames.remove(package.name)
+            updatingPackageIDs.remove(package.id)
         }
     }
 }
