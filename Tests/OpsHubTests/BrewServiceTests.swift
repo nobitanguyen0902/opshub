@@ -144,7 +144,7 @@ final class BrewServiceTests: XCTestCase {
 
     @MainActor
     func testFailedCommandOutputIsAppendedToCommandLog() async {
-        let viewModel = BrewViewModel(service: FailingBrewService())
+        let viewModel = BrewListViewModel(service: FailingBrewService())
 
         await viewModel.updateAll()
 
@@ -280,9 +280,12 @@ private struct OutdatedOutputShellCommandRunner: ShellCommandRunning {
 }
 
 private struct FailingBrewService: BrewServicing {
-    func listFormulae() async throws -> [BrewPackage] { [] }
-    func listCasks() async throws -> [BrewPackage] { [] }
     func listInstalledPackages() async throws -> [BrewPackage] { [] }
+    func listOutdatedPackages() async throws -> [BrewPackage] { [] }
+
+    func upgradePackage(_ package: BrewPackage) async throws -> ShellCommandResult {
+        fatalError("Not used by this test")
+    }
 
     func upgradeAll() async throws -> ShellCommandResult {
         throw ShellCommandError.commandFailed(

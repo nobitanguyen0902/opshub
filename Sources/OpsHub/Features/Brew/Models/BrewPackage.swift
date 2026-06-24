@@ -7,7 +7,6 @@ struct BrewPackage: Identifiable, Hashable, Sendable {
     let installedVersion: String
     let latestVersion: String
     let status: BrewPackageStatus
-    var isUpdating: Bool
 
     init(
         id: UUID = UUID(),
@@ -15,8 +14,7 @@ struct BrewPackage: Identifiable, Hashable, Sendable {
         type: BrewPackageType,
         installedVersion: String,
         latestVersion: String,
-        status: BrewPackageStatus = .upToDate,
-        isUpdating: Bool = false
+        status: BrewPackageStatus = .upToDate
     ) {
         self.id = id
         self.name = name
@@ -24,6 +22,5 @@ struct BrewPackage: Identifiable, Hashable, Sendable {
         self.installedVersion = installedVersion
         self.latestVersion = latestVersion
         self.status = status
-        self.isUpdating = isUpdating
     }
 }

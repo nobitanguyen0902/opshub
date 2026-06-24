@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct BrewListView: View {
-    @StateObject private var viewModel = BrewViewModel()
+    @StateObject private var viewModel = BrewListViewModel()
     @State private var updatingPackageIDs = Set<BrewPackage.ID>()
     @State private var isShowingError = false
     @State private var isShowingUpdateAllConfirmation = false
@@ -96,10 +96,10 @@ struct BrewListView: View {
                 .textFieldStyle(.roundedBorder)
 
             Picker("Package type", selection: $viewModel.selectedFilter) {
-                Text("All").tag(BrewViewModel.Filter.all)
-                Text("Formulae").tag(BrewViewModel.Filter.formulae)
-                Text("Casks").tag(BrewViewModel.Filter.casks)
-                Text("Outdated").tag(BrewViewModel.Filter.outdated)
+                Text("All").tag(BrewListViewModel.Filter.all)
+                Text("Formulae").tag(BrewListViewModel.Filter.formulae)
+                Text("Casks").tag(BrewListViewModel.Filter.casks)
+                Text("Outdated").tag(BrewListViewModel.Filter.outdated)
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 360)
@@ -171,10 +171,6 @@ struct BrewListView: View {
         switch package.status {
         case .outdated:
             status = ("Outdated", "exclamationmark.arrow.triangle.2.circlepath", .orange)
-        case .updating:
-            status = ("Updating", "arrow.triangle.2.circlepath", .blue)
-        case .error:
-            status = ("Update failed", "exclamationmark.circle", .red)
         case .upToDate:
             status = ("Up to date", "checkmark.circle", .green)
         }

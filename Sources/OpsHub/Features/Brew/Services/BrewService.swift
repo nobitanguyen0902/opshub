@@ -12,24 +12,6 @@ struct BrewService: BrewServicing {
         self.shellCommandRunner = shellCommandRunner
     }
 
-    func listFormulae() async throws -> [BrewPackage] {
-        let brewPath = try await resolveBrewPath()
-        return try await listPackages(
-            at: brewPath,
-            arguments: ["list", "--formula"],
-            type: .formula
-        )
-    }
-
-    func listCasks() async throws -> [BrewPackage] {
-        let brewPath = try await resolveBrewPath()
-        return try await listPackages(
-            at: brewPath,
-            arguments: ["list", "--cask"],
-            type: .cask
-        )
-    }
-
     func listInstalledPackages() async throws -> [BrewPackage] {
         let brewPath = try await resolveBrewPath()
         async let formulae = listPackages(
@@ -81,8 +63,7 @@ struct BrewService: BrewServicing {
     private func listPackages(
         at brewPath: String,
         arguments: [String],
-        type: BrewPackageType,
-        status: BrewPackageStatus = .upToDate
+        type: BrewPackageType
     ) async throws -> [BrewPackage] {
         let output = try await shellCommandRunner.run(brewPath, arguments: arguments).stdout
 
@@ -94,7 +75,7 @@ struct BrewService: BrewServicing {
                     type: type,
                     installedVersion: "-",
                     latestVersion: "-",
-                    status: status
+                    status: .upToDate
                 )
             }
     }
@@ -151,8 +132,7 @@ struct BrewService: BrewServicing {
                     type: package.type,
                     installedVersion: package.installedVersion,
                     latestVersion: package.installedVersion == "-" ? "-" : package.installedVersion,
-                    status: .upToDate,
-                    isUpdating: package.isUpdating
+                    status: .upToDate
                 )
             }
 
@@ -162,8 +142,7 @@ struct BrewService: BrewServicing {
                 type: package.type,
                 installedVersion: outdatedPackage.installedVersion,
                 latestVersion: outdatedPackage.latestVersion,
-                status: .outdated,
-                isUpdating: package.isUpdating
+                status: .outdated
             )
         }
     }
