@@ -100,7 +100,8 @@ final class BrewViewModel: ObservableObject {
             try await operation()
         } catch {
             errorMessage = error.localizedDescription
-            appendLog(error.localizedDescription)
+            appendFailedCommandOutput(from: error)
+            appendLog("Error: \(error.localizedDescription)")
         }
     }
 
@@ -126,6 +127,17 @@ final class BrewViewModel: ObservableObject {
         let timestamp = Self.logTimestampFormatter.string(from: .now)
         let entry = message.trimmingCharacters(in: .whitespacesAndNewlines)
         commandLogs.append("[\(timestamp)] \(entry)")
+    }
+
+    private func appendFailedCommandOutput(from error: Error) {
+        if let shellError = error as? ShellCommandError, let result = shellError.result {
+            appendLog(result.stdout)
+            appendLog(result.stderr)
+        }
+
+        if let brewError = error as? BrewServiceError, let output = brewError.commandOutput {
+            appendLog(output)
+        }
     }
 
     private static let logTimestampFormatter: DateFormatter = {

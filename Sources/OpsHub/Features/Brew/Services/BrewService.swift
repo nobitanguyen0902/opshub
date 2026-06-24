@@ -104,7 +104,16 @@ struct BrewService: BrewServicing {
             brewPath,
             arguments: ["outdated", "--json=v2"]
         ).stdout
-        let response = try JSONDecoder().decode(OutdatedPackagesResponse.self, from: Data(output.utf8))
+        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw BrewServiceError.emptyOutput
+        }
+
+        let response: OutdatedPackagesResponse
+        do {
+            response = try JSONDecoder().decode(OutdatedPackagesResponse.self, from: Data(output.utf8))
+        } catch {
+            throw BrewServiceError.invalidOutdatedPackageData(output: output)
+        }
 
         return response.formulae.map { package in
             BrewPackage(
@@ -204,11 +213,26 @@ struct BrewService: BrewServicing {
 
 enum BrewServiceError: LocalizedError {
     case brewNotInstalled
+    case emptyOutput
+    case invalidOutdatedPackageData(output: String)
+
+    var commandOutput: String? {
+        switch self {
+        case let .invalidOutdatedPackageData(output):
+            output
+        case .brewNotInstalled, .emptyOutput:
+            nil
+        }
+    }
 
     var errorDescription: String? {
         switch self {
         case .brewNotInstalled:
             "Homebrew is not installed. Install Homebrew and try again."
+        case .emptyOutput:
+            "Homebrew returned no data. Please try again."
+        case .invalidOutdatedPackageData:
+            "Homebrew returned data the app could not read. Please update Homebrew and try again."
         }
     }
 }

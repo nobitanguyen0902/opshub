@@ -82,6 +82,80 @@ final class BrewServiceTests: XCTestCase {
         }
     }
 
+    func testListOutdatedPackagesThrowsFriendlyErrorForEmptyOutput() async {
+        let service = BrewService(shellCommandRunner: OutdatedOutputShellCommandRunner(output: " \n"))
+
+        do {
+            _ = try await service.listOutdatedPackages()
+            XCTFail("Expected empty output to throw")
+        } catch let error as BrewServiceError {
+            guard case .emptyOutput = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testListOutdatedPackagesThrowsFriendlyErrorForInvalidJson() async {
+        let service = BrewService(shellCommandRunner: OutdatedOutputShellCommandRunner(output: "not json"))
+
+        do {
+            _ = try await service.listOutdatedPackages()
+            XCTFail("Expected invalid JSON to throw")
+        } catch let error as BrewServiceError {
+            guard case let .invalidOutdatedPackageData(output) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(output, "not json")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testShellCommandRunnerTimesOutLongRunningCommand() async {
+        let runner = ShellCommandRunner(timeout: 0.01)
+
+        do {
+            _ = try await runner.run("/bin/sleep", arguments: ["1"])
+            XCTFail("Expected command to time out")
+        } catch let ShellCommandError.timedOut(result) {
+            XCTAssertNotEqual(result.exitCode, 0)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testShellCommandRunnerIdentifiesPermissionDeniedOutput() async {
+        let runner = ShellCommandRunner()
+
+        do {
+            _ = try await runner.run(
+                "/bin/zsh",
+                arguments: ["-c", "echo permission\\ denied >&2; exit 1"]
+            )
+            XCTFail("Expected permission denied to throw")
+        } catch let ShellCommandError.permissionDenied(result) {
+            XCTAssertEqual(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines), "permission denied")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    func testFailedCommandOutputIsAppendedToCommandLog() async {
+        let viewModel = BrewViewModel(service: FailingBrewService())
+
+        await viewModel.updateAll()
+
+        XCTAssertEqual(
+            viewModel.errorMessage,
+            "Homebrew could not complete the command (exit code 1). See Command Log for details."
+        )
+        XCTAssertTrue(viewModel.commandLogs.joined(separator: "\n").contains("partial output"))
+        XCTAssertTrue(viewModel.commandLogs.joined(separator: "\n").contains("command failed"))
+    }
+
     private func package(name: String, type: BrewPackageType) -> BrewPackage {
         BrewPackage(
             name: name,
@@ -190,5 +264,34 @@ private actor UpgradeShellCommandRunner: ShellCommandRunning {
 
     private var brewPathResult: ShellCommandResult {
         ShellCommandResult(stdout: "/test/brew\n", stderr: "", exitCode: 0, duration: 0)
+    }
+}
+
+private struct OutdatedOutputShellCommandRunner: ShellCommandRunning {
+    let output: String
+
+    func run(_ command: String) async throws -> ShellCommandResult {
+        ShellCommandResult(stdout: "/test/brew\n", stderr: "", exitCode: 0, duration: 0)
+    }
+
+    func run(_ command: String, arguments: [String]) async throws -> ShellCommandResult {
+        ShellCommandResult(stdout: output, stderr: "", exitCode: 0, duration: 0)
+    }
+}
+
+private struct FailingBrewService: BrewServicing {
+    func listFormulae() async throws -> [BrewPackage] { [] }
+    func listCasks() async throws -> [BrewPackage] { [] }
+    func listInstalledPackages() async throws -> [BrewPackage] { [] }
+
+    func upgradeAll() async throws -> ShellCommandResult {
+        throw ShellCommandError.commandFailed(
+            ShellCommandResult(
+                stdout: "partial output",
+                stderr: "command failed",
+                exitCode: 1,
+                duration: 0
+            )
+        )
     }
 }
