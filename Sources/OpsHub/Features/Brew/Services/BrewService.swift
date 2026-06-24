@@ -55,19 +55,27 @@ struct BrewService: BrewServicing {
         return try await getOutdatedPackages(at: brewPath)
     }
 
-    func update(package: BrewPackage) async throws -> String {
+    func upgradePackage(_ package: BrewPackage) async throws -> ShellCommandResult {
         let brewPath = try await resolveBrewPath()
         var arguments = ["upgrade"]
         if package.type == .cask {
             arguments.append("--cask")
         }
         arguments.append(package.name)
-        return try await shellCommandRunner.run(brewPath, arguments: arguments).stdout
+        return try await runUpgrade(at: brewPath, arguments: arguments)
     }
 
-    func updateAll() async throws -> String {
+    func upgradeAll() async throws -> ShellCommandResult {
         let brewPath = try await resolveBrewPath()
-        return try await shellCommandRunner.run(brewPath, arguments: ["upgrade"]).stdout
+        return try await runUpgrade(at: brewPath, arguments: ["upgrade"])
+    }
+
+    private func runUpgrade(at brewPath: String, arguments: [String]) async throws -> ShellCommandResult {
+        let result = try await shellCommandRunner.run(brewPath, arguments: arguments)
+        guard result.exitCode == 0 else {
+            throw ShellCommandError.commandFailed(result)
+        }
+        return result
     }
 
     private func listPackages(

@@ -68,16 +68,18 @@ final class BrewViewModel: ObservableObject {
 
     func updatePackage(_ package: BrewPackage) async {
         await perform("brew upgrade \(package.name)") {
-            let output = try await service.update(package: package)
-            appendLog(output)
+            let result = try await service.upgradePackage(package)
+            appendLog(result.stdout)
+            appendLog(result.stderr)
             await loadPackages()
         }
     }
 
     func updateAll() async {
         await perform("brew upgrade") {
-            let output = try await service.updateAll()
-            appendLog(output)
+            let result = try await service.upgradeAll()
+            appendLog(result.stdout)
+            appendLog(result.stderr)
             await loadPackages()
         }
     }

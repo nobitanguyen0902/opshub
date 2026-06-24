@@ -5,8 +5,8 @@ protocol BrewServicing: Sendable {
     func listCasks() async throws -> [BrewPackage]
     func listInstalledPackages() async throws -> [BrewPackage]
     func listOutdatedPackages() async throws -> [BrewPackage]
-    func update(package: BrewPackage) async throws -> String
-    func updateAll() async throws -> String
+    func upgradePackage(_ package: BrewPackage) async throws -> ShellCommandResult
+    func upgradeAll() async throws -> ShellCommandResult
 }
 
 extension BrewServicing {
@@ -18,11 +18,11 @@ extension BrewServicing {
         []
     }
 
-    func update(package: BrewPackage) async throws -> String {
-        ""
+    func upgradePackage(_ package: BrewPackage) async throws -> ShellCommandResult {
+        ShellCommandResult(stdout: "", stderr: "", exitCode: 0, duration: 0)
     }
 
-    func updateAll() async throws -> String {
-        ""
+    func upgradeAll() async throws -> ShellCommandResult {
+        ShellCommandResult(stdout: "", stderr: "", exitCode: 0, duration: 0)
     }
 }

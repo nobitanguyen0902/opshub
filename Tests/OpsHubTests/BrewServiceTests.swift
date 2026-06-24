@@ -32,6 +32,65 @@ final class BrewServiceTests: XCTestCase {
             ]
         )
     }
+
+    func testUpgradePackageRunsFormulaUpgradeAndReturnsCommandResult() async throws {
+        let runner = UpgradeShellCommandRunner()
+        let service = BrewService(shellCommandRunner: runner)
+        let package = package(name: "ripgrep", type: .formula)
+
+        let result = try await service.upgradePackage(package)
+
+        let arguments = await runner.arguments
+        XCTAssertEqual(arguments, [["upgrade", "ripgrep"]])
+        XCTAssertEqual(result.stdout, "Upgraded ripgrep")
+    }
+
+    func testUpgradePackageRunsCaskUpgradeAndReturnsCommandResult() async throws {
+        let runner = UpgradeShellCommandRunner()
+        let service = BrewService(shellCommandRunner: runner)
+        let package = package(name: "firefox", type: .cask)
+
+        _ = try await service.upgradePackage(package)
+
+        let arguments = await runner.arguments
+        XCTAssertEqual(arguments, [["upgrade", "--cask", "firefox"]])
+    }
+
+    func testUpgradeAllRunsBrewUpgradeAndReturnsCommandResult() async throws {
+        let runner = UpgradeShellCommandRunner()
+        let service = BrewService(shellCommandRunner: runner)
+
+        let result = try await service.upgradeAll()
+
+        let arguments = await runner.arguments
+        XCTAssertEqual(arguments, [["upgrade"]])
+        XCTAssertEqual(result.stdout, "Upgraded ripgrep")
+    }
+
+    func testUpgradePackageThrowsWhenCommandResultHasNonZeroExitCode() async {
+        let runner = UpgradeShellCommandRunner(exitCode: 1, stderr: "upgrade failed")
+        let service = BrewService(shellCommandRunner: runner)
+
+        do {
+            _ = try await service.upgradePackage(package(name: "ripgrep", type: .formula))
+            XCTFail("Expected upgrade to throw")
+        } catch let ShellCommandError.commandFailed(result) {
+            XCTAssertEqual(result.exitCode, 1)
+            XCTAssertEqual(result.stderr, "upgrade failed")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    private func package(name: String, type: BrewPackageType) -> BrewPackage {
+        BrewPackage(
+            name: name,
+            type: type,
+            installedVersion: "1.0.0",
+            latestVersion: "2.0.0",
+            status: .outdated
+        )
+    }
 }
 
 private struct StubShellCommandRunner: ShellCommandRunning {
@@ -102,5 +161,34 @@ private struct PackageSnapshot: Equatable {
         self.installedVersion = installedVersion
         self.latestVersion = latestVersion
         self.status = status
+    }
+}
+
+private actor UpgradeShellCommandRunner: ShellCommandRunning {
+    private(set) var arguments: [[String]] = []
+    private let exitCode: Int32
+    private let stderr: String
+
+    init(exitCode: Int32 = 0, stderr: String = "") {
+        self.exitCode = exitCode
+        self.stderr = stderr
+    }
+
+    func run(_ command: String) async throws -> ShellCommandResult {
+        brewPathResult
+    }
+
+    func run(_ command: String, arguments: [String]) async throws -> ShellCommandResult {
+        self.arguments.append(arguments)
+        return ShellCommandResult(
+            stdout: "Upgraded ripgrep",
+            stderr: stderr,
+            exitCode: exitCode,
+            duration: 0
+        )
+    }
+
+    private var brewPathResult: ShellCommandResult {
+        ShellCommandResult(stdout: "/test/brew\n", stderr: "", exitCode: 0, duration: 0)
     }
 }
