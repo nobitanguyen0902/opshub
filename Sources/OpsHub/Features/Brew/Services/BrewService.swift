@@ -17,7 +17,8 @@ struct BrewService: BrewServicing {
         return try await listPackages(
             at: brewPath,
             arguments: ["list", "--formula"],
-            description: "Homebrew formula"
+            description: "Homebrew formula",
+            kind: .formula
         )
     }
 
@@ -26,7 +27,8 @@ struct BrewService: BrewServicing {
         return try await listPackages(
             at: brewPath,
             arguments: ["list", "--cask"],
-            description: "Homebrew cask"
+            description: "Homebrew cask",
+            kind: .cask
         )
     }
 
@@ -35,20 +37,58 @@ struct BrewService: BrewServicing {
         async let formulae = listPackages(
             at: brewPath,
             arguments: ["list", "--formula"],
-            description: "Homebrew formula"
+            description: "Homebrew formula",
+            kind: .formula
         )
         async let casks = listPackages(
             at: brewPath,
             arguments: ["list", "--cask"],
-            description: "Homebrew cask"
+            description: "Homebrew cask",
+            kind: .cask
         )
         return try await formulae + casks
+    }
+
+    func listOutdatedPackages() async throws -> [BrewPackage] {
+        let brewPath = try await resolveBrewPath()
+        async let formulae = listPackages(
+            at: brewPath,
+            arguments: ["outdated", "--formula", "--quiet"],
+            description: "Homebrew formula",
+            kind: .formula,
+            status: .outdated
+        )
+        async let casks = listPackages(
+            at: brewPath,
+            arguments: ["outdated", "--cask", "--quiet"],
+            description: "Homebrew cask",
+            kind: .cask,
+            status: .outdated
+        )
+        return try await formulae + casks
+    }
+
+    func update(package: BrewPackage) async throws -> String {
+        let brewPath = try await resolveBrewPath()
+        var arguments = ["upgrade"]
+        if package.kind == .cask {
+            arguments.append("--cask")
+        }
+        arguments.append(package.name)
+        return try await shellCommandRunner.run(brewPath, arguments: arguments)
+    }
+
+    func updateAll() async throws -> String {
+        let brewPath = try await resolveBrewPath()
+        return try await shellCommandRunner.run(brewPath, arguments: ["upgrade"])
     }
 
     private func listPackages(
         at brewPath: String,
         arguments: [String],
-        description: String
+        description: String,
+        kind: BrewPackageKind,
+        status: BrewPackageStatus = .upToDate
     ) async throws -> [BrewPackage] {
         let output = try await shellCommandRunner.run(brewPath, arguments: arguments)
 
@@ -58,7 +98,9 @@ struct BrewService: BrewServicing {
                 BrewPackage(
                     name: String(name),
                     installedVersion: "-",
-                    description: description
+                    description: description,
+                    status: status,
+                    kind: kind
                 )
             }
     }
