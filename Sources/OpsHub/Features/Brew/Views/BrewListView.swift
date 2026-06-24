@@ -69,10 +69,10 @@ struct BrewListView: View {
 
     private var summaryCards: some View {
         HStack(spacing: 12) {
-            SummaryCard(title: "Installed", count: viewModel.installedCount, icon: "shippingbox")
-            SummaryCard(title: "Outdated", count: viewModel.outdatedCount, icon: "arrow.triangle.2.circlepath")
-            SummaryCard(title: "Formulae", count: viewModel.formulaCount, icon: "flask")
-            SummaryCard(title: "Casks", count: viewModel.caskCount, icon: "cup.and.saucer")
+            SummaryCard(title: "Installed", value: "\(viewModel.installedCount)", systemImage: "shippingbox")
+            SummaryCard(title: "Outdated", value: "\(viewModel.outdatedCount)", systemImage: "arrow.triangle.2.circlepath")
+            SummaryCard(title: "Formulae", value: "\(viewModel.formulaCount)", systemImage: "flask")
+            SummaryCard(title: "Casks", value: "\(viewModel.caskCount)", systemImage: "cup.and.saucer")
         }
     }
 
@@ -143,17 +143,11 @@ struct BrewListView: View {
     }
 
     private var commandLog: some View {
-        DisclosureGroup("Command Log", isExpanded: $viewModel.isLogExpanded) {
-            ScrollView {
-                Text(viewModel.commandLogs.isEmpty ? "No commands have been run yet." : viewModel.commandLogs.joined(separator: "\n"))
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(10)
-            }
-            .frame(height: 110)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-        }
+        CommandLogPanel(
+            logs: viewModel.commandLogs,
+            isExpanded: $viewModel.isLogExpanded,
+            onClear: viewModel.clearLogs
+        )
         .frame(maxWidth: .infinity)
     }
 
@@ -174,30 +168,5 @@ struct BrewListView: View {
             await viewModel.updatePackage(package)
             updatingPackageNames.remove(package.name)
         }
-    }
-}
-
-private struct SummaryCard: View {
-    let title: String
-    let count: Int
-    let icon: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(count)")
-                    .font(.title2.bold())
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
     }
 }
