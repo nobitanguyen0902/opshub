@@ -34,8 +34,8 @@ final class BrewViewModel: ObservableObject {
 
     var installedCount: Int { packages.count }
     var outdatedCount: Int { packages.count { $0.status == .outdated } }
-    var formulaCount: Int { packages.count { $0.kind == .formula } }
-    var caskCount: Int { packages.count { $0.kind == .cask } }
+    var formulaCount: Int { packages.count { $0.type == .formula } }
+    var caskCount: Int { packages.count { $0.type == .cask } }
 
     func loadPackages() async {
         await perform("brew list") {
@@ -54,11 +54,13 @@ final class BrewViewModel: ObservableObject {
 
             packages = packages.map { package in
                 BrewPackage(
+                    id: package.id,
                     name: package.name,
+                    type: package.type,
                     installedVersion: package.installedVersion,
-                    description: package.description,
+                    latestVersion: package.latestVersion,
                     status: outdatedNames.contains(package.name) ? .outdated : .upToDate,
-                    kind: package.kind
+                    isUpdating: package.isUpdating
                 )
             }
         }
@@ -105,9 +107,9 @@ final class BrewViewModel: ObservableObject {
         case .all:
             true
         case .formulae:
-            package.kind == .formula
+            package.type == .formula
         case .casks:
-            package.kind == .cask
+            package.type == .cask
         case .outdated:
             package.status == .outdated
         }

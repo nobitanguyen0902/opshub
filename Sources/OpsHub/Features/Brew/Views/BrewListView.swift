@@ -111,13 +111,13 @@ struct BrewListView: View {
                         .fontWeight(.medium)
                 }
                 TableColumn("Type") { package in
-                    Text(package.kind == .formula ? "Formula" : "Cask")
+                    Text(package.type == .formula ? "Formula" : "Cask")
                 }
                 TableColumn("Installed Version") { package in
                     Text(package.installedVersion)
                 }
                 TableColumn("Latest Version") { package in
-                    Text(latestVersion(for: package))
+                    Text(package.latestVersion)
                 }
                 TableColumn("Status") { package in
                     statusLabel(for: package)
@@ -155,10 +155,6 @@ struct BrewListView: View {
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func latestVersion(for package: BrewPackage) -> String {
-        package.status == .upToDate ? package.installedVersion : "—"
     }
 
     @ViewBuilder

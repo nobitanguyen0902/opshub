@@ -1,35 +1,29 @@
 import Foundation
 
-enum BrewPackageStatus: Hashable, Sendable {
-    case upToDate
-    case outdated
-}
-
-enum BrewPackageKind: Hashable, Sendable {
-    case formula
-    case cask
-}
-
 struct BrewPackage: Identifiable, Hashable, Sendable {
+    let id: UUID
     let name: String
+    let type: BrewPackageType
     let installedVersion: String
-    let description: String
+    let latestVersion: String
     let status: BrewPackageStatus
-    let kind: BrewPackageKind
-
-    var id: String { name }
+    var isUpdating: Bool
 
     init(
+        id: UUID = UUID(),
         name: String,
+        type: BrewPackageType,
         installedVersion: String,
-        description: String,
+        latestVersion: String,
         status: BrewPackageStatus = .upToDate,
-        kind: BrewPackageKind = .formula
+        isUpdating: Bool = false
     ) {
+        self.id = id
         self.name = name
+        self.type = type
         self.installedVersion = installedVersion
-        self.description = description
+        self.latestVersion = latestVersion
         self.status = status
-        self.kind = kind
+        self.isUpdating = isUpdating
     }
 }
