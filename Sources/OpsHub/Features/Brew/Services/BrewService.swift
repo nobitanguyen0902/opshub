@@ -75,12 +75,12 @@ struct BrewService: BrewServicing {
             arguments.append("--cask")
         }
         arguments.append(package.name)
-        return try await shellCommandRunner.run(brewPath, arguments: arguments)
+        return try await shellCommandRunner.run(brewPath, arguments: arguments).stdout
     }
 
     func updateAll() async throws -> String {
         let brewPath = try await resolveBrewPath()
-        return try await shellCommandRunner.run(brewPath, arguments: ["upgrade"])
+        return try await shellCommandRunner.run(brewPath, arguments: ["upgrade"]).stdout
     }
 
     private func listPackages(
@@ -90,7 +90,7 @@ struct BrewService: BrewServicing {
         kind: BrewPackageKind,
         status: BrewPackageStatus = .upToDate
     ) async throws -> [BrewPackage] {
-        let output = try await shellCommandRunner.run(brewPath, arguments: arguments)
+        let output = try await shellCommandRunner.run(brewPath, arguments: arguments).stdout
 
         return output
             .split(whereSeparator: \.isNewline)
@@ -111,7 +111,7 @@ struct BrewService: BrewServicing {
         }
 
         do {
-            let output = try await shellCommandRunner.run("/usr/bin/which", arguments: ["brew"])
+            let output = try await shellCommandRunner.run("/usr/bin/which", arguments: ["brew"]).stdout
             if let brewPath = output
                 .split(whereSeparator: \.isNewline)
                 .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
