@@ -1,10 +1,10 @@
 import Foundation
 
-protocol ShellExecuting: Sendable {
+protocol ShellCommandRunning: Sendable {
     func run(_ command: String, arguments: [String]) async throws -> String
 }
 
-struct ShellExecutor: ShellExecuting {
+struct ShellCommandRunner: ShellCommandRunning {
     func run(_ command: String, arguments: [String]) async throws -> String {
         let process = Process()
         let output = Pipe()
@@ -25,6 +25,9 @@ struct ShellExecutor: ShellExecuting {
         return result
     }
 }
+
+typealias ShellExecuting = ShellCommandRunning
+typealias ShellExecutor = ShellCommandRunner
 
 enum ShellError: LocalizedError {
     case commandFailed(String)

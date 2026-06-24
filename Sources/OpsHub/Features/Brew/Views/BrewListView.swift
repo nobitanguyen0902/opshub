@@ -24,7 +24,7 @@ struct BrewListView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(package.name)
                             .font(.headline)
-                        Text(package.version)
+                        Text(package.installedVersion)
                             .foregroundStyle(.secondary)
                         Text(package.description)
                             .font(.caption)

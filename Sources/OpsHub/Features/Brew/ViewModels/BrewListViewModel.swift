@@ -18,7 +18,7 @@ final class BrewListViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            packages = try await service.installedPackages()
+            packages = try await service.listInstalledPackages()
         } catch {
             errorMessage = error.localizedDescription
         }
