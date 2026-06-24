@@ -42,24 +42,17 @@ struct BrewService: BrewServicing {
             arguments: ["list", "--cask"],
             type: .cask
         )
-        return try await formulae + casks
+        async let outdatedPackages = getOutdatedPackages(at: brewPath)
+
+        return mergeOutdatedPackages(
+            try await formulae + casks,
+            outdatedPackages: try await outdatedPackages
+        )
     }
 
     func listOutdatedPackages() async throws -> [BrewPackage] {
         let brewPath = try await resolveBrewPath()
-        async let formulae = listPackages(
-            at: brewPath,
-            arguments: ["outdated", "--formula", "--quiet"],
-            type: .formula,
-            status: .outdated
-        )
-        async let casks = listPackages(
-            at: brewPath,
-            arguments: ["outdated", "--cask", "--quiet"],
-            type: .cask,
-            status: .outdated
-        )
-        return try await formulae + casks
+        return try await getOutdatedPackages(at: brewPath)
     }
 
     func update(package: BrewPackage) async throws -> String {
@@ -98,6 +91,66 @@ struct BrewService: BrewServicing {
             }
     }
 
+    private func getOutdatedPackages(at brewPath: String) async throws -> [BrewPackage] {
+        let output = try await shellCommandRunner.run(
+            brewPath,
+            arguments: ["outdated", "--json=v2"]
+        ).stdout
+        let response = try JSONDecoder().decode(OutdatedPackagesResponse.self, from: Data(output.utf8))
+
+        return response.formulae.map { package in
+            BrewPackage(
+                name: package.name,
+                type: .formula,
+                installedVersion: package.installedVersions.first ?? "-",
+                latestVersion: package.currentVersion ?? "-",
+                status: .outdated
+            )
+        } + response.casks.map { package in
+            BrewPackage(
+                name: package.name,
+                type: .cask,
+                installedVersion: package.installedVersions.first ?? "-",
+                latestVersion: package.currentVersion ?? "-",
+                status: .outdated
+            )
+        }
+    }
+
+    private func mergeOutdatedPackages(
+        _ installedPackages: [BrewPackage],
+        outdatedPackages: [BrewPackage]
+    ) -> [BrewPackage] {
+        let outdatedPackagesByKey = Dictionary(
+            outdatedPackages.map { (PackageKey(name: $0.name, type: $0.type), $0) },
+            uniquingKeysWith: { latest, _ in latest }
+        )
+
+        return installedPackages.map { package in
+            guard let outdatedPackage = outdatedPackagesByKey[PackageKey(name: package.name, type: package.type)] else {
+                return BrewPackage(
+                    id: package.id,
+                    name: package.name,
+                    type: package.type,
+                    installedVersion: package.installedVersion,
+                    latestVersion: package.installedVersion == "-" ? "-" : package.installedVersion,
+                    status: .upToDate,
+                    isUpdating: package.isUpdating
+                )
+            }
+
+            return BrewPackage(
+                id: package.id,
+                name: package.name,
+                type: package.type,
+                installedVersion: outdatedPackage.installedVersion,
+                latestVersion: outdatedPackage.latestVersion,
+                status: .outdated,
+                isUpdating: package.isUpdating
+            )
+        }
+    }
+
     private func resolveBrewPath() async throws -> String {
         if let brewPath = Self.preferredBrewPaths.first(where: FileManager.default.isExecutableFile) {
             return brewPath
@@ -116,6 +169,28 @@ struct BrewService: BrewServicing {
         }
 
         throw BrewServiceError.brewNotInstalled
+    }
+
+    private struct OutdatedPackagesResponse: Decodable {
+        let formulae: [OutdatedPackage]
+        let casks: [OutdatedPackage]
+    }
+
+    private struct OutdatedPackage: Decodable {
+        let name: String
+        let installedVersions: [String]
+        let currentVersion: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case installedVersions = "installed_versions"
+            case currentVersion = "current_version"
+        }
+    }
+
+    private struct PackageKey: Hashable {
+        let name: String
+        let type: BrewPackageType
     }
 }
 

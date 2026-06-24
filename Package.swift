@@ -8,6 +8,7 @@ let package = Package(
         .executable(name: "OpsHub", targets: ["OpsHub"])
     ],
     targets: [
-        .executableTarget(name: "OpsHub")
+        .executableTarget(name: "OpsHub"),
+        .testTarget(name: "OpsHubTests", dependencies: ["OpsHub"])
     ]
 )
