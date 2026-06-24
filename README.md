@@ -30,15 +30,16 @@ outside your team.
 
 ## Homebrew Cask
 
-Keep the cask in a separate GitHub tap named `homebrew-opshub`, under
-`Casks/opshub.rb`:
+The cask is in this repository at `Casks/opshub.rb`. It follows the latest
+GitHub Release so the initial setup does not need a new cask commit for every
+release.
 
 ```ruby
 cask "opshub" do
-  version "1.0.0"
-  sha256 "<SHA-256 of OpsHub.zip>"
+  version :latest
+  sha256 :no_check
 
-  url "https://github.com/<owner>/opshub/releases/download/v#{version}/OpsHub.zip"
+  url "https://github.com/nobitanguyen0902/opshub/releases/latest/download/OpsHub.zip"
   name "OpsHub"
   desc "macOS operations hub"
   homepage "https://github.com/<owner>/opshub"
@@ -47,12 +48,13 @@ cask "opshub" do
 end
 ```
 
-Users can install the cask after tapping your repository:
+Users can install the cask after tapping this repository directly:
 
 ```bash
-brew tap <owner>/opshub
+brew tap nobitanguyen0902/opshub https://github.com/nobitanguyen0902/opshub.git
 brew install --cask opshub
 ```
 
-To support `brew install --cask opshub` without the prior `brew tap`, submit
-the cask to the official `Homebrew/homebrew-cask` repository.
+The GitHub Release must contain an asset named `OpsHub.zip`. To support
+`brew install --cask opshub` without the prior `brew tap`, submit the cask to
+the official `Homebrew/homebrew-cask` repository.
