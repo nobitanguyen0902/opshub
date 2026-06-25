@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct OpsHubApp: App {
+    @StateObject private var navigationState = AppNavigationState()
+
     private let updateManager: UpdateManager
 
     init() {
@@ -10,7 +12,7 @@ struct OpsHubApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(navigationState: navigationState)
         }
         .defaultSize(width: 960, height: 620)
         .commands {
