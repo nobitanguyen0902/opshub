@@ -5,6 +5,7 @@ struct StatisticCard: View {
     let title: String
     let number: String
     let subtitle: String
+    @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -32,67 +33,133 @@ struct StatisticCard: View {
         }
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
         .padding(16)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08))
+        }
+        .shadow(color: .black.opacity(isHovering ? 0.12 : 0.05), radius: isHovering ? 14 : 6, y: isHovering ? 8 : 3)
+        .scaleEffect(isHovering ? 1.015 : 1)
+        .onHover { isHovering = $0 }
+        .animation(.smooth(duration: 0.18), value: isHovering)
     }
 }
 
 struct MergeRequestsCard: View {
     let mergeRequests: [GitLabMergeRequest]
+    let isLoading: Bool
     @Binding var selectedMergeRequestID: GitLabMergeRequest.ID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Text("Merge Requests")
-                    .font(.headline)
+        GitLabListCard(
+            title: "Merge Requests",
+            count: mergeRequests.count,
+            isLoading: isLoading,
+            emptyTitle: "No merge requests",
+            emptyMessage: "Assigned merge requests will appear here after refresh."
+        ) {
+            ForEach(mergeRequests) { mergeRequest in
+                MergeRequestRow(
+                    mergeRequest: mergeRequest,
+                    isSelected: selectedMergeRequestID == mergeRequest.id
+                ) {
+                    selectedMergeRequestID = mergeRequest.id
+                }
 
-                Text("\(mergeRequests.count)")
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.tertiary, in: Capsule())
-
-                Spacer()
-
-                Button("View All") {}
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            }
-            .padding(16)
-
-            VStack(spacing: 0) {
-                ForEach(mergeRequests) { mergeRequest in
-                    MergeRequestRow(
-                        mergeRequest: mergeRequest,
-                        isSelected: selectedMergeRequestID == mergeRequest.id
-                    ) {
-                        selectedMergeRequestID = mergeRequest.id
-                    }
-
-                    if mergeRequest.id != mergeRequests.last?.id {
-                        Divider()
-                            .padding(.leading, 16)
-                    }
+                if mergeRequest.id != mergeRequests.last?.id {
+                    Divider()
+                        .padding(.leading, 16)
                 }
             }
         }
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
 struct IssuesCard: View {
     let issues: [GitLabIssue]
+    let isLoading: Bool
     @Binding var selectedIssueID: GitLabIssue.ID?
+
+    var body: some View {
+        GitLabListCard(
+            title: "Issues",
+            count: issues.count,
+            isLoading: isLoading,
+            emptyTitle: "No issues",
+            emptyMessage: "Assigned or mentioned issues will appear here after refresh."
+        ) {
+            ForEach(issues) { issue in
+                IssueRow(
+                    issue: issue,
+                    isSelected: selectedIssueID == issue.id
+                ) {
+                    selectedIssueID = issue.id
+                }
+
+                if issue.id != issues.last?.id {
+                    Divider()
+                        .padding(.leading, 16)
+                }
+            }
+        }
+    }
+}
+
+struct GitLabLoadingState: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView("Loading GitLab dashboard...")
+                .controlSize(.large)
+
+            HStack(spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.regularMaterial)
+                        .frame(height: 150)
+                        .overlay {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 360)
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+    }
+}
+
+private struct GitLabListCard<Content: View>: View {
+    let title: String
+    let count: Int
+    let isLoading: Bool
+    let emptyTitle: String
+    let emptyMessage: String
+    let content: () -> Content
+    @State private var isHovering = false
+
+    init(
+        title: String,
+        count: Int,
+        isLoading: Bool,
+        emptyTitle: String,
+        emptyMessage: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.count = count
+        self.isLoading = isLoading
+        self.emptyTitle = emptyTitle
+        self.emptyMessage = emptyMessage
+        self.content = content
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Text("Issues")
+                Text(title)
                     .font(.headline)
 
-                Text("\(issues.count)")
+                Text("\(count)")
                     .font(.caption.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -102,29 +169,76 @@ struct IssuesCard: View {
 
                 Spacer()
 
-                Button("View All") {}
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("View All") {}
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
             }
             .padding(16)
 
-            VStack(spacing: 0) {
-                ForEach(issues) { issue in
-                    IssueRow(
-                        issue: issue,
-                        isSelected: selectedIssueID == issue.id
-                    ) {
-                        selectedIssueID = issue.id
-                    }
-
-                    if issue.id != issues.last?.id {
-                        Divider()
-                            .padding(.leading, 16)
-                    }
+            if count == 0 {
+                EmptyStateView(
+                    systemImage: "tray",
+                    title: emptyTitle,
+                    message: emptyMessage
+                )
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else {
+                VStack(spacing: 0) {
+                    content()
+                        .redacted(reason: isLoading ? .placeholder : [])
+                        .allowsHitTesting(!isLoading)
+                        .opacity(isLoading ? 0.72 : 1)
+                        .animation(.smooth(duration: 0.2), value: isLoading)
                 }
             }
         }
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08))
+        }
+        .shadow(color: .black.opacity(isHovering ? 0.12 : 0.05), radius: isHovering ? 16 : 6, y: isHovering ? 8 : 3)
+        .onHover { isHovering = $0 }
+        .animation(.smooth(duration: 0.18), value: isHovering)
+    }
+}
+
+private struct RowHoverBackground: ViewModifier {
+    let isSelected: Bool
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(backgroundColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+            }
+            .onHover { isHovering = $0 }
+            .animation(.smooth(duration: 0.16), value: isHovering)
+            .animation(.smooth(duration: 0.16), value: isSelected)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            Color.accentColor.opacity(0.14)
+        } else if isHovering {
+            Color.primary.opacity(0.06)
+        } else {
+            Color.clear
+        }
+    }
+}
+
+private extension View {
+    func gitLabRowHoverBackground(isSelected: Bool) -> some View {
+        modifier(RowHoverBackground(isSelected: isSelected))
     }
 }
 
@@ -165,13 +279,9 @@ private struct MergeRequestRow: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .contentShape(Rectangle())
-            .background(selectionBackground)
+            .gitLabRowHoverBackground(isSelected: isSelected)
         }
         .buttonStyle(.plain)
-    }
-
-    private var selectionBackground: some ShapeStyle {
-        isSelected ? Color.accentColor.opacity(0.14) : Color.clear
     }
 }
 
@@ -212,13 +322,9 @@ private struct IssueRow: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .contentShape(Rectangle())
-            .background(selectionBackground)
+            .gitLabRowHoverBackground(isSelected: isSelected)
         }
         .buttonStyle(.plain)
-    }
-
-    private var selectionBackground: some ShapeStyle {
-        isSelected ? Color.accentColor.opacity(0.14) : Color.clear
     }
 }
 
@@ -295,11 +401,13 @@ private struct IssuePriorityBadge: View {
 
         MergeRequestsCard(
             mergeRequests: GitLabMocks.mergeRequests,
+            isLoading: false,
             selectedMergeRequestID: .constant(1842)
         )
 
         IssuesCard(
             issues: GitLabMocks.issues,
+            isLoading: false,
             selectedIssueID: .constant(9281)
         )
     }
