@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct GitLabDashboardView: View {
+    @State private var selectedMergeRequestID: GitLabMergeRequest.ID?
+
     private let statistics = [
         GitLabStatistic(icon: "arrow.triangle.merge", title: "Merge Requests", number: "12", subtitle: "4 waiting for review"),
         GitLabStatistic(icon: "exclamationmark.circle", title: "Issues", number: "28", subtitle: "9 assigned to you"),
@@ -17,6 +19,10 @@ struct GitLabDashboardView: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 statisticGrid
+                MergeRequestsCard(
+                    mergeRequests: GitLabMocks.mergeRequests,
+                    selectedMergeRequestID: $selectedMergeRequestID
+                )
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(20)
