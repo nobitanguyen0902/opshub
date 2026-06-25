@@ -68,3 +68,9 @@ enum GitLabPipelineStatus: String, Hashable, Sendable {
     case failed = "Failed"
     case canceled = "Canceled"
 }
+
+enum GitLabConnectionTestResult: CaseIterable, Equatable, Sendable {
+    case connected
+    case unauthorized
+    case timeout
+}

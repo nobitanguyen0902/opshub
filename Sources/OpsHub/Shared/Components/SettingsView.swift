@@ -2,15 +2,21 @@ import SwiftUI
 
 struct SettingsView: View {
     private let settingsStore: any GitLabSettingsStoring
+    private let gitLabService: any GitLabServicing
 
     @State private var gitLabURL = ""
     @State private var personalAccessToken = ""
     @State private var isTokenVisible = false
     @State private var connectionStatus: ConnectionStatus = .notTested
+    @State private var isTestingConnection = false
     @State private var lastSavedAt: Date?
 
-    init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
+    init(
+        settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
+        gitLabService: any GitLabServicing = GitLabMockService()
+    ) {
         self.settingsStore = settingsStore
+        self.gitLabService = gitLabService
 
         let settings = settingsStore.load()
         _gitLabURL = State(initialValue: settings.gitLabURL)
@@ -42,11 +48,16 @@ struct SettingsView: View {
                     .buttonStyle(.borderedProminent)
 
                     Button {
-                        testConnection()
+                        Task { await testConnection() }
                     } label: {
-                        Label("Test Connection", systemImage: "network")
+                        if isTestingConnection {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Label("Test Connection", systemImage: "network")
+                        }
                     }
-                    .disabled(!canTestConnection)
+                    .disabled(!canTestConnection || isTestingConnection)
                 }
             }
 
@@ -62,6 +73,8 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .animation(.smooth(duration: 0.2), value: isTestingConnection)
+        .animation(.smooth(duration: 0.2), value: connectionStatus)
     }
 
     private var tokenField: some View {
@@ -106,13 +119,26 @@ struct SettingsView: View {
         }
     }
 
-    private func testConnection() {
+    private func testConnection() async {
         guard let url = URL(string: normalizedGitLabURL), url.scheme != nil, url.host != nil else {
             connectionStatus = .invalidURL
             return
         }
 
-        connectionStatus = .readyToConnect
+        let settings = GitLabSettings(
+            gitLabURL: normalizedGitLabURL,
+            personalAccessToken: personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        isTestingConnection = true
+        connectionStatus = .testing
+        defer { isTestingConnection = false }
+
+        do {
+            connectionStatus = .testResult(try await gitLabService.testConnection(settings: settings))
+        } catch {
+            connectionStatus = .timeout
+        }
     }
 }
 
@@ -149,7 +175,9 @@ private enum ConnectionStatus: Equatable {
     case notTested
     case savedLocally
     case invalidURL
-    case readyToConnect
+    case testing
+    case testResult(GitLabConnectionTestResult)
+    case timeout
     case saveFailed(String)
 
     var title: String {
@@ -160,8 +188,14 @@ private enum ConnectionStatus: Equatable {
             "Saved"
         case .invalidURL:
             "Invalid GitLab URL"
-        case .readyToConnect:
-            "Ready to connect"
+        case .testing:
+            "Testing connection"
+        case .testResult(.connected):
+            "Connected"
+        case .testResult(.unauthorized):
+            "Unauthorized"
+        case .testResult(.timeout), .timeout:
+            "Timed out"
         case .saveFailed:
             "Could not save settings"
         }
@@ -175,8 +209,14 @@ private enum ConnectionStatus: Equatable {
             "checkmark.circle"
         case .invalidURL:
             "exclamationmark.triangle"
-        case .readyToConnect:
+        case .testing:
+            "network"
+        case .testResult(.connected):
             "checkmark.seal"
+        case .testResult(.unauthorized):
+            "lock.trianglebadge.exclamationmark"
+        case .testResult(.timeout), .timeout:
+            "clock.badge.exclamationmark"
         case .saveFailed:
             "xmark.octagon"
         }
@@ -186,9 +226,11 @@ private enum ConnectionStatus: Equatable {
         switch self {
         case .notTested:
             .secondary
-        case .savedLocally, .readyToConnect:
+        case .savedLocally, .testResult(.connected):
             .green
-        case .invalidURL, .saveFailed:
+        case .testing:
+            .blue
+        case .invalidURL, .testResult(.unauthorized), .testResult(.timeout), .timeout, .saveFailed:
             .orange
         }
     }
@@ -205,8 +247,14 @@ private enum ConnectionStatus: Equatable {
             return "Settings saved at \(lastSavedAt.formatted(date: .omitted, time: .shortened)). Token is stored in Keychain."
         case .invalidURL:
             return "Use a full URL such as https://gitlab.com or your self-managed GitLab host."
-        case .readyToConnect:
-            return "Configuration looks valid for \(gitLabURL). Live API verification is not wired yet."
+        case .testing:
+            return "Checking \(gitLabURL) with the local GitLab mock service."
+        case .testResult(.connected):
+            return "Mock connection succeeded for \(gitLabURL). No real GitLab API was called."
+        case .testResult(.unauthorized):
+            return "Mock connection rejected the token for \(gitLabURL). Check the saved token value."
+        case .testResult(.timeout), .timeout:
+            return "Mock connection timed out for \(gitLabURL). Try testing again."
         case let .saveFailed(message):
             return message
         }

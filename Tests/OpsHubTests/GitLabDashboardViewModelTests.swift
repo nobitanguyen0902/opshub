@@ -77,4 +77,8 @@ private struct StubGitLabService: GitLabServicing {
             )
         ]
     }
+
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult {
+        .connected
+    }
 }
