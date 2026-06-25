@@ -37,8 +37,19 @@ struct OpsHubApp: App {
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setApplicationIcon()
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    @MainActor
+    private func setApplicationIcon() {
+        guard let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
+              let icon = NSImage(contentsOf: iconURL) else {
+            return
+        }
+
+        NSApplication.shared.applicationIconImage = icon
     }
 }
 

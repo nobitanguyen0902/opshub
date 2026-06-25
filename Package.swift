@@ -15,6 +15,9 @@ let package = Package(
             name: "OpsHub",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle")
+            ],
+            resources: [
+                .copy("Resources/AppIcon.icns")
             ]
         ),
         .testTarget(name: "OpsHubTests", dependencies: ["OpsHub"])

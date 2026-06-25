@@ -16,9 +16,10 @@ archive_path="$root_dir/dist/OpsHub.zip"
 rm -rf "$app_dir" "$archive_path"
 swift build --package-path "$root_dir" --configuration release
 
-mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Frameworks"
+mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Frameworks" "$app_dir/Contents/Resources"
 cp "$build_dir/OpsHub" "$app_dir/Contents/MacOS/OpsHub"
 ditto "$build_dir/Sparkle.framework" "$app_dir/Contents/Frameworks/Sparkle.framework"
+cp "$root_dir/Packaging/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$app_dir/Contents/MacOS/OpsHub"
 sed "s/@VERSION@/$version/g" "$root_dir/Packaging/Info.plist" > "$app_dir/Contents/Info.plist"
 
