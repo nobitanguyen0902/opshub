@@ -29,4 +29,35 @@ enum GitLabMocks {
             updatedTime: "Yesterday"
         )
     ]
+
+    static let issues: [GitLabIssue] = [
+        GitLabIssue(
+            id: 9281,
+            title: "Conversation list skips unread count after reconnect",
+            project: "social-api",
+            priority: .urgent,
+            updatedTime: "8m ago"
+        ),
+        GitLabIssue(
+            id: 9274,
+            title: "Add retry visibility to webhook dashboard",
+            project: "opshub",
+            priority: .high,
+            updatedTime: "31m ago"
+        ),
+        GitLabIssue(
+            id: 9259,
+            title: "Document local Elasticsearch bootstrap flow",
+            project: "social-api",
+            priority: .medium,
+            updatedTime: "3h ago"
+        ),
+        GitLabIssue(
+            id: 9246,
+            title: "Review stale Homebrew package metadata",
+            project: "opshub",
+            priority: .low,
+            updatedTime: "Yesterday"
+        )
+    ]
 }

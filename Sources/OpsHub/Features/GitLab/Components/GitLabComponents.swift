@@ -82,6 +82,52 @@ struct MergeRequestsCard: View {
     }
 }
 
+struct IssuesCard: View {
+    let issues: [GitLabIssue]
+    @Binding var selectedIssueID: GitLabIssue.ID?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Issues")
+                    .font(.headline)
+
+                Text("\(issues.count)")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.tertiary, in: Capsule())
+
+                Spacer()
+
+                Button("View All") {}
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .padding(16)
+
+            VStack(spacing: 0) {
+                ForEach(issues) { issue in
+                    IssueRow(
+                        issue: issue,
+                        isSelected: selectedIssueID == issue.id
+                    ) {
+                        selectedIssueID = issue.id
+                    }
+
+                    if issue.id != issues.last?.id {
+                        Divider()
+                            .padding(.leading, 16)
+                    }
+                }
+            }
+        }
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
 private struct MergeRequestRow: View {
     let mergeRequest: GitLabMergeRequest
     let isSelected: Bool
@@ -112,6 +158,53 @@ private struct MergeRequestRow: View {
                 MergeRequestStatusBadge(status: mergeRequest.status)
 
                 Text(mergeRequest.updatedTime)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 78, alignment: .trailing)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+            .background(selectionBackground)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var selectionBackground: some ShapeStyle {
+        isSelected ? Color.accentColor.opacity(0.14) : Color.clear
+    }
+}
+
+private struct IssueRow: View {
+    let issue: GitLabIssue
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .center, spacing: 14) {
+                Text("#\(issue.id)")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(issue.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(issue.project)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                IssuePriorityBadge(priority: issue.priority)
+
+                Text(issue.updatedTime)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 78, alignment: .trailing)
@@ -160,6 +253,37 @@ private struct MergeRequestStatusBadge: View {
     }
 }
 
+private struct IssuePriorityBadge: View {
+    let priority: GitLabIssuePriority
+
+    var body: some View {
+        Text(priority.rawValue)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(foregroundColor)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(backgroundColor, in: Capsule())
+    }
+
+    private var foregroundColor: Color {
+        switch priority {
+        case .urgent:
+            .red
+        case .high:
+            .orange
+        case .medium:
+            .blue
+        case .low:
+            .secondary
+        }
+    }
+
+    private var backgroundColor: Color {
+        foregroundColor.opacity(0.14)
+    }
+}
+
 #Preview {
     VStack {
         StatisticCard(
@@ -172,6 +296,11 @@ private struct MergeRequestStatusBadge: View {
         MergeRequestsCard(
             mergeRequests: GitLabMocks.mergeRequests,
             selectedMergeRequestID: .constant(1842)
+        )
+
+        IssuesCard(
+            issues: GitLabMocks.issues,
+            selectedIssueID: .constant(9281)
         )
     }
     .padding()
