@@ -41,6 +41,7 @@ final class GitLabServiceTests: XCTestCase {
                     "labels": ["review"],
                     "reviewers": [],
                     "references": {"full": "ops/opshub!42"},
+                    "web_url": "https://gitlab.example.com/ops/opshub/-/merge_requests/42",
                     "updated_at": "2026-06-25T02:00:00.000Z"
                   }
                 ]
@@ -59,8 +60,54 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(mergeRequests.first?.title, "Wire GitLab REST service")
         XCTAssertEqual(mergeRequests.first?.project, "ops/opshub")
         XCTAssertEqual(mergeRequests.first?.status, .reviewing)
+        XCTAssertEqual(mergeRequests.first?.webURL?.absoluteString, "https://gitlab.example.com/ops/opshub/-/merge_requests/42")
         let request = try XCTUnwrap(httpClient.requests.first)
         XCTAssertEqual(request.url?.path, "/api/v4/merge_requests")
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "scope" })?
+                .value,
+            "assigned_to_me"
+        )
+    }
+
+    func testIssuesLoadsAssignedOpenItemsFromGitLabAPI() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/issues": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 2002,
+                    "iid": 77,
+                    "project_id": 7,
+                    "title": "Make dashboard rows open GitLab",
+                    "state": "opened",
+                    "labels": ["priority::high"],
+                    "references": {"full": "ops/opshub#77"},
+                    "web_url": "https://gitlab.example.com/ops/opshub/-/issues/77",
+                    "updated_at": "2026-06-25T02:00:00.000Z"
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let issues = try await service.issues()
+
+        XCTAssertEqual(issues.count, 1)
+        XCTAssertEqual(issues.first?.id, 77)
+        XCTAssertEqual(issues.first?.title, "Make dashboard rows open GitLab")
+        XCTAssertEqual(issues.first?.project, "ops/opshub")
+        XCTAssertEqual(issues.first?.priority, .high)
+        XCTAssertEqual(issues.first?.webURL?.absoluteString, "https://gitlab.example.com/ops/opshub/-/issues/77")
+        let request = try XCTUnwrap(httpClient.requests.first)
+        XCTAssertEqual(request.url?.path, "/api/v4/issues")
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
                 .queryItems?

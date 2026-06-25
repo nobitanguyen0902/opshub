@@ -53,25 +53,29 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
                 icon: "arrow.triangle.merge",
                 title: "Merge Requests",
                 number: "\(mergeRequests.count)",
-                subtitle: "Assigned open merge requests"
+                subtitle: "Assigned open merge requests",
+                webURL: nil
             ),
             GitLabStatistic(
                 icon: "exclamationmark.circle",
                 title: "Issues",
                 number: "\(issues.count)",
-                subtitle: "Assigned open issues"
+                subtitle: "Assigned open issues",
+                webURL: nil
             ),
             GitLabStatistic(
                 icon: "bell.badge",
                 title: "Notifications",
                 number: "\(notifications.count)",
-                subtitle: "\(reviewRequests) review requests"
+                subtitle: "\(reviewRequests) review requests",
+                webURL: nil
             ),
             GitLabStatistic(
                 icon: "play.circle",
                 title: "Pipelines",
                 number: "\(pipelines.count)",
-                subtitle: "\(failedPipelines) failed pipelines"
+                subtitle: "\(failedPipelines) failed pipelines",
+                webURL: nil
             )
         ]
     }
@@ -251,7 +255,8 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             title: mergeRequest.title,
             project: projectName(from: mergeRequest.references, projectId: mergeRequest.projectId),
             status: mergeRequestStatus(for: mergeRequest),
-            updatedTime: relativeTime(from: mergeRequest.updatedAt)
+            updatedTime: relativeTime(from: mergeRequest.updatedAt),
+            webURL: mergeRequest.webUrl
         )
     }
 
@@ -261,7 +266,8 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             title: issue.title,
             project: projectName(from: issue.references, projectId: issue.projectId),
             priority: issuePriority(for: issue.labels),
-            updatedTime: relativeTime(from: issue.updatedAt)
+            updatedTime: relativeTime(from: issue.updatedAt),
+            webURL: issue.webUrl
         )
     }
 

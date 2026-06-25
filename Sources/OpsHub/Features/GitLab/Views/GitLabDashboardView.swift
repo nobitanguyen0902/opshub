@@ -13,7 +13,8 @@ struct GitLabDashboardView: View {
     init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
         _viewModel = StateObject(
             wrappedValue: GitLabDashboardViewModel(
-                service: GitLabService(settingsStore: settingsStore)
+                service: GitLabService(settingsStore: settingsStore),
+                gitLabBaseURL: URL(string: settingsStore.load().gitLabURL)
             )
         )
     }
@@ -67,8 +68,7 @@ struct GitLabDashboardView: View {
                 Task { await viewModel.refresh() }
             } label: {
                 if viewModel.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
+                    LoadingSpinnerView()
                 } else {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
@@ -114,7 +114,8 @@ struct GitLabDashboardView: View {
                     icon: statistic.icon,
                     title: statistic.title,
                     number: statistic.number,
-                    subtitle: statistic.subtitle
+                    subtitle: statistic.subtitle,
+                    webURL: statistic.webURL
                 )
             }
         }

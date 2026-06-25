@@ -58,8 +58,7 @@ struct SettingsView: View {
                         Task { await testConnection() }
                     } label: {
                         if isTestingConnection {
-                            ProgressView()
-                                .controlSize(.small)
+                            LoadingSpinnerView()
                         } else {
                             Label("Test Connection", systemImage: "network")
                         }

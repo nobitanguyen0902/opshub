@@ -12,9 +12,14 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var lastUpdated: Date?
 
     private let service: any GitLabServicing
+    private let gitLabBaseURL: URL?
 
-    init(service: any GitLabServicing = GitLabService()) {
+    init(
+        service: any GitLabServicing = GitLabService(),
+        gitLabBaseURL: URL? = nil
+    ) {
         self.service = service
+        self.gitLabBaseURL = gitLabBaseURL
     }
 
     var isEmpty: Bool {
@@ -74,26 +79,56 @@ final class GitLabDashboardViewModel: ObservableObject {
                 icon: "arrow.triangle.merge",
                 title: "Merge Requests",
                 number: "\(mergeRequests.count)",
-                subtitle: "Assigned open merge requests"
+                subtitle: "Assigned open merge requests",
+                webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
+                    URLQueryItem(name: "scope", value: "assigned_to_me"),
+                    URLQueryItem(name: "state", value: "opened")
+                ])
             ),
             GitLabStatistic(
                 icon: "exclamationmark.circle",
                 title: "Issues",
                 number: "\(issues.count)",
-                subtitle: "Assigned open issues"
+                subtitle: "Assigned open issues",
+                webURL: dashboardURL(path: "dashboard/issues", queryItems: [
+                    URLQueryItem(name: "scope", value: "assigned_to_me"),
+                    URLQueryItem(name: "state", value: "opened")
+                ])
             ),
             GitLabStatistic(
                 icon: "bell.badge",
                 title: "Notifications",
                 number: "\(notifications.count)",
-                subtitle: "\(reviewRequests) review requests"
+                subtitle: "\(reviewRequests) review requests",
+                webURL: dashboardURL(path: "dashboard/todos")
             ),
             GitLabStatistic(
                 icon: "play.circle",
                 title: "Pipelines",
                 number: "\(pipelines.count)",
-                subtitle: "\(failedPipelines) failed pipelines"
+                subtitle: "\(failedPipelines) failed pipelines",
+                webURL: dashboardURL(path: "-/pipelines")
             )
         ]
+    }
+
+    private func dashboardURL(
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) -> URL? {
+        guard
+            let gitLabBaseURL,
+            var components = URLComponents(url: gitLabBaseURL, resolvingAgainstBaseURL: false)
+        else {
+            return nil
+        }
+
+        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let dashboardPath = [basePath, path]
+            .filter { $0.isEmpty == false }
+            .joined(separator: "/")
+        components.path = "/\(dashboardPath)"
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        return components.url
     }
 }

@@ -4,7 +4,10 @@ import XCTest
 final class GitLabDashboardViewModelTests: XCTestCase {
     @MainActor
     func testRefreshLoadsDashboardDataFromInjectedService() async {
-        let viewModel = GitLabDashboardViewModel(service: StubGitLabService())
+        let viewModel = GitLabDashboardViewModel(
+            service: StubGitLabService(),
+            gitLabBaseURL: URL(string: "https://gitlab.example.com")
+        )
 
         await viewModel.refresh()
 
@@ -13,6 +16,12 @@ final class GitLabDashboardViewModelTests: XCTestCase {
             ["Merge Requests", "Issues", "Notifications", "Pipelines"]
         )
         XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "1", "1"])
+        XCTAssertEqual(viewModel.statistics.map { $0.webURL?.absoluteString }, [
+            "https://gitlab.example.com/dashboard/merge_requests?scope=assigned_to_me&state=opened",
+            "https://gitlab.example.com/dashboard/issues?scope=assigned_to_me&state=opened",
+            "https://gitlab.example.com/dashboard/todos",
+            "https://gitlab.example.com/-/pipelines"
+        ])
         XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
         XCTAssertEqual(viewModel.notifications.map(\.id), [303])
@@ -29,7 +38,8 @@ private struct StubGitLabService: GitLabServicing {
                 icon: "bell.badge",
                 title: "Attention",
                 number: "1",
-                subtitle: "Injected service data"
+                subtitle: "Injected service data",
+                webURL: nil
             )
         ]
     }
@@ -41,7 +51,8 @@ private struct StubGitLabService: GitLabServicing {
                 title: "Use protocol-driven GitLab services",
                 project: "opshub",
                 status: .reviewing,
-                updatedTime: "Now"
+                updatedTime: "Now",
+                webURL: URL(string: "https://gitlab.example.com/opshub/-/merge_requests/101")
             )
         ]
     }
@@ -53,7 +64,8 @@ private struct StubGitLabService: GitLabServicing {
                 title: "Add GitLab mock issue source",
                 project: "opshub",
                 priority: .high,
-                updatedTime: "Now"
+                updatedTime: "Now",
+                webURL: URL(string: "https://gitlab.example.com/opshub/-/issues/202")
             )
         ]
     }

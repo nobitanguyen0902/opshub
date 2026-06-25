@@ -6,6 +6,7 @@ struct GitLabStatistic: Identifiable, Hashable, Sendable {
     let title: String
     let number: String
     let subtitle: String
+    let webURL: URL?
 
     var id: String { title }
 }
@@ -17,6 +18,7 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
     let project: String
     let status: GitLabMergeRequestStatus
     let updatedTime: String
+    let webURL: URL?
 }
 
 /// The dashboard status shown for a merge request.
@@ -34,6 +36,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
     let project: String
     let priority: GitLabIssuePriority
     let updatedTime: String
+    let webURL: URL?
 }
 
 /// The dashboard priority shown for an issue.

@@ -138,8 +138,7 @@ struct BrewListView: View {
                 }
                 TableColumn("Action") { package in
                     if updatingPackageIDs.contains(package.id) {
-                        ProgressView()
-                            .controlSize(.small)
+                        LoadingSpinnerView()
                     } else if package.status == .outdated {
                         Button("Update") {
                             update(package)

@@ -2,38 +2,45 @@ import SwiftUI
 
 /// Summary metric card used by the GitLab dashboard.
 struct StatisticCard: View {
+    @Environment(\.openURL) private var openURL
+
     let icon: String
     let title: String
     let number: String
     let subtitle: String
+    let webURL: URL?
     @State private var isHovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: icon)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 32, height: 32)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        Button(action: openDashboard) {
+            VStack(alignment: .leading, spacing: 14) {
+                Image(systemName: icon)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 32, height: 32)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.secondary)
 
-                Text(number)
-                    .font(.system(.title, design: .rounded).weight(.bold))
-                    .monospacedDigit()
+                    Text(number)
+                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                        .monospacedDigit()
 
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+            .padding(16)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-        .padding(16)
+        .buttonStyle(.plain)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -43,6 +50,12 @@ struct StatisticCard: View {
         .scaleEffect(isHovering ? 1.015 : 1)
         .onHover { isHovering = $0 }
         .animation(.smooth(duration: 0.18), value: isHovering)
+    }
+
+    private func openDashboard() {
+        if let webURL {
+            openURL(webURL)
+        }
     }
 }
 
@@ -111,8 +124,7 @@ struct GitLabLoadingState: View {
                         .fill(.regularMaterial)
                         .frame(height: 150)
                         .overlay {
-                            ProgressView()
-                                .controlSize(.small)
+                            LoadingSpinnerView()
                         }
                 }
             }
@@ -151,10 +163,10 @@ private struct GitLabListCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Text(title)
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
 
                 Text("\(count)")
-                    .font(.caption.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
@@ -164,8 +176,7 @@ private struct GitLabListCard<Content: View>: View {
                 Spacer()
 
                 if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
+                    LoadingSpinnerView()
                 } else {
                     Button("View All") {}
                         .buttonStyle(.bordered)
@@ -261,10 +272,13 @@ private struct GitLabSelectableList<Item: Identifiable, Row: View>: View where I
 }
 
 private struct GitLabSelectableRow<Badge: View>: View {
+    @Environment(\.openURL) private var openURL
+
     let reference: String
     let title: String
     let project: String
     let updatedTime: String
+    let webURL: URL?
     let isSelected: Bool
     let onSelect: () -> Void
     let badge: () -> Badge
@@ -274,6 +288,7 @@ private struct GitLabSelectableRow<Badge: View>: View {
         title: String,
         project: String,
         updatedTime: String,
+        webURL: URL?,
         isSelected: Bool,
         onSelect: @escaping () -> Void,
         @ViewBuilder badge: @escaping () -> Badge
@@ -282,28 +297,29 @@ private struct GitLabSelectableRow<Badge: View>: View {
         self.title = title
         self.project = project
         self.updatedTime = updatedTime
+        self.webURL = webURL
         self.isSelected = isSelected
         self.onSelect = onSelect
         self.badge = badge
     }
 
     var body: some View {
-        Button(action: onSelect) {
+        Button(action: selectAndOpen) {
             HStack(alignment: .center, spacing: 14) {
                 Text(reference)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .frame(width: 58, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.subheadline.weight(.medium))
+                        .font(.body.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
                     Text(project)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -312,16 +328,24 @@ private struct GitLabSelectableRow<Badge: View>: View {
                 badge()
 
                 Text(updatedTime)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(width: 78, alignment: .trailing)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
             .contentShape(Rectangle())
             .gitLabRowHoverBackground(isSelected: isSelected)
         }
         .buttonStyle(.plain)
+    }
+
+    private func selectAndOpen() {
+        onSelect()
+
+        if let webURL {
+            openURL(webURL)
+        }
     }
 }
 
@@ -336,6 +360,7 @@ private struct MergeRequestRow: View {
             title: mergeRequest.title,
             project: mergeRequest.project,
             updatedTime: mergeRequest.updatedTime,
+            webURL: mergeRequest.webURL,
             isSelected: isSelected,
             onSelect: onSelect
         ) {
@@ -355,6 +380,7 @@ private struct IssueRow: View {
             title: issue.title,
             project: issue.project,
             updatedTime: issue.updatedTime,
+            webURL: issue.webURL,
             isSelected: isSelected,
             onSelect: onSelect
         ) {
@@ -413,7 +439,7 @@ private struct GitLabBadge: View {
 
     var body: some View {
         Text(title)
-            .font(.caption.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(foregroundColor)
             .lineLimit(1)
             .padding(.horizontal, 8)
@@ -428,7 +454,8 @@ private struct GitLabBadge: View {
             icon: "arrow.triangle.merge",
             title: "Merge Requests",
             number: "12",
-            subtitle: "4 waiting for review"
+            subtitle: "4 waiting for review",
+            webURL: URL(string: "https://gitlab.example.com/dashboard/merge_requests")
         )
 
         MergeRequestsCard(
