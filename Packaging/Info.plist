@@ -24,5 +24,22 @@
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- Sparkle: configure SUFeedURL with the production appcast URL before release. -->
+    <key>SUFeedURL</key>
+    <string>https://example.com/opshub/appcast.xml</string>
+    <!-- Sparkle: replace SUPublicEDKey with the EdDSA public key from Sparkle's generate_keys tool. -->
+    <key>SUPublicEDKey</key>
+    <string>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</string>
+    <!-- Sparkle: automatic update preferences. Set SUEnableAutomaticChecks to false to disable launch/scheduled checks by default. -->
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>OpsHubCheckForUpdatesOnLaunch</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUShowReleaseNotes</key>
+    <true/>
 </dict>
 </plist>

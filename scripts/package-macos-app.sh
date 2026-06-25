@@ -16,13 +16,17 @@ archive_path="$root_dir/dist/OpsHub.zip"
 rm -rf "$app_dir" "$archive_path"
 swift build --package-path "$root_dir" --configuration release
 
-mkdir -p "$app_dir/Contents/MacOS"
+mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Frameworks"
 cp "$build_dir/OpsHub" "$app_dir/Contents/MacOS/OpsHub"
+ditto "$build_dir/Sparkle.framework" "$app_dir/Contents/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$app_dir/Contents/MacOS/OpsHub"
 sed "s/@VERSION@/$version/g" "$root_dir/Packaging/Info.plist" > "$app_dir/Contents/Info.plist"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app_dir/Contents/Frameworks/Sparkle.framework"
     codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app_dir"
 else
+    codesign --force --sign - "$app_dir/Contents/Frameworks/Sparkle.framework"
     codesign --force --sign - "$app_dir"
 fi
 

@@ -7,8 +7,16 @@ let package = Package(
     products: [
         .executable(name: "OpsHub", targets: ["OpsHub"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0")
+    ],
     targets: [
-        .executableTarget(name: "OpsHub"),
+        .executableTarget(
+            name: "OpsHub",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle")
+            ]
+        ),
         .testTarget(name: "OpsHubTests", dependencies: ["OpsHub"])
     ]
 )
