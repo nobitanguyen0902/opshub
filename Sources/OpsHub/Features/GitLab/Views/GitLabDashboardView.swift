@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Main GitLab dashboard screen with summary metrics and work item lists.
 struct GitLabDashboardView: View {
     @StateObject private var viewModel = GitLabDashboardViewModel()
     @State private var selectedMergeRequestID: GitLabMergeRequest.ID?

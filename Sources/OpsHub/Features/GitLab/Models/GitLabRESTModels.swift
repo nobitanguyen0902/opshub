@@ -1,6 +1,7 @@
 import Foundation
 
-struct MergeRequest: Codable, Identifiable, Hashable, Sendable {
+/// Raw GitLab merge request payload returned by the REST API.
+struct GitLabRESTMergeRequest: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let iid: Int?
     let projectId: Int?
@@ -18,8 +19,8 @@ struct MergeRequest: Codable, Identifiable, Hashable, Sendable {
     let author: GitLabUser?
     let assignees: [GitLabUser]
     let reviewers: [GitLabUser]
-    let pipeline: Pipeline?
-    let headPipeline: Pipeline?
+    let pipeline: GitLabRESTPipeline?
+    let headPipeline: GitLabRESTPipeline?
     let references: GitLabReferences?
     let upvotes: Int?
     let downvotes: Int?
@@ -30,6 +31,7 @@ struct MergeRequest: Codable, Identifiable, Hashable, Sendable {
     let mergedAt: String?
     let closedAt: String?
 
+    /// Server-side state values for a merge request.
     enum State: String, Codable, Hashable, Sendable {
         case opened
         case closed
@@ -88,8 +90,8 @@ struct MergeRequest: Codable, Identifiable, Hashable, Sendable {
         author = try container.decodeIfPresent(GitLabUser.self, forKey: .author)
         assignees = try container.decodeIfPresent([GitLabUser].self, forKey: .assignees) ?? []
         reviewers = try container.decodeIfPresent([GitLabUser].self, forKey: .reviewers) ?? []
-        pipeline = try container.decodeIfPresent(Pipeline.self, forKey: .pipeline)
-        headPipeline = try container.decodeIfPresent(Pipeline.self, forKey: .headPipeline)
+        pipeline = try container.decodeIfPresent(GitLabRESTPipeline.self, forKey: .pipeline)
+        headPipeline = try container.decodeIfPresent(GitLabRESTPipeline.self, forKey: .headPipeline)
         references = try container.decodeIfPresent(GitLabReferences.self, forKey: .references)
         upvotes = try container.decodeIfPresent(Int.self, forKey: .upvotes)
         downvotes = try container.decodeIfPresent(Int.self, forKey: .downvotes)
@@ -102,7 +104,8 @@ struct MergeRequest: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-struct Issue: Codable, Identifiable, Hashable, Sendable {
+/// Raw GitLab issue payload returned by the REST API.
+struct GitLabRESTIssue: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let iid: Int?
     let projectId: Int?
@@ -127,12 +130,14 @@ struct Issue: Codable, Identifiable, Hashable, Sendable {
     let updatedAt: String?
     let closedAt: String?
 
+    /// Server-side state values for an issue.
     enum State: String, Codable, Hashable, Sendable {
         case opened
         case closed
         case locked
     }
 
+    /// Completion counts for checklist-style issue tasks.
     struct TaskCompletionStatus: Codable, Hashable, Sendable {
         let count: Int?
         let completedCount: Int?
@@ -198,7 +203,8 @@ struct Issue: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-struct Pipeline: Codable, Identifiable, Hashable, Sendable {
+/// Raw GitLab pipeline payload returned by the REST API.
+struct GitLabRESTPipeline: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let iid: Int?
     let projectId: Int?
@@ -216,6 +222,7 @@ struct Pipeline: Codable, Identifiable, Hashable, Sendable {
     let startedAt: String?
     let finishedAt: String?
 
+    /// Server-side status values for a pipeline.
     enum Status: String, Codable, Hashable, Sendable {
         case created
         case waitingForResource = "waiting_for_resource"
@@ -250,6 +257,7 @@ struct Pipeline: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// Aggregated GitLab counts for dashboard summaries.
 struct DashboardSummary: Codable, Hashable, Sendable {
     let mergeRequestCount: Int
     let issueCount: Int
@@ -284,7 +292,8 @@ struct DashboardSummary: Codable, Hashable, Sendable {
     }
 }
 
-struct Notification: Codable, Identifiable, Hashable, Sendable {
+/// Raw GitLab notification payload returned by the REST API.
+struct GitLabRESTNotification: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let project: GitLabProject?
     let author: GitLabUser?
@@ -296,11 +305,13 @@ struct Notification: Codable, Identifiable, Hashable, Sendable {
     let target: Target?
     let createdAt: String?
 
+    /// Server-side state values for a notification.
     enum State: String, Codable, Hashable, Sendable {
         case pending
         case done
     }
 
+    /// The GitLab object referenced by a notification.
     struct Target: Codable, Identifiable, Hashable, Sendable {
         let id: Int
         let iid: Int?
@@ -333,6 +344,7 @@ struct Notification: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// Minimal GitLab user payload shared by several REST resources.
 struct GitLabUser: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let username: String?
@@ -351,6 +363,7 @@ struct GitLabUser: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// Minimal GitLab project payload shared by several REST resources.
 struct GitLabProject: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let description: String?
@@ -377,6 +390,7 @@ struct GitLabProject: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// GitLab namespace metadata for a project or group.
 struct GitLabNamespace: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let name: String?
@@ -395,6 +409,7 @@ struct GitLabNamespace: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// GitLab milestone metadata attached to an issue.
 struct GitLabMilestone: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let iid: Int?
@@ -419,6 +434,7 @@ struct GitLabMilestone: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// Human-readable GitLab references for an issue or merge request.
 struct GitLabReferences: Codable, Hashable, Sendable {
     let short: String?
     let relative: String?

@@ -1,5 +1,6 @@
 import Foundation
 
+/// Coordinates GitLab dashboard loading state and formatted dashboard data.
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var statistics: [GitLabStatistic] = []

@@ -1,6 +1,7 @@
 import Foundation
 import Security
 
+/// Stores non-secret GitLab settings in UserDefaults and the token in Keychain.
 final class GitLabSettingsStore: GitLabSettingsStoring {
     private let userDefaults: UserDefaults
     private let keychainTokenStore: any KeychainTokenStoring
@@ -40,11 +41,13 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
     }
 }
 
+/// Keychain abstraction used by GitLab settings persistence and tests.
 protocol KeychainTokenStoring {
     func readToken() throws -> String
     func saveToken(_ token: String) throws
 }
 
+/// Keychain-backed storage for the GitLab personal access token.
 final class KeychainTokenStore: KeychainTokenStoring {
     private let service: String
     private let account: String
@@ -114,6 +117,7 @@ final class KeychainTokenStore: KeychainTokenStoring {
     }
 }
 
+/// Errors that can occur while reading or writing GitLab settings.
 enum GitLabSettingsStoreError: LocalizedError, Equatable {
     case invalidTokenData
     case keychain(OSStatus)

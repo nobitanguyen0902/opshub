@@ -1,5 +1,6 @@
 import Foundation
 
+/// Provides GitLab dashboard data and settings validation.
 protocol GitLabServicing: Sendable {
     func dashboardStatistics() async throws -> [GitLabStatistic]
     func mergeRequests() async throws -> [GitLabMergeRequest]
@@ -9,6 +10,7 @@ protocol GitLabServicing: Sendable {
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult
 }
 
+/// Mock dashboard data source used while the real GitLab client is not wired in.
 struct GitLabMockService: GitLabServicing {
     private let networkDelay: Duration
     private let connectionResultProvider: @Sendable () -> GitLabConnectionTestResult

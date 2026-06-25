@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Summary metric card used by the GitLab dashboard.
 struct StatisticCard: View {
     let icon: String
     let title: String
@@ -45,6 +46,7 @@ struct StatisticCard: View {
     }
 }
 
+/// List card for merge requests on the GitLab dashboard.
 struct MergeRequestsCard: View {
     let mergeRequests: [GitLabMergeRequest]
     let isLoading: Bool
@@ -58,23 +60,19 @@ struct MergeRequestsCard: View {
             emptyTitle: "No merge requests",
             emptyMessage: "Assigned merge requests will appear here after refresh."
         ) {
-            ForEach(mergeRequests) { mergeRequest in
+            GitLabSelectableList(items: mergeRequests) { mergeRequest in
                 MergeRequestRow(
                     mergeRequest: mergeRequest,
                     isSelected: selectedMergeRequestID == mergeRequest.id
                 ) {
                     selectedMergeRequestID = mergeRequest.id
                 }
-
-                if mergeRequest.id != mergeRequests.last?.id {
-                    Divider()
-                        .padding(.leading, 16)
-                }
             }
         }
     }
 }
 
+/// List card for issues on the GitLab dashboard.
 struct IssuesCard: View {
     let issues: [GitLabIssue]
     let isLoading: Bool
@@ -88,23 +86,19 @@ struct IssuesCard: View {
             emptyTitle: "No issues",
             emptyMessage: "Assigned or mentioned issues will appear here after refresh."
         ) {
-            ForEach(issues) { issue in
+            GitLabSelectableList(items: issues) { issue in
                 IssueRow(
                     issue: issue,
                     isSelected: selectedIssueID == issue.id
                 ) {
                     selectedIssueID = issue.id
                 }
-
-                if issue.id != issues.last?.id {
-                    Divider()
-                        .padding(.leading, 16)
-                }
             }
         }
     }
 }
 
+/// Loading placeholder shown while the GitLab dashboard fetches its first data.
 struct GitLabLoadingState: View {
     var body: some View {
         VStack(spacing: 16) {
@@ -242,36 +236,82 @@ private extension View {
     }
 }
 
-private struct MergeRequestRow: View {
-    let mergeRequest: GitLabMergeRequest
+private struct GitLabSelectableList<Item: Identifiable, Row: View>: View where Item.ID: Equatable {
+    let items: [Item]
+    let row: (Item) -> Row
+
+    init(
+        items: [Item],
+        @ViewBuilder row: @escaping (Item) -> Row
+    ) {
+        self.items = items
+        self.row = row
+    }
+
+    var body: some View {
+        ForEach(items) { item in
+            row(item)
+
+            if item.id != items.last?.id {
+                Divider()
+                    .padding(.leading, 16)
+            }
+        }
+    }
+}
+
+private struct GitLabSelectableRow<Badge: View>: View {
+    let reference: String
+    let title: String
+    let project: String
+    let updatedTime: String
     let isSelected: Bool
     let onSelect: () -> Void
+    let badge: () -> Badge
+
+    init(
+        reference: String,
+        title: String,
+        project: String,
+        updatedTime: String,
+        isSelected: Bool,
+        onSelect: @escaping () -> Void,
+        @ViewBuilder badge: @escaping () -> Badge
+    ) {
+        self.reference = reference
+        self.title = title
+        self.project = project
+        self.updatedTime = updatedTime
+        self.isSelected = isSelected
+        self.onSelect = onSelect
+        self.badge = badge
+    }
 
     var body: some View {
         Button(action: onSelect) {
             HStack(alignment: .center, spacing: 14) {
-                Text("!\(mergeRequest.id)")
+                Text(reference)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .frame(width: 58, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(mergeRequest.title)
+                    Text(title)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text(mergeRequest.project)
+                    Text(project)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                MergeRequestStatusBadge(status: mergeRequest.status)
+                badge()
 
-                Text(mergeRequest.updatedTime)
+                Text(updatedTime)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 78, alignment: .trailing)
@@ -282,6 +322,25 @@ private struct MergeRequestRow: View {
             .gitLabRowHoverBackground(isSelected: isSelected)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct MergeRequestRow: View {
+    let mergeRequest: GitLabMergeRequest
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        GitLabSelectableRow(
+            reference: "!\(mergeRequest.id)",
+            title: mergeRequest.title,
+            project: mergeRequest.project,
+            updatedTime: mergeRequest.updatedTime,
+            isSelected: isSelected,
+            onSelect: onSelect
+        ) {
+            MergeRequestStatusBadge(status: mergeRequest.status)
+        }
     }
 }
 
@@ -291,40 +350,16 @@ private struct IssueRow: View {
     let onSelect: () -> Void
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(alignment: .center, spacing: 14) {
-                Text("#\(issue.id)")
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 58, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(issue.title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Text(issue.project)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                IssuePriorityBadge(priority: issue.priority)
-
-                Text(issue.updatedTime)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 78, alignment: .trailing)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-            .gitLabRowHoverBackground(isSelected: isSelected)
+        GitLabSelectableRow(
+            reference: "#\(issue.id)",
+            title: issue.title,
+            project: issue.project,
+            updatedTime: issue.updatedTime,
+            isSelected: isSelected,
+            onSelect: onSelect
+        ) {
+            IssuePriorityBadge(priority: issue.priority)
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -332,13 +367,7 @@ private struct MergeRequestStatusBadge: View {
     let status: GitLabMergeRequestStatus
 
     var body: some View {
-        Text(status.rawValue)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(foregroundColor)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(backgroundColor, in: Capsule())
+        GitLabBadge(title: status.rawValue, foregroundColor: foregroundColor)
     }
 
     private var foregroundColor: Color {
@@ -354,22 +383,13 @@ private struct MergeRequestStatusBadge: View {
         }
     }
 
-    private var backgroundColor: Color {
-        foregroundColor.opacity(0.14)
-    }
 }
 
 private struct IssuePriorityBadge: View {
     let priority: GitLabIssuePriority
 
     var body: some View {
-        Text(priority.rawValue)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(foregroundColor)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(backgroundColor, in: Capsule())
+        GitLabBadge(title: priority.rawValue, foregroundColor: foregroundColor)
     }
 
     private var foregroundColor: Color {
@@ -385,8 +405,20 @@ private struct IssuePriorityBadge: View {
         }
     }
 
-    private var backgroundColor: Color {
-        foregroundColor.opacity(0.14)
+}
+
+private struct GitLabBadge: View {
+    let title: String
+    let foregroundColor: Color
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(foregroundColor)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(foregroundColor.opacity(0.14), in: Capsule())
     }
 }
 
