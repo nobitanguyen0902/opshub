@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 @main
 struct OpsHubApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var navigationState = AppNavigationState()
 
     private let updateManager: UpdateManager
@@ -30,6 +32,13 @@ struct OpsHubApp: App {
             SettingsView(settingsStore: gitLabSettingsStore)
                 .frame(width: 520, height: 420)
         }
+    }
+}
+
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
 

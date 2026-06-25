@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -29,16 +30,20 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("GitLab") {
-                TextField("GitLab URL", text: $gitLabURL, prompt: Text("https://gitlab.com"))
-                    .textContentType(.URL)
-                    .autocorrectionDisabled()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("GitLab")
+                        .font(.headline)
 
-                tokenField
-            }
+                    EditableSettingsTextField(
+                        placeholder: "https://gitlab.com",
+                        text: $gitLabURL
+                    )
 
-            Section {
+                    tokenField
+                }
+
                 HStack {
                     Button {
                         saveSettings()
@@ -59,19 +64,21 @@ struct SettingsView: View {
                     }
                     .disabled(!canTestConnection || isTestingConnection)
                 }
-            }
 
-            Section("Connection Status") {
-                ConnectionStatusCard(
-                    status: connectionStatus,
-                    gitLabURL: normalizedGitLabURL,
-                    lastSavedAt: lastSavedAt
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Connection Status")
+                        .font(.headline)
+
+                    ConnectionStatusCard(
+                        status: connectionStatus,
+                        gitLabURL: normalizedGitLabURL,
+                        lastSavedAt: lastSavedAt
+                    )
+                }
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .formStyle(.grouped)
         .navigationTitle("Settings")
         .animation(.smooth(duration: 0.2), value: isTestingConnection)
         .animation(.smooth(duration: 0.2), value: connectionStatus)
@@ -81,13 +88,19 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Group {
                 if isTokenVisible {
-                    TextField("Personal Access Token", text: $personalAccessToken)
+                    EditableSettingsTextField(
+                        placeholder: "Personal Access Token",
+                        text: $personalAccessToken
+                    )
                 } else {
-                    SecureField("Personal Access Token", text: $personalAccessToken)
+                    EditableSettingsTextField(
+                        placeholder: "Personal Access Token",
+                        text: $personalAccessToken,
+                        isSecure: true
+                    )
                 }
             }
-            .textContentType(.password)
-            .autocorrectionDisabled()
+            .id(isTokenVisible)
 
             Button {
                 isTokenVisible.toggle()
@@ -138,6 +151,60 @@ struct SettingsView: View {
             connectionStatus = .testResult(try await gitLabService.testConnection(settings: settings))
         } catch {
             connectionStatus = .timeout
+        }
+    }
+}
+
+private struct EditableSettingsTextField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    var isSecure = false
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = isSecure ? NSSecureTextField() : NSTextField()
+        textField.placeholderString = placeholder
+        textField.stringValue = text
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.isEnabled = true
+        textField.isBezeled = true
+        textField.bezelStyle = .roundedBezel
+        textField.drawsBackground = true
+        textField.controlSize = .regular
+        textField.delegate = context.coordinator
+        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return textField
+    }
+
+    func updateNSView(_ textField: NSTextField, context: Context) {
+        if textField.stringValue != text {
+            textField.stringValue = text
+        }
+
+        textField.placeholderString = placeholder
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.isEnabled = true
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        @Binding private var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            text = textField.stringValue
         }
     }
 }

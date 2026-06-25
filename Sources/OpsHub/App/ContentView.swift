@@ -1,14 +1,17 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable, Hashable {
-    case gitLab
     case dashboard
+    case brew
+    case gitLab
     case settings
 
     var id: Self { self }
 
     var title: String {
         switch self {
+        case .brew:
+            return "Brew"
         case .gitLab:
             return "GitLab"
         case .dashboard:
@@ -20,6 +23,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
+        case .brew:
+            return "cup.and.saucer"
         case .gitLab:
             return "arrow.triangle.branch"
         case .dashboard:
@@ -59,6 +64,8 @@ struct ContentView: View {
             .listStyle(.sidebar)
         } detail: {
             switch navigationState.selection {
+            case .brew:
+                BrewListView()
             case .gitLab:
                 GitLabDashboardView()
             case .dashboard:
