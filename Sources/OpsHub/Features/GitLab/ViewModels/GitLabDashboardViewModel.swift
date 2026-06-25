@@ -2,42 +2,22 @@ import Foundation
 
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
+    @Published private(set) var statistics: [GitLabStatistic] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
     @Published private(set) var issues: [GitLabIssue] = []
+    @Published private(set) var notifications: [GitLabNotification] = []
+    @Published private(set) var pipelines: [GitLabPipeline] = []
     @Published private(set) var isLoading = false
     @Published private(set) var lastUpdated: Date?
 
-    var statistics: [GitLabStatistic] {
-        [
-            GitLabStatistic(
-                icon: "arrow.triangle.merge",
-                title: "Merge Requests",
-                number: "\(mergeRequests.count)",
-                subtitle: "\(mergeRequests.count { $0.status == .reviewing }) waiting for review"
-            ),
-            GitLabStatistic(
-                icon: "exclamationmark.circle",
-                title: "Issues",
-                number: "\(issues.count)",
-                subtitle: "\(issues.count { $0.priority == .urgent || $0.priority == .high }) high priority"
-            ),
-            GitLabStatistic(
-                icon: "checkmark.seal",
-                title: "Approved",
-                number: "\(mergeRequests.count { $0.status == .approved })",
-                subtitle: "Ready to merge"
-            ),
-            GitLabStatistic(
-                icon: "bell.badge",
-                title: "Attention",
-                number: "\(attentionCount)",
-                subtitle: "Needs follow-up"
-            )
-        ]
+    private let service: any GitLabServicing
+
+    init(service: any GitLabServicing = GitLabMockService()) {
+        self.service = service
     }
 
     var isEmpty: Bool {
-        mergeRequests.isEmpty && issues.isEmpty
+        mergeRequests.isEmpty && issues.isEmpty && notifications.isEmpty && pipelines.isEmpty
     }
 
     func loadDashboard() async {
@@ -46,28 +26,27 @@ final class GitLabDashboardViewModel: ObservableObject {
 
     func refresh() async {
         isLoading = true
+        defer { isLoading = false }
 
         do {
-            try await Task.sleep(for: .milliseconds(350))
-        } catch {}
+            async let loadedStatistics = service.dashboardStatistics()
+            async let loadedMergeRequests = service.mergeRequests()
+            async let loadedIssues = service.issues()
+            async let loadedNotifications = service.notifications()
+            async let loadedPipelines = service.pipelines()
 
-        mergeRequests = GitLabMocks.mergeRequests
-        issues = GitLabMocks.issues
-        lastUpdated = .now
-        isLoading = false
+            statistics = try await loadedStatistics
+            mergeRequests = try await loadedMergeRequests
+            issues = try await loadedIssues
+            notifications = try await loadedNotifications
+            pipelines = try await loadedPipelines
+            lastUpdated = .now
+        } catch {
+            statistics = []
+            mergeRequests = []
+            issues = []
+            notifications = []
+            pipelines = []
+        }
     }
-
-    private var attentionCount: Int {
-        mergeRequests.count { $0.status == .reviewing || $0.status == .opened }
-            + issues.count { $0.priority == .urgent || $0.priority == .high }
-    }
-}
-
-struct GitLabStatistic: Identifiable, Hashable {
-    let icon: String
-    let title: String
-    let number: String
-    let subtitle: String
-
-    var id: String { title }
 }
