@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppSection: Hashable {
     case brew
+    case gitLab
     case settings
 }
 
@@ -15,6 +16,10 @@ struct ContentView: View {
                     Label("Brew", systemImage: "cup.and.saucer")
                 }
 
+                NavigationLink(value: AppSection.gitLab) {
+                    Label("GitLab", systemImage: "arrow.triangle.branch")
+                }
+
                 NavigationLink(value: AppSection.settings) {
                     Label("Settings", systemImage: "gearshape")
                 }
@@ -25,6 +30,8 @@ struct ContentView: View {
             switch selection {
             case .brew:
                 BrewListView()
+            case .gitLab:
+                GitLabDashboardView()
             case .settings:
                 SettingsView()
             case nil:
