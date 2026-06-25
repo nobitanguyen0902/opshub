@@ -1,11 +1,21 @@
 import SwiftUI
 
 struct SettingsView: View {
+    private let settingsStore: any GitLabSettingsStoring
+
     @State private var gitLabURL = ""
     @State private var personalAccessToken = ""
     @State private var isTokenVisible = false
     @State private var connectionStatus: ConnectionStatus = .notTested
     @State private var lastSavedAt: Date?
+
+    init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
+        self.settingsStore = settingsStore
+
+        let settings = settingsStore.load()
+        _gitLabURL = State(initialValue: settings.gitLabURL)
+        _personalAccessToken = State(initialValue: settings.personalAccessToken)
+    }
 
     private var canTestConnection: Bool {
         !gitLabURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -82,8 +92,18 @@ struct SettingsView: View {
     }
 
     private func saveSettings() {
-        lastSavedAt = .now
-        connectionStatus = .savedLocally
+        do {
+            try settingsStore.save(
+                GitLabSettings(
+                    gitLabURL: normalizedGitLabURL,
+                    personalAccessToken: personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            )
+            lastSavedAt = .now
+            connectionStatus = .savedLocally
+        } catch {
+            connectionStatus = .saveFailed(error.localizedDescription)
+        }
     }
 
     private func testConnection() {
@@ -130,17 +150,20 @@ private enum ConnectionStatus: Equatable {
     case savedLocally
     case invalidURL
     case readyToConnect
+    case saveFailed(String)
 
     var title: String {
         switch self {
         case .notTested:
             "Not tested"
         case .savedLocally:
-            "Saved for this session"
+            "Saved"
         case .invalidURL:
             "Invalid GitLab URL"
         case .readyToConnect:
             "Ready to connect"
+        case .saveFailed:
+            "Could not save settings"
         }
     }
 
@@ -154,6 +177,8 @@ private enum ConnectionStatus: Equatable {
             "exclamationmark.triangle"
         case .readyToConnect:
             "checkmark.seal"
+        case .saveFailed:
+            "xmark.octagon"
         }
     }
 
@@ -163,7 +188,7 @@ private enum ConnectionStatus: Equatable {
             .secondary
         case .savedLocally, .readyToConnect:
             .green
-        case .invalidURL:
+        case .invalidURL, .saveFailed:
             .orange
         }
     }
@@ -174,14 +199,16 @@ private enum ConnectionStatus: Equatable {
             return "Enter your GitLab URL and personal access token, then test the connection."
         case .savedLocally:
             guard let lastSavedAt else {
-                return "Settings are held in memory until persistence is added."
+                return "GitLab URL is stored in UserDefaults. Personal access token is stored in Keychain."
             }
 
-            return "Settings saved at \(lastSavedAt.formatted(date: .omitted, time: .shortened)). Persistence is not enabled yet."
+            return "Settings saved at \(lastSavedAt.formatted(date: .omitted, time: .shortened)). Token is stored in Keychain."
         case .invalidURL:
             return "Use a full URL such as https://gitlab.com or your self-managed GitLab host."
         case .readyToConnect:
             return "Configuration looks valid for \(gitLabURL). Live API verification is not wired yet."
+        case let .saveFailed(message):
+            return message
         }
     }
 }

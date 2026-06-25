@@ -5,14 +5,19 @@ struct OpsHubApp: App {
     @StateObject private var navigationState = AppNavigationState()
 
     private let updateManager: UpdateManager
+    private let gitLabSettingsStore: GitLabSettingsStore
 
     init() {
         updateManager = UpdateManager()
+        gitLabSettingsStore = GitLabSettingsStore()
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(navigationState: navigationState)
+            ContentView(
+                navigationState: navigationState,
+                settingsStore: gitLabSettingsStore
+            )
         }
         .defaultSize(width: 960, height: 620)
         .commands {
@@ -22,7 +27,7 @@ struct OpsHubApp: App {
         }
 
         Settings {
-            SettingsView()
+            SettingsView(settingsStore: gitLabSettingsStore)
                 .frame(width: 520, height: 420)
         }
     }

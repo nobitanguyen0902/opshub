@@ -36,6 +36,15 @@ final class AppNavigationState: ObservableObject {
 
 struct ContentView: View {
     @ObservedObject var navigationState: AppNavigationState
+    let settingsStore: any GitLabSettingsStoring
+
+    init(
+        navigationState: AppNavigationState,
+        settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()
+    ) {
+        self.navigationState = navigationState
+        self.settingsStore = settingsStore
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -55,7 +64,7 @@ struct ContentView: View {
             case .dashboard:
                 DashboardView()
             case .settings:
-                SettingsView()
+                SettingsView(settingsStore: settingsStore)
             case nil:
                 ContentUnavailableView("Select a page", systemImage: "sidebar.left")
             }
