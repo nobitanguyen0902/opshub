@@ -432,15 +432,15 @@ private struct GitLabBadge: View {
         )
 
         MergeRequestsCard(
-            mergeRequests: GitLabMocks.mergeRequests,
+            mergeRequests: [],
             isLoading: false,
-            selectedMergeRequestID: .constant(1842)
+            selectedMergeRequestID: .constant(nil)
         )
 
         IssuesCard(
-            issues: GitLabMocks.issues,
+            issues: [],
             isLoading: false,
-            selectedIssueID: .constant(9281)
+            selectedIssueID: .constant(nil)
         )
     }
     .padding()

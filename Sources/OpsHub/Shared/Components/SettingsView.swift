@@ -14,7 +14,7 @@ struct SettingsView: View {
 
     init(
         settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
-        gitLabService: any GitLabServicing = GitLabMockService()
+        gitLabService: any GitLabServicing = GitLabService()
     ) {
         self.settingsStore = settingsStore
         self.gitLabService = gitLabService
@@ -22,6 +22,8 @@ struct SettingsView: View {
         let settings = settingsStore.load()
         _gitLabURL = State(initialValue: settings.gitLabURL)
         _personalAccessToken = State(initialValue: settings.personalAccessToken)
+        _connectionStatus = State(initialValue: Self.initialConnectionStatus(from: settings))
+        _lastSavedAt = State(initialValue: settings.lastConnectionTestedAt)
     }
 
     private var canTestConnection: Bool {
@@ -117,12 +119,22 @@ struct SettingsView: View {
         gitLabURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func initialConnectionStatus(from settings: GitLabSettings) -> ConnectionStatus {
+        guard let lastConnectionTestResult = settings.lastConnectionTestResult else {
+            return .notTested
+        }
+
+        return .testResult(lastConnectionTestResult)
+    }
+
     private func saveSettings() {
         do {
             try settingsStore.save(
                 GitLabSettings(
                     gitLabURL: normalizedGitLabURL,
-                    personalAccessToken: personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                    personalAccessToken: personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines),
+                    lastConnectionTestResult: nil,
+                    lastConnectionTestedAt: nil
                 )
             )
             lastSavedAt = .now
@@ -148,7 +160,20 @@ struct SettingsView: View {
         defer { isTestingConnection = false }
 
         do {
-            connectionStatus = .testResult(try await gitLabService.testConnection(settings: settings))
+            let result = try await gitLabService.testConnection(settings: settings)
+            let testedAt = Date.now
+            try settingsStore.save(
+                GitLabSettings(
+                    gitLabURL: settings.gitLabURL,
+                    personalAccessToken: settings.personalAccessToken,
+                    lastConnectionTestResult: result,
+                    lastConnectionTestedAt: testedAt
+                )
+            )
+            lastSavedAt = testedAt
+            connectionStatus = .testResult(result)
+        } catch let error as GitLabSettingsStoreError {
+            connectionStatus = .saveFailed(error.localizedDescription)
         } catch {
             connectionStatus = .timeout
         }
@@ -315,13 +340,13 @@ private enum ConnectionStatus: Equatable {
         case .invalidURL:
             return "Use a full URL such as https://gitlab.com or your self-managed GitLab host."
         case .testing:
-            return "Checking \(gitLabURL) with the local GitLab mock service."
+            return "Checking \(gitLabURL) with the GitLab API."
         case .testResult(.connected):
-            return "Mock connection succeeded for \(gitLabURL). No real GitLab API was called."
+            return "Connection succeeded for \(gitLabURL)."
         case .testResult(.unauthorized):
-            return "Mock connection rejected the token for \(gitLabURL). Check the saved token value."
+            return "GitLab rejected the token for \(gitLabURL). Check the saved token value."
         case .testResult(.timeout), .timeout:
-            return "Mock connection timed out for \(gitLabURL). Try testing again."
+            return "GitLab connection timed out for \(gitLabURL). Try testing again."
         case let .saveFailed(message):
             return message
         }

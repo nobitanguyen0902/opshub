@@ -67,7 +67,7 @@ struct ContentView: View {
             case .brew:
                 BrewListView()
             case .gitLab:
-                GitLabDashboardView()
+                GitLabDashboardView(settingsStore: settingsStore)
             case .dashboard:
                 DashboardView()
             case .settings:

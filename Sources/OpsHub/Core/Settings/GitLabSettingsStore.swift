@@ -6,6 +6,8 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
     private let userDefaults: UserDefaults
     private let keychainTokenStore: any KeychainTokenStoring
     private let gitLabURLKey: String
+    private let connectionTestResultKey: String
+    private let connectionTestedAtKey: String
     private var currentSettings: GitLabSettings
 
     init(
@@ -14,12 +16,21 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
             service: "OpsHub.GitLab",
             account: "PersonalAccessToken"
         ),
-        gitLabURLKey: String = "gitlab.url"
+        gitLabURLKey: String = "gitlab.url",
+        connectionTestResultKey: String = "gitlab.connectionTestResult",
+        connectionTestedAtKey: String = "gitlab.connectionTestedAt"
     ) {
         self.userDefaults = userDefaults
         self.keychainTokenStore = keychainTokenStore
         self.gitLabURLKey = gitLabURLKey
-        currentSettings = GitLabSettings(gitLabURL: "", personalAccessToken: "")
+        self.connectionTestResultKey = connectionTestResultKey
+        self.connectionTestedAtKey = connectionTestedAtKey
+        currentSettings = GitLabSettings(
+            gitLabURL: "",
+            personalAccessToken: "",
+            lastConnectionTestResult: nil,
+            lastConnectionTestedAt: nil
+        )
         currentSettings = readSettings()
     }
 
@@ -29,6 +40,16 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
 
     func save(_ settings: GitLabSettings) throws {
         userDefaults.set(settings.gitLabURL, forKey: gitLabURLKey)
+        if let lastConnectionTestResult = settings.lastConnectionTestResult {
+            userDefaults.set(lastConnectionTestResult.rawValue, forKey: connectionTestResultKey)
+        } else {
+            userDefaults.removeObject(forKey: connectionTestResultKey)
+        }
+        if let lastConnectionTestedAt = settings.lastConnectionTestedAt {
+            userDefaults.set(lastConnectionTestedAt, forKey: connectionTestedAtKey)
+        } else {
+            userDefaults.removeObject(forKey: connectionTestedAtKey)
+        }
         try keychainTokenStore.saveToken(settings.personalAccessToken)
         currentSettings = settings
     }
@@ -36,8 +57,18 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
     private func readSettings() -> GitLabSettings {
         GitLabSettings(
             gitLabURL: userDefaults.string(forKey: gitLabURLKey) ?? "",
-            personalAccessToken: (try? keychainTokenStore.readToken()) ?? ""
+            personalAccessToken: (try? keychainTokenStore.readToken()) ?? "",
+            lastConnectionTestResult: readConnectionTestResult(),
+            lastConnectionTestedAt: userDefaults.object(forKey: connectionTestedAtKey) as? Date
         )
+    }
+
+    private func readConnectionTestResult() -> GitLabConnectionTestResult? {
+        guard let rawValue = userDefaults.string(forKey: connectionTestResultKey) else {
+            return nil
+        }
+
+        return GitLabConnectionTestResult(rawValue: rawValue)
     }
 }
 

@@ -2,13 +2,21 @@ import SwiftUI
 
 /// Main GitLab dashboard screen with summary metrics and work item lists.
 struct GitLabDashboardView: View {
-    @StateObject private var viewModel = GitLabDashboardViewModel()
+    @StateObject private var viewModel: GitLabDashboardViewModel
     @State private var selectedMergeRequestID: GitLabMergeRequest.ID?
     @State private var selectedIssueID: GitLabIssue.ID?
 
     private let columns = [
         GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 16, alignment: .top)
     ]
+
+    init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
+        _viewModel = StateObject(
+            wrappedValue: GitLabDashboardViewModel(
+                service: GitLabService(settingsStore: settingsStore)
+            )
+        )
+    }
 
     var body: some View {
         ScrollView {

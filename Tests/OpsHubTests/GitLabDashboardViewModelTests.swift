@@ -8,7 +8,11 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 
         await viewModel.refresh()
 
-        XCTAssertEqual(viewModel.statistics.map(\.title), ["Attention"])
+        XCTAssertEqual(
+            viewModel.statistics.map(\.title),
+            ["Merge Requests", "Issues", "Notifications", "Pipelines"]
+        )
+        XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "1", "1"])
         XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
         XCTAssertEqual(viewModel.notifications.map(\.id), [303])

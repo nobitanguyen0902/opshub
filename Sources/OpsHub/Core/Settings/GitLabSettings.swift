@@ -4,6 +4,8 @@ import Foundation
 struct GitLabSettings: Equatable, Sendable {
     var gitLabURL: String
     var personalAccessToken: String
+    var lastConnectionTestResult: GitLabConnectionTestResult? = nil
+    var lastConnectionTestedAt: Date? = nil
 }
 
 /// Loads and saves GitLab settings across app launches.

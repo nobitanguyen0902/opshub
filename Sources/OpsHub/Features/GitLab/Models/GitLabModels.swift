@@ -79,7 +79,7 @@ enum GitLabPipelineStatus: String, Hashable, Sendable {
 }
 
 /// Result of checking whether the configured GitLab host and token are usable.
-enum GitLabConnectionTestResult: CaseIterable, Equatable, Sendable {
+enum GitLabConnectionTestResult: String, CaseIterable, Equatable, Sendable {
     case connected
     case unauthorized
     case timeout

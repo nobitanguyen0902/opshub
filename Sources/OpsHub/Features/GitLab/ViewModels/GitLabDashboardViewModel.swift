@@ -13,7 +13,7 @@ final class GitLabDashboardViewModel: ObservableObject {
 
     private let service: any GitLabServicing
 
-    init(service: any GitLabServicing = GitLabMockService()) {
+    init(service: any GitLabServicing = GitLabService()) {
         self.service = service
     }
 
@@ -30,17 +30,26 @@ final class GitLabDashboardViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            async let loadedStatistics = service.dashboardStatistics()
-            async let loadedMergeRequests = service.mergeRequests()
-            async let loadedIssues = service.issues()
-            async let loadedNotifications = service.notifications()
-            async let loadedPipelines = service.pipelines()
+            async let mergeRequestsTask = service.mergeRequests()
+            async let issuesTask = service.issues()
+            async let notificationsTask = service.notifications()
+            async let pipelinesTask = service.pipelines()
 
-            statistics = try await loadedStatistics
-            mergeRequests = try await loadedMergeRequests
-            issues = try await loadedIssues
-            notifications = try await loadedNotifications
-            pipelines = try await loadedPipelines
+            let loadedMergeRequests = try await mergeRequestsTask
+            let loadedIssues = try await issuesTask
+            let loadedNotifications = try await notificationsTask
+            let loadedPipelines = try await pipelinesTask
+
+            mergeRequests = loadedMergeRequests
+            issues = loadedIssues
+            notifications = loadedNotifications
+            pipelines = loadedPipelines
+            statistics = makeStatistics(
+                mergeRequests: loadedMergeRequests,
+                issues: loadedIssues,
+                notifications: loadedNotifications,
+                pipelines: loadedPipelines
+            )
             lastUpdated = .now
         } catch {
             statistics = []
@@ -49,5 +58,42 @@ final class GitLabDashboardViewModel: ObservableObject {
             notifications = []
             pipelines = []
         }
+    }
+
+    private func makeStatistics(
+        mergeRequests: [GitLabMergeRequest],
+        issues: [GitLabIssue],
+        notifications: [GitLabNotification],
+        pipelines: [GitLabPipeline]
+    ) -> [GitLabStatistic] {
+        let failedPipelines = pipelines.filter { $0.status == .failed }.count
+        let reviewRequests = notifications.filter { $0.kind == .reviewRequested }.count
+
+        return [
+            GitLabStatistic(
+                icon: "arrow.triangle.merge",
+                title: "Merge Requests",
+                number: "\(mergeRequests.count)",
+                subtitle: "Assigned open merge requests"
+            ),
+            GitLabStatistic(
+                icon: "exclamationmark.circle",
+                title: "Issues",
+                number: "\(issues.count)",
+                subtitle: "Assigned open issues"
+            ),
+            GitLabStatistic(
+                icon: "bell.badge",
+                title: "Notifications",
+                number: "\(notifications.count)",
+                subtitle: "\(reviewRequests) review requests"
+            ),
+            GitLabStatistic(
+                icon: "play.circle",
+                title: "Pipelines",
+                number: "\(pipelines.count)",
+                subtitle: "\(failedPipelines) failed pipelines"
+            )
+        ]
     }
 }
