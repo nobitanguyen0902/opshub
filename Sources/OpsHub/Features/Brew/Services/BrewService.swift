@@ -5,10 +5,11 @@ struct BrewService: BrewServicing {
         "/opt/homebrew/bin/brew",
         "/usr/local/bin/brew"
     ]
+    private static let commandTimeout: TimeInterval = 15 * 60
 
     private let shellCommandRunner: any ShellCommandRunning
 
-    init(shellCommandRunner: any ShellCommandRunning = ShellCommandRunner()) {
+    init(shellCommandRunner: any ShellCommandRunning = ShellCommandRunner(timeout: commandTimeout)) {
         self.shellCommandRunner = shellCommandRunner
     }
 
