@@ -82,10 +82,16 @@ protocol KeychainTokenStoring {
 final class KeychainTokenStore: KeychainTokenStoring {
     private let service: String
     private let account: String
+    private let accessible: CFString
 
-    init(service: String, account: String) {
+    init(
+        service: String,
+        account: String,
+        accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    ) {
         self.service = service
         self.account = account
+        self.accessible = accessible
     }
 
     func readToken() throws -> String {
@@ -121,14 +127,27 @@ final class KeychainTokenStore: KeychainTokenStoring {
             throw GitLabSettingsStoreError.invalidTokenData
         }
 
-        try deleteToken()
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: accessible
+        ]
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+
+        if updateStatus == errSecSuccess {
+            return
+        }
+
+        guard updateStatus == errSecItemNotFound else {
+            throw GitLabSettingsStoreError.keychain(updateStatus)
+        }
 
         var item = baseQuery
         item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = accessible
 
-        let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw GitLabSettingsStoreError.keychain(status)
+        let addStatus = SecItemAdd(item as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw GitLabSettingsStoreError.keychain(addStatus)
         }
     }
 
@@ -143,7 +162,8 @@ final class KeychainTokenStore: KeychainTokenStoring {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
+            kSecUseDataProtectionKeychain as String: true
         ]
     }
 }
