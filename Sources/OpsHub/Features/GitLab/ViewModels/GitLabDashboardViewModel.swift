@@ -64,7 +64,7 @@ final class GitLabDashboardViewModel: ObservableObject {
         lastUpdated = .now
     }
 
-    private func loadSection<Value>(
+    private func loadSection<Value: Sendable>(
         _ load: @escaping () async throws -> Value
     ) async -> Result<Value, any Error> {
         do {
