@@ -8,10 +8,10 @@ final class GitLabSettingsStoreTests: XCTestCase {
         let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         userDefaults.set("https://gitlab.local", forKey: "gitlab.url")
 
-        let keychainTokenStore = InMemoryKeychainTokenStore(token: "existing-token")
+        let tokenStore = InMemoryGitLabTokenStore(token: "existing-token")
         let store = GitLabSettingsStore(
             userDefaults: userDefaults,
-            keychainTokenStore: keychainTokenStore
+            tokenStore: tokenStore
         )
 
         XCTAssertEqual(
@@ -28,10 +28,10 @@ final class GitLabSettingsStoreTests: XCTestCase {
     func testSaveStoresGitLabURLInUserDefaultsAndTokenInKeychainStore() throws {
         let suiteName = "GitLabSettingsStoreTests.\(UUID().uuidString)"
         let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let keychainTokenStore = InMemoryKeychainTokenStore()
+        let tokenStore = InMemoryGitLabTokenStore()
         let store = GitLabSettingsStore(
             userDefaults: userDefaults,
-            keychainTokenStore: keychainTokenStore
+            tokenStore: tokenStore
         )
 
         try store.save(
@@ -42,7 +42,7 @@ final class GitLabSettingsStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(userDefaults.string(forKey: "gitlab.url"), "https://gitlab.example.com")
-        XCTAssertEqual(try keychainTokenStore.readToken(), "glpat-secret")
+        XCTAssertEqual(try tokenStore.readToken(), "glpat-secret")
         XCTAssertEqual(
             store.load(),
             GitLabSettings(
@@ -57,10 +57,10 @@ final class GitLabSettingsStoreTests: XCTestCase {
     func testSaveStoresLastConnectionTestResultInUserDefaults() throws {
         let suiteName = "GitLabSettingsStoreTests.\(UUID().uuidString)"
         let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let keychainTokenStore = InMemoryKeychainTokenStore()
+        let tokenStore = InMemoryGitLabTokenStore()
         let store = GitLabSettingsStore(
             userDefaults: userDefaults,
-            keychainTokenStore: keychainTokenStore
+            tokenStore: tokenStore
         )
         let testedAt = Date(timeIntervalSince1970: 1_780_000_000)
 
@@ -91,10 +91,10 @@ final class GitLabSettingsStoreTests: XCTestCase {
     func testSaveClearsLastConnectionTestResultWhenSettingsAreSavedWithoutResult() throws {
         let suiteName = "GitLabSettingsStoreTests.\(UUID().uuidString)"
         let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        let keychainTokenStore = InMemoryKeychainTokenStore()
+        let tokenStore = InMemoryGitLabTokenStore()
         let store = GitLabSettingsStore(
             userDefaults: userDefaults,
-            keychainTokenStore: keychainTokenStore
+            tokenStore: tokenStore
         )
 
         try store.save(
@@ -119,9 +119,53 @@ final class GitLabSettingsStoreTests: XCTestCase {
 
         userDefaults.removePersistentDomain(forName: suiteName)
     }
+
+    func testSaveDoesNotPersistSettingsWhenTokenStoreFails() throws {
+        let suiteName = "GitLabSettingsStoreTests.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let store = GitLabSettingsStore(
+            userDefaults: userDefaults,
+            tokenStore: FailingGitLabTokenStore()
+        )
+
+        XCTAssertThrowsError(
+            try store.save(
+                GitLabSettings(
+                    gitLabURL: "https://gitlab.example.com",
+                    personalAccessToken: "glpat-secret",
+                    lastConnectionTestResult: .connected,
+                    lastConnectionTestedAt: Date(timeIntervalSince1970: 1_780_000_000)
+                )
+            )
+        )
+        XCTAssertNil(userDefaults.string(forKey: "gitlab.url"))
+        XCTAssertNil(userDefaults.string(forKey: "gitlab.connectionTestResult"))
+        XCTAssertNil(userDefaults.object(forKey: "gitlab.connectionTestedAt"))
+        XCTAssertEqual(store.load(), GitLabSettings(gitLabURL: "", personalAccessToken: ""))
+
+        userDefaults.removePersistentDomain(forName: suiteName)
+    }
+
+    func testLocalGitLabTokenStoreSavesReadsAndClearsToken() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GitLabSettingsStoreTests.\(UUID().uuidString)", isDirectory: true)
+        let tokenFileURL = directoryURL.appendingPathComponent("token")
+        let tokenStore = LocalGitLabTokenStore(tokenFileURL: tokenFileURL)
+
+        try tokenStore.saveToken("glpat-local")
+
+        XCTAssertEqual(try tokenStore.readToken(), "glpat-local")
+
+        try tokenStore.saveToken("")
+
+        XCTAssertEqual(try tokenStore.readToken(), "")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tokenFileURL.path))
+
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
 }
 
-private final class InMemoryKeychainTokenStore: KeychainTokenStoring {
+private final class InMemoryGitLabTokenStore: GitLabTokenStoring {
     private var token: String
 
     init(token: String = "") {
@@ -134,5 +178,15 @@ private final class InMemoryKeychainTokenStore: KeychainTokenStoring {
 
     func saveToken(_ token: String) throws {
         self.token = token
+    }
+}
+
+private struct FailingGitLabTokenStore: GitLabTokenStoring {
+    func readToken() throws -> String {
+        ""
+    }
+
+    func saveToken(_ token: String) throws {
+        throw GitLabSettingsStoreError.invalidTokenData
     }
 }

@@ -18,6 +18,9 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/AppIcon.icns")
+            ],
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug))
             ]
         ),
         .testTarget(name: "OpsHubTests", dependencies: ["OpsHub"])

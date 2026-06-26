@@ -1,10 +1,10 @@
 import Foundation
 import Security
 
-/// Stores non-secret GitLab settings in UserDefaults and the token in Keychain.
+/// Stores non-secret GitLab settings in UserDefaults and the token in the active token store.
 final class GitLabSettingsStore: GitLabSettingsStoring {
     private let userDefaults: UserDefaults
-    private let keychainTokenStore: any KeychainTokenStoring
+    private let tokenStore: any GitLabTokenStoring
     private let gitLabURLKey: String
     private let connectionTestResultKey: String
     private let connectionTestedAtKey: String
@@ -12,16 +12,13 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
 
     init(
         userDefaults: UserDefaults = .standard,
-        keychainTokenStore: any KeychainTokenStoring = KeychainTokenStore(
-            service: "OpsHub.GitLab",
-            account: "PersonalAccessToken"
-        ),
+        tokenStore: any GitLabTokenStoring = GitLabSettingsStore.defaultTokenStore(),
         gitLabURLKey: String = "gitlab.url",
         connectionTestResultKey: String = "gitlab.connectionTestResult",
         connectionTestedAtKey: String = "gitlab.connectionTestedAt"
     ) {
         self.userDefaults = userDefaults
-        self.keychainTokenStore = keychainTokenStore
+        self.tokenStore = tokenStore
         self.gitLabURLKey = gitLabURLKey
         self.connectionTestResultKey = connectionTestResultKey
         self.connectionTestedAtKey = connectionTestedAtKey
@@ -39,6 +36,8 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
     }
 
     func save(_ settings: GitLabSettings) throws {
+        try tokenStore.saveToken(settings.personalAccessToken)
+
         userDefaults.set(settings.gitLabURL, forKey: gitLabURLKey)
         if let lastConnectionTestResult = settings.lastConnectionTestResult {
             userDefaults.set(lastConnectionTestResult.rawValue, forKey: connectionTestResultKey)
@@ -50,14 +49,13 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
         } else {
             userDefaults.removeObject(forKey: connectionTestedAtKey)
         }
-        try keychainTokenStore.saveToken(settings.personalAccessToken)
         currentSettings = settings
     }
 
     private func readSettings() -> GitLabSettings {
         GitLabSettings(
             gitLabURL: userDefaults.string(forKey: gitLabURLKey) ?? "",
-            personalAccessToken: (try? keychainTokenStore.readToken()) ?? "",
+            personalAccessToken: (try? tokenStore.readToken()) ?? "",
             lastConnectionTestResult: readConnectionTestResult(),
             lastConnectionTestedAt: userDefaults.object(forKey: connectionTestedAtKey) as? Date
         )
@@ -70,16 +68,90 @@ final class GitLabSettingsStore: GitLabSettingsStoring {
 
         return GitLabConnectionTestResult(rawValue: rawValue)
     }
+
+    private static func defaultTokenStore() -> any GitLabTokenStoring {
+        #if DEBUG
+        return LocalGitLabTokenStore.default
+        #else
+        return KeychainTokenStore(
+            service: "OpsHub.GitLab",
+            account: "PersonalAccessToken"
+        )
+        #endif
+    }
 }
 
-/// Keychain abstraction used by GitLab settings persistence and tests.
-protocol KeychainTokenStoring {
+/// Token persistence abstraction used by GitLab settings and tests.
+protocol GitLabTokenStoring {
     func readToken() throws -> String
     func saveToken(_ token: String) throws
 }
 
+/// Local file-backed storage used by development builds to avoid Keychain prompts while iterating.
+final class LocalGitLabTokenStore: GitLabTokenStoring {
+    static var `default`: LocalGitLabTokenStore {
+        LocalGitLabTokenStore(
+            tokenFileURL: FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("OpsHub", isDirectory: true)
+                .appendingPathComponent("GitLab", isDirectory: true)
+                .appendingPathComponent("personal-access-token")
+        )
+    }
+
+    private let tokenFileURL: URL
+    private let fileManager: FileManager
+
+    init(tokenFileURL: URL, fileManager: FileManager = .default) {
+        self.tokenFileURL = tokenFileURL
+        self.fileManager = fileManager
+    }
+
+    func readToken() throws -> String {
+        guard fileManager.fileExists(atPath: tokenFileURL.path) else {
+            return ""
+        }
+
+        let data = try Data(contentsOf: tokenFileURL)
+        guard let token = String(data: data, encoding: .utf8) else {
+            throw GitLabSettingsStoreError.invalidTokenData
+        }
+
+        return token
+    }
+
+    func saveToken(_ token: String) throws {
+        if token.isEmpty {
+            try deleteToken()
+            return
+        }
+
+        guard let data = token.data(using: .utf8) else {
+            throw GitLabSettingsStoreError.invalidTokenData
+        }
+
+        try fileManager.createDirectory(
+            at: tokenFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: tokenFileURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o600))],
+            ofItemAtPath: tokenFileURL.path
+        )
+    }
+
+    private func deleteToken() throws {
+        guard fileManager.fileExists(atPath: tokenFileURL.path) else {
+            return
+        }
+
+        try fileManager.removeItem(at: tokenFileURL)
+    }
+}
+
 /// Keychain-backed storage for the GitLab personal access token.
-final class KeychainTokenStore: KeychainTokenStoring {
+final class KeychainTokenStore: GitLabTokenStoring {
     private let service: String
     private let account: String
     private let accessible: CFString
