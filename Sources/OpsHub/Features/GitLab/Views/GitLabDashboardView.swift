@@ -23,6 +23,7 @@ struct GitLabDashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 header
+                warning
                 content
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -76,6 +77,18 @@ struct GitLabDashboardView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .disabled(viewModel.isLoading)
+        }
+    }
+
+    @ViewBuilder
+    private var warning: some View {
+        if let loadWarning = viewModel.loadWarning {
+            Label(loadWarning, systemImage: "exclamationmark.triangle")
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 

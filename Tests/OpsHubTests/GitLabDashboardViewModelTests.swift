@@ -29,6 +29,25 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertNotNil(viewModel.lastUpdated)
     }
+
+    @MainActor
+    func testRefreshKeepsLoadedSectionsWhenOneSectionFails() async {
+        let viewModel = GitLabDashboardViewModel(
+            service: PartiallyFailingGitLabService(),
+            gitLabBaseURL: URL(string: "https://gitlab.example.com")
+        )
+
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "0", "0"])
+        XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
+        XCTAssertEqual(viewModel.issues.map(\.id), [202])
+        XCTAssertTrue(viewModel.notifications.isEmpty)
+        XCTAssertTrue(viewModel.pipelines.isEmpty)
+        XCTAssertFalse(viewModel.isEmpty)
+        XCTAssertEqual(viewModel.loadWarning, "GitLab request failed with status 403.")
+        XCTAssertNotNil(viewModel.lastUpdated)
+    }
 }
 
 private struct StubGitLabService: GitLabServicing {
@@ -92,6 +111,32 @@ private struct StubGitLabService: GitLabServicing {
                 updatedTime: "Now"
             )
         ]
+    }
+
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult {
+        .connected
+    }
+}
+
+private struct PartiallyFailingGitLabService: GitLabServicing {
+    func dashboardStatistics() async throws -> [GitLabStatistic] {
+        []
+    }
+
+    func mergeRequests() async throws -> [GitLabMergeRequest] {
+        try await StubGitLabService().mergeRequests()
+    }
+
+    func issues() async throws -> [GitLabIssue] {
+        try await StubGitLabService().issues()
+    }
+
+    func notifications() async throws -> [GitLabNotification] {
+        throw GitLabServiceError.requestFailed(403)
+    }
+
+    func pipelines() async throws -> [GitLabPipeline] {
+        []
     }
 
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult {

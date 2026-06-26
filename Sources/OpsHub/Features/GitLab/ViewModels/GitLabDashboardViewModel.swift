@@ -10,6 +10,7 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var pipelines: [GitLabPipeline] = []
     @Published private(set) var isLoading = false
     @Published private(set) var lastUpdated: Date?
+    @Published private(set) var loadWarning: String?
 
     private let service: any GitLabServicing
     private let gitLabBaseURL: URL?
@@ -34,35 +35,56 @@ final class GitLabDashboardViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        async let mergeRequestsTask = loadSection { try await self.service.mergeRequests() }
+        async let issuesTask = loadSection { try await self.service.issues() }
+        async let notificationsTask = loadSection { try await self.service.notifications() }
+        async let pipelinesTask = loadSection { try await self.service.pipelines() }
+
+        let mergeRequestsResult = await mergeRequestsTask
+        let issuesResult = await issuesTask
+        let notificationsResult = await notificationsTask
+        let pipelinesResult = await pipelinesTask
+
+        mergeRequests = mergeRequestsResult.value ?? []
+        issues = issuesResult.value ?? []
+        notifications = notificationsResult.value ?? []
+        pipelines = pipelinesResult.value ?? []
+        loadWarning = loadWarning(for: [
+            mergeRequestsResult.error,
+            issuesResult.error,
+            notificationsResult.error,
+            pipelinesResult.error
+        ])
+        statistics = makeStatistics(
+            mergeRequests: mergeRequests,
+            issues: issues,
+            notifications: notifications,
+            pipelines: pipelines
+        )
+        lastUpdated = .now
+    }
+
+    private func loadSection<Value>(
+        _ load: @escaping () async throws -> Value
+    ) async -> Result<Value, any Error> {
         do {
-            async let mergeRequestsTask = service.mergeRequests()
-            async let issuesTask = service.issues()
-            async let notificationsTask = service.notifications()
-            async let pipelinesTask = service.pipelines()
-
-            let loadedMergeRequests = try await mergeRequestsTask
-            let loadedIssues = try await issuesTask
-            let loadedNotifications = try await notificationsTask
-            let loadedPipelines = try await pipelinesTask
-
-            mergeRequests = loadedMergeRequests
-            issues = loadedIssues
-            notifications = loadedNotifications
-            pipelines = loadedPipelines
-            statistics = makeStatistics(
-                mergeRequests: loadedMergeRequests,
-                issues: loadedIssues,
-                notifications: loadedNotifications,
-                pipelines: loadedPipelines
-            )
-            lastUpdated = .now
+            return .success(try await load())
         } catch {
-            statistics = []
-            mergeRequests = []
-            issues = []
-            notifications = []
-            pipelines = []
+            return .failure(error)
         }
+    }
+
+    private func loadWarning(for errors: [Error?]) -> String? {
+        let errors = errors.compactMap { $0 }
+        guard errors.isEmpty == false else {
+            return nil
+        }
+
+        if errors.count == 1, let description = (errors.first as? LocalizedError)?.errorDescription {
+            return description
+        }
+
+        return "Some GitLab sections could not be loaded."
     }
 
     private func makeStatistics(
@@ -130,5 +152,23 @@ final class GitLabDashboardViewModel: ObservableObject {
         components.path = "/\(dashboardPath)"
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         return components.url
+    }
+}
+
+private extension Result {
+    var value: Success? {
+        if case let .success(value) = self {
+            return value
+        }
+
+        return nil
+    }
+
+    var error: Failure? {
+        if case let .failure(error) = self {
+            return error
+        }
+
+        return nil
     }
 }

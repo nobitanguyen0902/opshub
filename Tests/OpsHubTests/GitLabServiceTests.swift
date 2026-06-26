@@ -163,6 +163,60 @@ final class GitLabServiceTests: XCTestCase {
             "/api/v4/projects/7/pipelines"
         ])
     }
+
+    func testPipelinesSkipsProjectsThatCannotLoadPipelines() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 7,
+                    "name": "opshub",
+                    "name_with_namespace": "ops/opshub"
+                  },
+                  {
+                    "id": 8,
+                    "name": "private-service",
+                    "name_with_namespace": "ops/private-service"
+                  }
+                ]
+                """
+            ),
+            "/api/v4/projects/7/pipelines": StubHTTPResponse(
+                statusCode: 403,
+                body: #"{"message":"403 Forbidden"}"#
+            ),
+            "/api/v4/projects/8/pipelines": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 9002,
+                    "project_id": 8,
+                    "ref": "main",
+                    "status": "success",
+                    "updated_at": "2026-06-25T02:00:00.000Z"
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let pipelines = try await service.pipelines()
+
+        XCTAssertEqual(pipelines.map(\.id), [9002])
+        XCTAssertEqual(pipelines.first?.project, "ops/private-service")
+        XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
+            "/api/v4/projects",
+            "/api/v4/projects/7/pipelines",
+            "/api/v4/projects/8/pipelines"
+        ])
+    }
 }
 
 private struct StaticGitLabSettingsStore: GitLabSettingsStoring {

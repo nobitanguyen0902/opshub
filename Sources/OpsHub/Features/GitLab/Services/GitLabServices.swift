@@ -152,8 +152,13 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
                     URLQueryItem(name: "per_page", value: "5")
                 ]
             )
-            let response: [GitLabRESTPipeline] = try await send(request)
-            pipelines.append(contentsOf: response.map { mapPipeline($0, project: project) })
+
+            do {
+                let response: [GitLabRESTPipeline] = try await send(request)
+                pipelines.append(contentsOf: response.map { mapPipeline($0, project: project) })
+            } catch {
+                continue
+            }
         }
 
         return Array(pipelines.sorted { $0.id > $1.id }.prefix(20))
