@@ -155,15 +155,18 @@ final class KeychainTokenStore: GitLabTokenStoring {
     private let service: String
     private let account: String
     private let accessible: CFString
+    private let usesDataProtectionKeychain: Bool
 
     init(
         service: String,
         account: String,
-        accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        usesDataProtectionKeychain: Bool = false
     ) {
         self.service = service
         self.account = account
         self.accessible = accessible
+        self.usesDataProtectionKeychain = usesDataProtectionKeychain
     }
 
     func readToken() throws -> String {
@@ -230,13 +233,18 @@ final class KeychainTokenStore: GitLabTokenStoring {
         }
     }
 
-    private var baseQuery: [String: Any] {
-        [
+    var baseQuery: [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true
+            kSecAttrAccount as String: account
         ]
+
+        if usesDataProtectionKeychain {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+
+        return query
     }
 }
 

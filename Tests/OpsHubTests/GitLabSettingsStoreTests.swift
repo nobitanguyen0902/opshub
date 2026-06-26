@@ -163,6 +163,25 @@ final class GitLabSettingsStoreTests: XCTestCase {
 
         try? FileManager.default.removeItem(at: directoryURL)
     }
+
+    func testKeychainTokenStoreDoesNotUseDataProtectionKeychainByDefault() {
+        let tokenStore = KeychainTokenStore(
+            service: "OpsHub.GitLabTests",
+            account: "PersonalAccessToken"
+        )
+
+        XCTAssertNil(tokenStore.baseQuery[kSecUseDataProtectionKeychain as String])
+    }
+
+    func testKeychainTokenStoreCanOptIntoDataProtectionKeychain() {
+        let tokenStore = KeychainTokenStore(
+            service: "OpsHub.GitLabTests",
+            account: "PersonalAccessToken",
+            usesDataProtectionKeychain: true
+        )
+
+        XCTAssertEqual(tokenStore.baseQuery[kSecUseDataProtectionKeychain as String] as? Bool, true)
+    }
 }
 
 private final class InMemoryGitLabTokenStore: GitLabTokenStoring {
