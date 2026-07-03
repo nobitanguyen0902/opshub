@@ -2,7 +2,6 @@ import SwiftUI
 
 struct BrewListView: View {
     @StateObject private var viewModel = BrewListViewModel()
-    @State private var updatingPackageIDs = Set<BrewPackage.ID>()
     @State private var isShowingError = false
     @State private var isShowingUpdateAllConfirmation = false
 
@@ -74,7 +73,7 @@ struct BrewListView: View {
                 Button("Update All", systemImage: "arrow.up.circle") {
                     isShowingUpdateAllConfirmation = true
                 }
-                .disabled(viewModel.outdatedCount == 0 || viewModel.isLoading)
+                .disabled(viewModel.outdatedCount == 0 || viewModel.isLoading || viewModel.isUpdatingAll)
             }
             .buttonStyle(.bordered)
             .disabled(viewModel.isLoading)
@@ -137,14 +136,14 @@ struct BrewListView: View {
                     statusLabel(for: package)
                 }
                 TableColumn("Action") { package in
-                    if updatingPackageIDs.contains(package.id) {
+                    if viewModel.updatingPackageIDs.contains(package.id) {
                         LoadingSpinnerView()
                     } else if package.status == .outdated {
                         Button("Update") {
                             update(package)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(viewModel.isLoading || !updatingPackageIDs.isEmpty)
+                        .disabled(viewModel.isLoading || viewModel.isUpdatingAll)
                     } else {
                         Text("—")
                             .foregroundStyle(.secondary)
@@ -189,10 +188,8 @@ struct BrewListView: View {
     }
 
     private func update(_ package: BrewPackage) {
-        updatingPackageIDs.insert(package.id)
         Task {
             await viewModel.updatePackage(package)
-            updatingPackageIDs.remove(package.id)
         }
     }
 }

@@ -16,11 +16,14 @@ final class BrewListViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var selectedFilter: Filter = .all
     @Published private(set) var isLoading = false
+    @Published private(set) var isUpdatingAll = false
+    @Published private(set) var updatingPackageIDs = Set<BrewPackage.ID>()
     @Published private(set) var errorMessage: String?
     @Published private(set) var commandLogs: [String] = []
     @Published var isLogExpanded = false
 
     private let service: any BrewServicing
+    private let updateQueue = SerialTaskQueue()
 
     init(service: any BrewServicing = BrewService()) {
         self.service = service
@@ -69,20 +72,48 @@ final class BrewListViewModel: ObservableObject {
     }
 
     func updatePackage(_ package: BrewPackage) async {
-        await perform("brew upgrade \(package.name)") {
-            let result = try await service.upgradePackage(package)
+        guard !updatingPackageIDs.contains(package.id), !isUpdatingAll else { return }
+
+        updatingPackageIDs.insert(package.id)
+        errorMessage = nil
+        appendLog("$ brew upgrade \(package.name)")
+
+        defer { updatingPackageIDs.remove(package.id) }
+
+        do {
+            let result = try await updateQueue.run {
+                try await self.service.upgradePackage(package)
+            }
             appendLog(result.stdout)
             appendLog(result.stderr)
-            await loadPackages()
+            markPackageUpdated(package)
+        } catch {
+            errorMessage = error.localizedDescription
+            appendFailedCommandOutput(from: error)
+            appendLog("Error: \(error.localizedDescription)")
         }
     }
 
     func updateAll() async {
-        await perform("brew upgrade") {
-            let result = try await service.upgradeAll()
+        guard !isUpdatingAll else { return }
+
+        isUpdatingAll = true
+        errorMessage = nil
+        appendLog("$ brew upgrade")
+
+        defer { isUpdatingAll = false }
+
+        do {
+            let result = try await updateQueue.run {
+                try await self.service.upgradeAll()
+            }
             appendLog(result.stdout)
             appendLog(result.stderr)
-            await loadPackages()
+            markAllPackagesUpdated()
+        } catch {
+            errorMessage = error.localizedDescription
+            appendFailedCommandOutput(from: error)
+            appendLog("Error: \(error.localizedDescription)")
         }
     }
 
@@ -142,9 +173,47 @@ final class BrewListViewModel: ObservableObject {
         }
     }
 
+    private func markPackageUpdated(_ package: BrewPackage) {
+        packages = packages.map { currentPackage in
+            guard currentPackage.id == package.id else { return currentPackage }
+            return updatedPackage(from: currentPackage)
+        }
+    }
+
+    private func markAllPackagesUpdated() {
+        packages = packages.map(updatedPackage)
+    }
+
+    private func updatedPackage(from package: BrewPackage) -> BrewPackage {
+        BrewPackage(
+            id: package.id,
+            name: package.name,
+            type: package.type,
+            installedVersion: package.latestVersion,
+            latestVersion: package.latestVersion,
+            status: .upToDate
+        )
+    }
+
     private static let logTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+}
+
+private actor SerialTaskQueue {
+    private var previousTask: Task<Void, Never>?
+
+    func run<T: Sendable>(_ operation: @Sendable @escaping () async throws -> T) async throws -> T {
+        let previousTask = previousTask
+        let operationTask = Task<T, Error> {
+            await previousTask?.value
+            return try await operation()
+        }
+        self.previousTask = Task {
+            _ = try? await operationTask.value
+        }
+        return try await operationTask.value
+    }
 }

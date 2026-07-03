@@ -156,6 +156,42 @@ final class BrewServiceTests: XCTestCase {
         XCTAssertTrue(viewModel.commandLogs.joined(separator: "\n").contains("command failed"))
     }
 
+    @MainActor
+    func testUpdatePackageDoesNotReloadPackageListOrSetGlobalLoadingState() async {
+        let package = package(name: "ripgrep", type: .formula)
+        let service = UpdatingBrewService(packages: [package])
+        let viewModel = BrewListViewModel(service: service)
+
+        await viewModel.loadPackages()
+        await viewModel.updatePackage(package)
+
+        let listInstalledCallCount = await service.listInstalledCallCount
+        XCTAssertEqual(listInstalledCallCount, 1)
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertTrue(viewModel.updatingPackageIDs.isEmpty)
+        XCTAssertEqual(viewModel.packages.first?.status, .upToDate)
+        XCTAssertEqual(viewModel.packages.first?.installedVersion, "2.0.0")
+    }
+
+    @MainActor
+    func testMultiplePackageUpdatesAreQueuedWithoutConcurrentBrewCommands() async {
+        let ripgrep = package(name: "ripgrep", type: .formula)
+        let firefox = package(name: "firefox", type: .cask)
+        let service = UpdatingBrewService(packages: [ripgrep, firefox])
+        let viewModel = BrewListViewModel(service: service)
+
+        await viewModel.loadPackages()
+        async let firstUpdate: Void = viewModel.updatePackage(ripgrep)
+        async let secondUpdate: Void = viewModel.updatePackage(firefox)
+        _ = await (firstUpdate, secondUpdate)
+
+        let upgradedNames = await service.upgradedNames
+        let maxConcurrentUpgrades = await service.maxConcurrentUpgrades
+        XCTAssertEqual(upgradedNames, ["ripgrep", "firefox"])
+        XCTAssertEqual(maxConcurrentUpgrades, 1)
+        XCTAssertEqual(viewModel.outdatedCount, 0)
+    }
+
     private func package(name: String, type: BrewPackageType) -> BrewPackage {
         BrewPackage(
             name: name,
@@ -296,5 +332,46 @@ private struct FailingBrewService: BrewServicing {
                 duration: 0
             )
         )
+    }
+}
+
+private actor UpdatingBrewService: BrewServicing {
+    private let packages: [BrewPackage]
+    private var runningUpgrades = 0
+
+    private(set) var listInstalledCallCount = 0
+    private(set) var upgradedNames: [String] = []
+    private(set) var maxConcurrentUpgrades = 0
+
+    init(packages: [BrewPackage]) {
+        self.packages = packages
+    }
+
+    func listInstalledPackages() async throws -> [BrewPackage] {
+        listInstalledCallCount += 1
+        return packages
+    }
+
+    func listOutdatedPackages() async throws -> [BrewPackage] {
+        packages
+    }
+
+    func upgradePackage(_ package: BrewPackage) async throws -> ShellCommandResult {
+        runningUpgrades += 1
+        maxConcurrentUpgrades = max(maxConcurrentUpgrades, runningUpgrades)
+        upgradedNames.append(package.name)
+        try? await Task.sleep(nanoseconds: 5_000_000)
+        runningUpgrades -= 1
+
+        return ShellCommandResult(
+            stdout: "Upgraded \(package.name)",
+            stderr: "",
+            exitCode: 0,
+            duration: 0
+        )
+    }
+
+    func upgradeAll() async throws -> ShellCommandResult {
+        ShellCommandResult(stdout: "Upgraded all", stderr: "", exitCode: 0, duration: 0)
     }
 }
