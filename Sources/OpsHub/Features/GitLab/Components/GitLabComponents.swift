@@ -110,6 +110,7 @@ struct IssuesCard: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .frame(maxWidth: 560)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
 
