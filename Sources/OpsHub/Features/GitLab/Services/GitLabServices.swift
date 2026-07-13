@@ -23,13 +23,16 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
     private let httpClient: any GitLabHTTPClient
     private let decoder: JSONDecoder
     private let isoDateFormatter: ISO8601DateFormatter
+    private let now: @Sendable () -> Date
 
     init(
         settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
-        httpClient: any GitLabHTTPClient = URLSession.shared
+        httpClient: any GitLabHTTPClient = URLSession.shared,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.settingsStore = settingsStore
         self.httpClient = httpClient
+        self.now = now
         decoder = JSONDecoder()
         isoDateFormatter = ISO8601DateFormatter()
         isoDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -99,19 +102,51 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
 
     func issues() async throws -> [GitLabIssue] {
         let settings = try configuredSettings()
-        let request = try makeRequest(
+        let updatedAfter = issueUpdatedAfterDate()
+        let workflowIssuesRequest = try makeWorkflowProjectIssuesRequest(
+            settings: settings,
+            queryItems: [
+                URLQueryItem(name: "state", value: "opened"),
+                URLQueryItem(name: "updated_after", value: updatedAfter),
+                URLQueryItem(name: "order_by", value: "updated_at"),
+                URLQueryItem(name: "sort", value: "desc"),
+                URLQueryItem(name: "per_page", value: "100")
+            ]
+        )
+        let assignedIssuesRequest = try makeRequest(
             settings: settings,
             path: "issues",
             queryItems: [
                 URLQueryItem(name: "scope", value: "assigned_to_me"),
                 URLQueryItem(name: "state", value: "opened"),
+                URLQueryItem(name: "updated_after", value: updatedAfter),
                 URLQueryItem(name: "order_by", value: "updated_at"),
                 URLQueryItem(name: "sort", value: "desc"),
-                URLQueryItem(name: "per_page", value: "20")
+                URLQueryItem(name: "per_page", value: "100")
             ]
         )
-        let response: [GitLabRESTIssue] = try await send(request)
-        return response.map(mapIssue)
+
+        async let loadedWorkflowIssues: [GitLabRESTIssue] = sendAllPages(workflowIssuesRequest)
+        async let loadedAssignedIssues: [GitLabRESTIssue] = sendAllPages(assignedIssuesRequest)
+        let (workflowIssues, assignedIssues) = try await (loadedWorkflowIssues, loadedAssignedIssues)
+        let assignedIssueIDs = Set(assignedIssues.map(\.id))
+        let workflowIssueIDs = Set(workflowIssues.map(\.id))
+        let combinedIssues = workflowIssues + assignedIssues.filter { workflowIssueIDs.contains($0.id) == false }
+
+        return combinedIssues.map { issue in
+            mapIssue(
+                issue,
+                isAssignedToMe: assignedIssueIDs.contains(issue.id),
+                isWorkflowProject: workflowIssueIDs.contains(issue.id)
+            )
+        }
+    }
+
+    private func issueUpdatedAfterDate() -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let oneMonthAgo = calendar.date(byAdding: .month, value: -1, to: now()) ?? now()
+        return isoDateFormatter.string(from: oneMonthAgo)
     }
 
     func notifications() async throws -> [GitLabNotification] {
@@ -238,6 +273,26 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         return request
     }
 
+    private func makeWorkflowProjectIssuesRequest(
+        settings: GitLabSettings,
+        queryItems: [URLQueryItem]
+    ) throws -> URLRequest {
+        var request = try makeRequest(settings: settings, path: "projects", queryItems: [])
+        guard let requestURL = request.url,
+              var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false) else {
+            throw GitLabServiceError.invalidURL
+        }
+
+        components.percentEncodedPath += "/social%2Fsocom-issues/issues"
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            throw GitLabServiceError.invalidURL
+        }
+
+        request.url = url
+        return request
+    }
+
     private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
         let (data, response) = try await httpClient.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -254,23 +309,73 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         }
     }
 
+    private func sendAllPages<Response: Decodable>(_ initialRequest: URLRequest) async throws -> [Response] {
+        var request = initialRequest
+        var values: [Response] = []
+
+        while true {
+            let (data, response) = try await httpClient.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GitLabServiceError.invalidResponse
+            }
+
+            switch httpResponse.statusCode {
+            case 200..<300:
+                values.append(contentsOf: try decoder.decode([Response].self, from: data))
+            case 401, 403:
+                throw GitLabServiceError.unauthorized
+            default:
+                throw GitLabServiceError.requestFailed(httpResponse.statusCode)
+            }
+
+            guard let nextPage = httpResponse.value(forHTTPHeaderField: "X-Next-Page"),
+                  nextPage.isEmpty == false else {
+                return values
+            }
+
+            guard let requestURL = request.url,
+                  var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false) else {
+                throw GitLabServiceError.invalidURL
+            }
+            var queryItems = components.queryItems ?? []
+            queryItems.removeAll { $0.name == "page" }
+            queryItems.append(URLQueryItem(name: "page", value: nextPage))
+            components.queryItems = queryItems
+            guard let nextURL = components.url else {
+                throw GitLabServiceError.invalidURL
+            }
+            request.url = nextURL
+        }
+    }
+
     private func mapMergeRequest(_ mergeRequest: GitLabRESTMergeRequest) -> GitLabMergeRequest {
         GitLabMergeRequest(
             id: mergeRequest.iid ?? mergeRequest.id,
             title: mergeRequest.title,
             project: projectName(from: mergeRequest.references, projectId: mergeRequest.projectId),
             status: mergeRequestStatus(for: mergeRequest),
+            authorName: mergeRequest.author?.name ?? mergeRequest.author?.username,
+            authorAvatarURL: mergeRequest.author?.avatarUrl,
             updatedTime: relativeTime(from: mergeRequest.updatedAt),
             webURL: mergeRequest.webUrl
         )
     }
 
-    private func mapIssue(_ issue: GitLabRESTIssue) -> GitLabIssue {
+    private func mapIssue(
+        _ issue: GitLabRESTIssue,
+        isAssignedToMe: Bool,
+        isWorkflowProject: Bool
+    ) -> GitLabIssue {
         GitLabIssue(
             id: issue.iid ?? issue.id,
             title: issue.title,
             project: projectName(from: issue.references, projectId: issue.projectId),
             priority: issuePriority(for: issue.labels),
+            labels: issue.labels,
+            isAssignedToMe: isAssignedToMe,
+            isWorkflowProject: isWorkflowProject,
+            assigneeName: issue.assignees.first?.name ?? issue.assignees.first?.username,
+            assigneeAvatarURL: issue.assignees.first?.avatarUrl,
             updatedTime: relativeTime(from: issue.updatedAt),
             webURL: issue.webUrl
         )

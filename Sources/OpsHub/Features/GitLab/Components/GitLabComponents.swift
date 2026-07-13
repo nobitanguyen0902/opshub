@@ -90,24 +90,52 @@ struct IssuesCard: View {
     let issues: [GitLabIssue]
     let isLoading: Bool
     @Binding var selectedIssueID: GitLabIssue.ID?
+    @State private var selectedTab = GitLabIssueTab.assignedToMe
 
     var body: some View {
         GitLabListCard(
             title: "Issues",
-            count: issues.count,
+            count: filteredIssues.count,
             isLoading: isLoading,
             emptyTitle: "No issues",
-            emptyMessage: "Assigned or mentioned issues will appear here after refresh."
+            emptyMessage: "Issues matching this tab will appear here after refresh.",
+            showsContentWhenEmpty: true
         ) {
-            GitLabSelectableList(items: issues) { issue in
-                IssueRow(
-                    issue: issue,
-                    isSelected: selectedIssueID == issue.id
-                ) {
-                    selectedIssueID = issue.id
+            VStack(spacing: 0) {
+                Picker("Issue filter", selection: $selectedTab) {
+                    ForEach(GitLabIssueTab.allCases) { tab in
+                        Text(tab.rawValue)
+                            .tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+
+                if filteredIssues.isEmpty {
+                    EmptyStateView(
+                        systemImage: "tray",
+                        title: "No issues",
+                        message: "Issues matching this tab will appear here after refresh."
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    GitLabSelectableList(items: filteredIssues) { issue in
+                        IssueRow(
+                            issue: issue,
+                            isSelected: selectedIssueID == issue.id
+                        ) {
+                            selectedIssueID = issue.id
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private var filteredIssues: [GitLabIssue] {
+        issues.filter(selectedTab.includes)
     }
 }
 
@@ -140,6 +168,7 @@ private struct GitLabListCard<Content: View>: View {
     let isLoading: Bool
     let emptyTitle: String
     let emptyMessage: String
+    let showsContentWhenEmpty: Bool
     let content: () -> Content
     @State private var isHovering = false
 
@@ -149,6 +178,7 @@ private struct GitLabListCard<Content: View>: View {
         isLoading: Bool,
         emptyTitle: String,
         emptyMessage: String,
+        showsContentWhenEmpty: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
@@ -156,6 +186,7 @@ private struct GitLabListCard<Content: View>: View {
         self.isLoading = isLoading
         self.emptyTitle = emptyTitle
         self.emptyMessage = emptyMessage
+        self.showsContentWhenEmpty = showsContentWhenEmpty
         self.content = content
     }
 
@@ -185,7 +216,7 @@ private struct GitLabListCard<Content: View>: View {
             }
             .padding(16)
 
-            if count == 0 {
+            if count == 0 && showsContentWhenEmpty == false {
                 EmptyStateView(
                     systemImage: "tray",
                     title: emptyTitle,
@@ -277,6 +308,10 @@ private struct GitLabSelectableRow<Badge: View>: View {
     let reference: String
     let title: String
     let project: String
+    let avatarURL: URL?
+    let avatarAccessibilityLabel: String?
+    let showsAvatar: Bool
+    let labels: [String]
     let updatedTime: String
     let webURL: URL?
     let isSelected: Bool
@@ -287,6 +322,10 @@ private struct GitLabSelectableRow<Badge: View>: View {
         reference: String,
         title: String,
         project: String,
+        avatarURL: URL? = nil,
+        avatarAccessibilityLabel: String? = nil,
+        showsAvatar: Bool = false,
+        labels: [String] = [],
         updatedTime: String,
         webURL: URL?,
         isSelected: Bool,
@@ -296,6 +335,10 @@ private struct GitLabSelectableRow<Badge: View>: View {
         self.reference = reference
         self.title = title
         self.project = project
+        self.avatarURL = avatarURL
+        self.avatarAccessibilityLabel = avatarAccessibilityLabel
+        self.showsAvatar = showsAvatar
+        self.labels = labels
         self.updatedTime = updatedTime
         self.webURL = webURL
         self.isSelected = isSelected
@@ -306,6 +349,13 @@ private struct GitLabSelectableRow<Badge: View>: View {
     var body: some View {
         Button(action: selectAndOpen) {
             HStack(alignment: .center, spacing: 14) {
+                if showsAvatar {
+                    GitLabAvatar(
+                        url: avatarURL,
+                        accessibilityLabel: avatarAccessibilityLabel
+                    )
+                }
+
                 Text(reference)
                     .font(.body.weight(.semibold))
                     .monospacedDigit()
@@ -318,10 +368,20 @@ private struct GitLabSelectableRow<Badge: View>: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text(project)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(project)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+
+                        ForEach(visibleLabels, id: \.self) { label in
+                            GitLabLabelBadge(title: label)
+                        }
+
+                        if hiddenLabelCount > 0 {
+                            GitLabLabelBadge(title: "+\(hiddenLabelCount)")
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -347,6 +407,55 @@ private struct GitLabSelectableRow<Badge: View>: View {
             openURL(webURL)
         }
     }
+
+    private var visibleLabels: [String] {
+        Array(labels.prefix(2))
+    }
+
+    private var hiddenLabelCount: Int {
+        max(labels.count - visibleLabels.count, 0)
+    }
+}
+
+private struct GitLabAvatar: View {
+    let url: URL?
+    let accessibilityLabel: String?
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case let .success(image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            default:
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .strokeBorder(Color.primary.opacity(0.1))
+        }
+        .accessibilityLabel(accessibilityLabel ?? "GitLab user avatar")
+    }
+}
+
+private struct GitLabLabelBadge: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color.accentColor)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.accentColor.opacity(0.1), in: Capsule())
+    }
 }
 
 private struct MergeRequestRow: View {
@@ -359,6 +468,9 @@ private struct MergeRequestRow: View {
             reference: "!\(mergeRequest.id)",
             title: mergeRequest.title,
             project: mergeRequest.project,
+            avatarURL: mergeRequest.authorAvatarURL,
+            avatarAccessibilityLabel: mergeRequest.authorName,
+            showsAvatar: true,
             updatedTime: mergeRequest.updatedTime,
             webURL: mergeRequest.webURL,
             isSelected: isSelected,
@@ -379,6 +491,10 @@ private struct IssueRow: View {
             reference: "#\(issue.id)",
             title: issue.title,
             project: issue.project,
+            avatarURL: issue.assigneeAvatarURL,
+            avatarAccessibilityLabel: issue.assigneeName,
+            showsAvatar: true,
+            labels: issue.labels,
             updatedTime: issue.updatedTime,
             webURL: issue.webURL,
             isSelected: isSelected,

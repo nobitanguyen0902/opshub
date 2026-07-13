@@ -39,6 +39,12 @@ final class GitLabServiceTests: XCTestCase {
                     "state": "opened",
                     "draft": false,
                     "labels": ["review"],
+                    "author": {
+                      "id": 9,
+                      "username": "octocat",
+                      "name": "Octo Cat",
+                      "avatar_url": "https://gitlab.example.com/uploads/avatar.png"
+                    },
                     "reviewers": [],
                     "references": {"full": "ops/opshub!42"},
                     "web_url": "https://gitlab.example.com/ops/opshub/-/merge_requests/42",
@@ -60,6 +66,8 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(mergeRequests.first?.title, "Wire GitLab REST service")
         XCTAssertEqual(mergeRequests.first?.project, "ops/opshub")
         XCTAssertEqual(mergeRequests.first?.status, .reviewing)
+        XCTAssertEqual(mergeRequests.first?.authorName, "Octo Cat")
+        XCTAssertEqual(mergeRequests.first?.authorAvatarURL?.absoluteString, "https://gitlab.example.com/uploads/avatar.png")
         XCTAssertEqual(mergeRequests.first?.webURL?.absoluteString, "https://gitlab.example.com/ops/opshub/-/merge_requests/42")
         let request = try XCTUnwrap(httpClient.requests.first)
         XCTAssertEqual(request.url?.path, "/api/v4/merge_requests")
@@ -72,9 +80,10 @@ final class GitLabServiceTests: XCTestCase {
         )
     }
 
-    func testIssuesLoadsAssignedOpenItemsFromGitLabAPI() async throws {
+    func testIssuesLoadsAllOpenItemsAndMarksAssignedItemsFromGitLabAPI() async throws {
+        let now = ISO8601DateFormatter().date(from: "2026-07-13T12:00:00Z")!
         let httpClient = StubGitLabHTTPClient(responses: [
-            "/api/v4/issues": StubHTTPResponse(
+            "/api/v4/projects/social%2Fsocom-issues/issues": StubHTTPResponse(
                 statusCode: 200,
                 body: """
                 [
@@ -85,13 +94,107 @@ final class GitLabServiceTests: XCTestCase {
                     "title": "Make dashboard rows open GitLab",
                     "state": "opened",
                     "labels": ["priority::high"],
+                    "assignees": [
+                      {
+                        "id": 19,
+                        "username": "assignee",
+                        "name": "Issue Assignee",
+                        "avatar_url": "https://gitlab.example.com/uploads/assignee.png"
+                      }
+                    ],
                     "references": {"full": "ops/opshub#77"},
                     "web_url": "https://gitlab.example.com/ops/opshub/-/issues/77",
                     "updated_at": "2026-06-25T02:00:00.000Z"
+                  },
+                  {
+                    "id": 2003,
+                    "iid": 78,
+                    "project_id": 7,
+                    "title": "Production issue not assigned to me",
+                    "state": "opened",
+                    "labels": ["Bug Production"],
+                    "references": {"full": "ops/opshub#78"}
+                  }
+                ]
+                """
+            ),
+            "/api/v4/issues?scope=assigned_to_me": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 2002,
+                    "iid": 77,
+                    "project_id": 7,
+                    "title": "Make dashboard rows open GitLab",
+                    "state": "opened",
+                    "labels": ["priority::high"],
+                    "references": {"full": "ops/opshub#77"}
                   }
                 ]
                 """
             )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient,
+            now: { now }
+        )
+
+        let issues = try await service.issues()
+
+        XCTAssertEqual(issues.count, 2)
+        XCTAssertEqual(issues.first?.id, 77)
+        XCTAssertEqual(issues.first?.title, "Make dashboard rows open GitLab")
+        XCTAssertEqual(issues.first?.project, "ops/opshub")
+        XCTAssertEqual(issues.first?.priority, .high)
+        XCTAssertEqual(issues.first?.labels, ["priority::high"])
+        XCTAssertEqual(issues.first?.isAssignedToMe, true)
+        XCTAssertEqual(issues.first?.isWorkflowProject, true)
+        XCTAssertEqual(issues.first?.assigneeName, "Issue Assignee")
+        XCTAssertEqual(
+            issues.first?.assigneeAvatarURL?.absoluteString,
+            "https://gitlab.example.com/uploads/assignee.png"
+        )
+        XCTAssertEqual(issues.last?.isAssignedToMe, false)
+        XCTAssertEqual(issues.last?.isWorkflowProject, true)
+        XCTAssertEqual(issues.first?.webURL?.absoluteString, "https://gitlab.example.com/ops/opshub/-/issues/77")
+        XCTAssertTrue(httpClient.requests.contains(where: { request in
+            guard let url = request.url else { return false }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath
+                == "/api/v4/projects/social%2Fsocom-issues/issues"
+        }))
+        XCTAssertTrue(httpClient.requests.contains(where: { request in
+            guard let url = request.url else { return false }
+            return url.path == "/api/v4/issues"
+                && URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?
+                    .contains(URLQueryItem(name: "scope", value: "assigned_to_me")) == true
+        }))
+        let updatedAfterValues: [String] = httpClient.requests.compactMap { request -> String? in
+            guard let url = request.url else { return nil }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "updated_after" })?
+                .value
+        }
+        XCTAssertEqual(updatedAfterValues, ["2026-06-13T12:00:00.000Z", "2026-06-13T12:00:00.000Z"])
+    }
+
+    func testIssuesLoadsEveryWorkflowProjectPage() async throws {
+        let pageOneIssue = #"[{"id":3001,"iid":1,"title":"First page","labels":["Testing"]}]"#
+        let pageTwoIssue = #"[{"id":3002,"iid":2,"title":"Second page","labels":["ToTest"]}]"#
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects/social%2Fsocom-issues/issues": StubHTTPResponse(
+                statusCode: 200,
+                body: pageOneIssue,
+                headers: ["X-Next-Page": "2"]
+            ),
+            "/api/v4/projects/social%2Fsocom-issues/issues?page=2": StubHTTPResponse(
+                statusCode: 200,
+                body: pageTwoIssue
+            ),
+            "/api/v4/issues?scope=assigned_to_me": StubHTTPResponse(statusCode: 200, body: "[]")
         ])
         let service = GitLabService(
             settingsStore: StaticGitLabSettingsStore(),
@@ -100,21 +203,8 @@ final class GitLabServiceTests: XCTestCase {
 
         let issues = try await service.issues()
 
-        XCTAssertEqual(issues.count, 1)
-        XCTAssertEqual(issues.first?.id, 77)
-        XCTAssertEqual(issues.first?.title, "Make dashboard rows open GitLab")
-        XCTAssertEqual(issues.first?.project, "ops/opshub")
-        XCTAssertEqual(issues.first?.priority, .high)
-        XCTAssertEqual(issues.first?.webURL?.absoluteString, "https://gitlab.example.com/ops/opshub/-/issues/77")
-        let request = try XCTUnwrap(httpClient.requests.first)
-        XCTAssertEqual(request.url?.path, "/api/v4/issues")
-        XCTAssertEqual(
-            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
-                .queryItems?
-                .first(where: { $0.name == "scope" })?
-                .value,
-            "assigned_to_me"
-        )
+        XCTAssertEqual(issues.map(\.id), [1, 2])
+        XCTAssertTrue(issues.allSatisfy(\.isWorkflowProject))
     }
 
     func testPipelinesLoadFromRecentMembershipProjects() async throws {
@@ -250,8 +340,25 @@ private final class StubGitLabHTTPClient: GitLabHTTPClient, @unchecked Sendable 
             recordedRequests.append(request)
         }
 
-        let path = request.url?.path ?? ""
-        guard let response = responses[path] else {
+        let path = request.url.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath
+        } ?? ""
+        let queryItems = URLComponents(
+            url: request.url ?? URL(string: "https://gitlab.example.com")!,
+            resolvingAgainstBaseURL: false
+        )?.queryItems
+        let scope = queryItems?
+            .first(where: { $0.name == "scope" })?
+            .value
+        let page = queryItems?
+            .first(where: { $0.name == "page" })?
+            .value
+        let candidateKeys = [
+            page.map { "\(path)?page=\($0)" },
+            scope.map { "\(path)?scope=\($0)" },
+            path
+        ]
+        guard let response = candidateKeys.compactMap({ $0 }).compactMap({ responses[$0] }).first else {
             throw URLError(.badURL)
         }
 
@@ -260,7 +367,9 @@ private final class StubGitLabHTTPClient: GitLabHTTPClient, @unchecked Sendable 
             url: url,
             statusCode: response.statusCode,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: ["Content-Type": "application/json"].merging(response.headers) { _, responseValue in
+                responseValue
+            }
         )!
         return (Data(response.body.utf8), httpResponse)
     }
@@ -269,4 +378,5 @@ private final class StubGitLabHTTPClient: GitLabHTTPClient, @unchecked Sendable 
 private struct StubHTTPResponse {
     let statusCode: Int
     let body: String
+    var headers: [String: String] = [:]
 }

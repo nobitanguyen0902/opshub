@@ -17,8 +17,30 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
     let title: String
     let project: String
     let status: GitLabMergeRequestStatus
+    let authorName: String?
+    let authorAvatarURL: URL?
     let updatedTime: String
     let webURL: URL?
+
+    init(
+        id: Int,
+        title: String,
+        project: String,
+        status: GitLabMergeRequestStatus,
+        authorName: String? = nil,
+        authorAvatarURL: URL? = nil,
+        updatedTime: String,
+        webURL: URL?
+    ) {
+        self.id = id
+        self.title = title
+        self.project = project
+        self.status = status
+        self.authorName = authorName
+        self.authorAvatarURL = authorAvatarURL
+        self.updatedTime = updatedTime
+        self.webURL = webURL
+    }
 }
 
 /// The dashboard status shown for a merge request.
@@ -35,8 +57,39 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
     let title: String
     let project: String
     let priority: GitLabIssuePriority
+    let labels: [String]
+    let isAssignedToMe: Bool
+    let isWorkflowProject: Bool
+    let assigneeName: String?
+    let assigneeAvatarURL: URL?
     let updatedTime: String
     let webURL: URL?
+
+    init(
+        id: Int,
+        title: String,
+        project: String,
+        priority: GitLabIssuePriority,
+        labels: [String] = [],
+        isAssignedToMe: Bool = true,
+        isWorkflowProject: Bool = true,
+        assigneeName: String? = nil,
+        assigneeAvatarURL: URL? = nil,
+        updatedTime: String,
+        webURL: URL?
+    ) {
+        self.id = id
+        self.title = title
+        self.project = project
+        self.priority = priority
+        self.labels = labels
+        self.isAssignedToMe = isAssignedToMe
+        self.isWorkflowProject = isWorkflowProject
+        self.assigneeName = assigneeName
+        self.assigneeAvatarURL = assigneeAvatarURL
+        self.updatedTime = updatedTime
+        self.webURL = webURL
+    }
 }
 
 /// The dashboard priority shown for an issue.
@@ -45,6 +98,34 @@ enum GitLabIssuePriority: String, Hashable, Sendable {
     case high = "High"
     case medium = "Medium"
     case low = "Low"
+}
+
+/// Filters available for the issue list on the GitLab dashboard.
+enum GitLabIssueTab: String, CaseIterable, Identifiable, Sendable {
+    case assignedToMe = "Assign me"
+    case testing = "Test"
+    case passed = "Passed"
+    case build = "Build"
+    case productionBug = "Bug Pro"
+
+    var id: Self { self }
+
+    func includes(_ issue: GitLabIssue) -> Bool {
+        let labels = Set(issue.labels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        return switch self {
+        case .assignedToMe:
+            issue.isAssignedToMe
+        case .testing:
+            issue.isWorkflowProject && (labels.contains("testing") || labels.contains("totest"))
+        case .passed:
+            issue.isWorkflowProject && labels.isSuperset(of: ["passed", "toproduction"])
+        case .build:
+            issue.isWorkflowProject && labels.isSuperset(of: ["passed", "toproduction", "merged"])
+        case .productionBug:
+            issue.isWorkflowProject && labels.contains("bug production")
+        }
+    }
 }
 
 /// A notification item formatted for future dashboard sections.
