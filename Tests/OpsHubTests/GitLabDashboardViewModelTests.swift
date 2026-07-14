@@ -79,11 +79,14 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         let service = SlowCountingGitLabService()
         let viewModel = GitLabDashboardViewModel(service: service)
 
-        async let first: Void = viewModel.refresh()
-        await Task.yield()
+        let first = Task { await viewModel.refresh() }
+        for _ in 0..<100 where viewModel.loadState(for: .mergeRequests) != .initialLoading {
+            await Task.yield()
+        }
         XCTAssertEqual(viewModel.loadState(for: .mergeRequests), .initialLoading)
-        async let second: Void = viewModel.refresh()
-        _ = await (first, second)
+        let second = Task { await viewModel.refresh() }
+        await first.value
+        await second.value
 
         let calls = await service.callCount()
         XCTAssertEqual(calls, 1)
@@ -120,6 +123,26 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.selectedSection, .issues)
         XCTAssertEqual(viewModel.selectedIssueTab, .assignedToMe)
+    }
+
+    @MainActor
+    func testRefreshPreservesNavigationSelectionAndSectionFilters() async {
+        let viewModel = GitLabDashboardViewModel(service: StubGitLabService())
+        viewModel.selectedSection = .issues
+        viewModel.selectedIssueTab = .productionBug
+        viewModel.select(.issue(202))
+        viewModel.setFilter(
+            GitLabWorkspaceFilter(searchText: "mock", labels: ["Bug Production"]),
+            for: .issues
+        )
+
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.selectedSection, .issues)
+        XCTAssertEqual(viewModel.selectedIssueTab, .productionBug)
+        XCTAssertEqual(viewModel.selection.item, .issue(202))
+        XCTAssertEqual(viewModel.filter(for: .issues).searchText, "mock")
+        XCTAssertEqual(viewModel.filter(for: .issues).labels, ["Bug Production"])
     }
 }
 

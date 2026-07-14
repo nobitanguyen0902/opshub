@@ -46,4 +46,25 @@ final class GitLabActionQueueTests: XCTestCase {
 
         XCTAssertEqual(result.map(\.id), [.issue(1)])
     }
+
+    func testQueueTransformsRepresentativeLargeDatasetWithoutDroppingItems() {
+        let notifications = (1...2_000).map { id in
+            GitLabNotification(
+                id: id,
+                title: "Notification \(id)",
+                project: "ops/app",
+                kind: id.isMultiple(of: 2) ? .mentioned : .reviewRequested,
+                updatedAt: Date(timeIntervalSince1970: TimeInterval(id)),
+                updatedTime: "Recently"
+            )
+        }
+
+        let result = GitLabActionQueueBuilder.build(
+            reviews: [], issues: [], pipelines: [], notifications: notifications, scope: .allProjects
+        )
+
+        XCTAssertEqual(result.count, 2_000)
+        XCTAssertEqual(result.first?.priority, .high)
+        XCTAssertEqual(result.first?.id, .notification(1_999))
+    }
 }
