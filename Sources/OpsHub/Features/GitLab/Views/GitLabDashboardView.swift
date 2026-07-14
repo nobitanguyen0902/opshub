@@ -87,16 +87,38 @@ struct GitLabDashboardView: View {
                 onShowSection: { viewModel.selectedSection = $0 }
             )
         case .mergeRequests:
-            MergeRequestsCard(
-                mergeRequests: viewModel.visibleMergeRequests,
-                isLoading: viewModel.isLoading,
-                selectedMergeRequestID: selectedMergeRequestID
+            GitLabMergeRequestsView(
+                mode: mode,
+                items: viewModel.visibleMergeRequests.map {
+                    GitLabWorkItemPresentation(mergeRequest: $0, context: .mergeRequest)
+                },
+                loadState: viewModel.loadState(for: .mergeRequests),
+                filter: viewModel.filter(for: .mergeRequests),
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onStatusChange: { statuses in
+                    var filter = viewModel.filter(for: .mergeRequests)
+                    filter.statuses = statuses
+                    viewModel.setFilter(filter, for: .mergeRequests)
+                },
+                onClearFilters: { viewModel.clearFilters(for: .mergeRequests) }
             )
         case .reviews:
-            MergeReviewsCard(
-                mergeReviews: viewModel.visibleMergeReviews,
-                isLoading: viewModel.isLoading,
-                selectedMergeReviewID: selectedMergeReviewID
+            GitLabReviewsView(
+                mode: mode,
+                items: viewModel.visibleMergeReviews.map {
+                    GitLabWorkItemPresentation(mergeRequest: $0, context: .review)
+                },
+                loadState: viewModel.loadState(for: .reviews),
+                filter: viewModel.filter(for: .reviews),
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onStatusChange: { statuses in
+                    var filter = viewModel.filter(for: .reviews)
+                    filter.statuses = statuses
+                    viewModel.setFilter(filter, for: .reviews)
+                },
+                onClearFilters: { viewModel.clearFilters(for: .reviews) }
             )
         case .issues:
             IssuesCard(
@@ -121,30 +143,6 @@ struct GitLabDashboardView: View {
             .frame(maxWidth: .infinity, minHeight: 240)
             .gitLabSurface()
         }
-    }
-
-    private var selectedMergeRequestID: Binding<GitLabMergeRequest.ID?> {
-        Binding(
-            get: {
-                guard case let .mergeRequest(id) = viewModel.selection.item else { return nil }
-                return id
-            },
-            set: { id in
-                viewModel.select(id.map(GitLabWorkspaceItemID.mergeRequest))
-            }
-        )
-    }
-
-    private var selectedMergeReviewID: Binding<GitLabMergeRequest.ID?> {
-        Binding(
-            get: {
-                guard case let .review(id) = viewModel.selection.item else { return nil }
-                return id
-            },
-            set: { id in
-                viewModel.select(id.map(GitLabWorkspaceItemID.review))
-            }
-        )
     }
 
     private var selectedIssueID: Binding<GitLabIssue.ID?> {
