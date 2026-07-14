@@ -39,4 +39,12 @@ final class GitLabWorkspaceStateTests: XCTestCase {
         XCTAssertEqual(selection.section, .overview)
         XCTAssertNil(selection.item)
     }
+
+    func testAdaptiveLayoutUsesApprovedWidthBoundaries() {
+        XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 719), .narrow)
+        XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 839), .narrow)
+        XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 840), .compact)
+        XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 1_179), .compact)
+        XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 1_180), .wide)
+    }
 }

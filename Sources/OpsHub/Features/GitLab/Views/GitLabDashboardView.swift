@@ -18,24 +18,18 @@ struct GitLabDashboardView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                warning
-                content
+        GitLabAdaptiveLayout { mode in
+            ScrollView {
+                VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xLarge) {
+                    header(mode: mode)
+                    warning
+                    content
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(mode.pagePadding)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(20)
         }
-        .navigationTitle("GitLab Dashboard")
-        .toolbar {
-            Button {
-                Task { await viewModel.refresh() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .disabled(viewModel.isLoading)
-        }
+        .navigationTitle("GitLab")
         .task {
             await viewModel.loadDashboard()
         }
@@ -45,37 +39,17 @@ struct GitLabDashboardView: View {
         .animation(.smooth(duration: 0.25), value: viewModel.issues)
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("GitLab Dashboard")
-                    .font(.largeTitle.bold())
-
-                HStack(spacing: 8) {
-                    Text("Overview of your GitLab work")
-
-                    Text("-")
-
-                    Label(lastUpdatedText, systemImage: "clock")
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
-                Task { await viewModel.refresh() }
-            } label: {
-                if viewModel.isLoading {
-                    LoadingSpinnerView()
-                } else {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .disabled(viewModel.isLoading)
+    private func header(mode: GitLabWorkspaceLayoutMode) -> some View {
+        GitLabWorkspaceHeader(
+            mode: mode,
+            projects: viewModel.projects,
+            selectedScope: $viewModel.selectedScope,
+            searchText: searchText,
+            isRefreshing: viewModel.isLoading,
+            hasStaleData: viewModel.hasStaleData,
+            lastUpdated: viewModel.lastUpdated
+        ) {
+            Task { await viewModel.refresh() }
         }
     }
 
@@ -174,12 +148,11 @@ struct GitLabDashboardView: View {
         }
     }
 
-    private var lastUpdatedText: String {
-        guard let lastUpdated = viewModel.lastUpdated else {
-            return "Last updated: Never"
-        }
-
-        return "Last updated: \(lastUpdated.formatted(date: .omitted, time: .shortened))"
+    private var searchText: Binding<String> {
+        Binding(
+            get: { viewModel.searchText },
+            set: { viewModel.searchText = $0 }
+        )
     }
 }
 

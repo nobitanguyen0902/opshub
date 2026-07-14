@@ -40,6 +40,22 @@ final class GitLabDashboardViewModel: ObservableObject {
         set { selection.section = newValue }
     }
 
+    var searchText: String {
+        get { filter(for: selectedSection).searchText }
+        set {
+            var updatedFilter = filter(for: selectedSection)
+            updatedFilter.searchText = newValue
+            setFilter(updatedFilter, for: selectedSection)
+        }
+    }
+
+    var hasStaleData: Bool {
+        sectionStates.values.contains { state in
+            if case .stale = state { return true }
+            return false
+        }
+    }
+
     var visibleMergeRequests: [GitLabMergeRequest] {
         GitLabWorkspaceFiltering.sortMergeRequests(
             GitLabWorkspaceFiltering.mergeRequests(
