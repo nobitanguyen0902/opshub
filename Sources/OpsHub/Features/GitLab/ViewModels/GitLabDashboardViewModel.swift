@@ -56,6 +56,50 @@ final class GitLabDashboardViewModel: ObservableObject {
         }
     }
 
+    var summaryMetrics: [GitLabSummaryMetric] {
+        let scopedReviews = mergeReviews.filter { selectedScope.includes(projectName: $0.project) }
+        let assignedIssues = issues.filter {
+            $0.isAssignedToMe && selectedScope.includes(projectName: $0.project)
+        }
+        let failedPipelines = pipelines.filter {
+            $0.status == .failed && selectedScope.includes(projectName: $0.project)
+        }
+        let pendingNotifications = notifications.filter {
+            selectedScope.includes(projectName: $0.project)
+        }
+
+        return [
+            GitLabSummaryMetric(
+                kind: .awaitingReview,
+                title: "Waiting for my review",
+                value: scopedReviews.count,
+                systemImage: "checkmark.bubble",
+                semantic: .warning
+            ),
+            GitLabSummaryMetric(
+                kind: .assignedToMe,
+                title: "Assigned to me",
+                value: assignedIssues.count,
+                systemImage: "person.crop.circle.badge.checkmark",
+                semantic: .information
+            ),
+            GitLabSummaryMetric(
+                kind: .failedPipelines,
+                title: "Failed pipelines",
+                value: failedPipelines.count,
+                systemImage: "xmark.circle",
+                semantic: .error
+            ),
+            GitLabSummaryMetric(
+                kind: .unreadNotifications,
+                title: "Unread",
+                value: pendingNotifications.count,
+                systemImage: "bell.badge",
+                semantic: .information
+            )
+        ]
+    }
+
     var visibleMergeRequests: [GitLabMergeRequest] {
         GitLabWorkspaceFiltering.sortMergeRequests(
             GitLabWorkspaceFiltering.mergeRequests(
@@ -139,6 +183,27 @@ final class GitLabDashboardViewModel: ObservableObject {
             visiblePipelines.filter { $0.status == .failed }.count
         case .notifications:
             visibleNotifications.count
+        }
+    }
+
+    func activate(_ metric: GitLabSummaryMetricKind) {
+        switch metric {
+        case .awaitingReview:
+            selectedSection = .reviews
+            clearFilters(for: .reviews)
+        case .assignedToMe:
+            selectedSection = .issues
+            selectedIssueTab = .assignedToMe
+            clearFilters(for: .issues)
+        case .failedPipelines:
+            selectedSection = .pipelines
+            setFilter(
+                GitLabWorkspaceFilter(statuses: [GitLabPipelineStatus.failed.rawValue]),
+                for: .pipelines
+            )
+        case .unreadNotifications:
+            selectedSection = .notifications
+            clearFilters(for: .notifications)
         }
     }
 

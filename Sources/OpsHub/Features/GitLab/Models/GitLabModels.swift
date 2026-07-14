@@ -39,6 +39,16 @@ enum GitLabSummaryMetricKind: String, CaseIterable, Identifiable, Hashable, Send
     var id: Self { self }
 }
 
+struct GitLabSummaryMetric: Identifiable, Hashable, Sendable {
+    let kind: GitLabSummaryMetricKind
+    let title: String
+    let value: Int
+    let systemImage: String
+    let semantic: GitLabStatusSemantic
+
+    var id: GitLabSummaryMetricKind { kind }
+}
+
 /// Keeps count meanings explicit instead of overloading a single badge value.
 struct GitLabCount: Equatable, Sendable {
     let total: Int

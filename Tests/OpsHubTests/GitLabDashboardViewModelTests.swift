@@ -28,6 +28,11 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
         XCTAssertEqual(viewModel.notifications.map(\.id), [303])
         XCTAssertEqual(viewModel.pipelines.map(\.id), [404])
+        XCTAssertEqual(
+            viewModel.summaryMetrics.map(\.kind),
+            [.awaitingReview, .assignedToMe, .failedPipelines, .unreadNotifications]
+        )
+        XCTAssertEqual(viewModel.summaryMetrics.map(\.value), [1, 1, 0, 1])
         XCTAssertEqual(viewModel.selectedScope, .allProjects)
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertNotNil(viewModel.lastUpdated)
@@ -97,6 +102,24 @@ final class GitLabDashboardViewModelTests: XCTestCase {
             viewModel.loadState(for: .mergeRequests),
             .failed("GitLab request failed with status 503.")
         )
+    }
+
+    @MainActor
+    func testSummaryMetricRoutesToItsSectionAndFilter() {
+        let viewModel = GitLabDashboardViewModel(service: StubGitLabService())
+
+        viewModel.activate(.failedPipelines)
+
+        XCTAssertEqual(viewModel.selectedSection, .pipelines)
+        XCTAssertEqual(
+            viewModel.filter(for: .pipelines).statuses,
+            [GitLabPipelineStatus.failed.rawValue]
+        )
+
+        viewModel.activate(.assignedToMe)
+
+        XCTAssertEqual(viewModel.selectedSection, .issues)
+        XCTAssertEqual(viewModel.selectedIssueTab, .assignedToMe)
     }
 }
 

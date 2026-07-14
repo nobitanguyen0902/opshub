@@ -1,59 +1,5 @@
 import SwiftUI
 
-/// Summary metric card used by the GitLab dashboard.
-struct StatisticCard: View {
-    @Environment(\.openURL) private var openURL
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    let icon: String
-    let title: String
-    let number: String
-    let subtitle: String
-    let webURL: URL?
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: openDashboard) {
-            VStack(alignment: .leading, spacing: 14) {
-                Image(systemName: icon)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 32, height: 32)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    Text(number)
-                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                        .monospacedDigit()
-
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-            .padding(16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .gitLabSurface(isEmphasized: isHovering)
-        .onHover { isHovering = $0 }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: isHovering)
-    }
-
-    private func openDashboard() {
-        if let webURL {
-            openURL(webURL)
-        }
-    }
-}
-
 /// List card for merge requests on the GitLab dashboard.
 struct MergeRequestsCard: View {
     let mergeRequests: [GitLabMergeRequest]
@@ -675,14 +621,6 @@ private struct IssuePriorityBadge: View {
 
 #Preview {
     VStack {
-        StatisticCard(
-            icon: "arrow.triangle.merge",
-            title: "Merge Requests",
-            number: "12",
-            subtitle: "4 waiting for review",
-            webURL: URL(string: "https://gitlab.example.com/dashboard/merge_requests")
-        )
-
         MergeRequestsCard(
             mergeRequests: [],
             isLoading: false,

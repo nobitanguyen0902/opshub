@@ -4,10 +4,6 @@ import SwiftUI
 struct GitLabDashboardView: View {
     @StateObject private var viewModel: GitLabDashboardViewModel
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 16, alignment: .top)
-    ]
-
     init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
         _viewModel = StateObject(
             wrappedValue: GitLabDashboardViewModel(
@@ -26,6 +22,11 @@ struct GitLabDashboardView: View {
                         mode: mode,
                         selection: selectedSection,
                         badgeCount: viewModel.badgeCount
+                    )
+                    GitLabSummaryStrip(
+                        metrics: viewModel.summaryMetrics,
+                        mode: mode,
+                        onSelect: viewModel.activate
                     )
                     warning
                     sectionContent
@@ -84,7 +85,6 @@ struct GitLabDashboardView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
         } else {
-            statisticGrid
             MergeRequestsCard(
                 mergeRequests: viewModel.mergeRequests,
                 isLoading: viewModel.isLoading,
@@ -179,20 +179,6 @@ struct GitLabDashboardView: View {
                 viewModel.select(id.map(GitLabWorkspaceItemID.issue))
             }
         )
-    }
-
-    private var statisticGrid: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-            ForEach(viewModel.statistics) { statistic in
-                StatisticCard(
-                    icon: statistic.icon,
-                    title: statistic.title,
-                    number: statistic.number,
-                    subtitle: statistic.subtitle,
-                    webURL: statistic.webURL
-                )
-            }
-        }
     }
 
     private var searchText: Binding<String> {
