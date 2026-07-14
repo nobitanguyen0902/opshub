@@ -5,6 +5,8 @@ import Foundation
 final class GitLabDashboardViewModel: ObservableObject {
     @Published var selection = GitLabWorkspaceSelection()
     @Published var selectedScope: GitLabProjectScope = .allProjects
+    @Published var selectedIssueTab: GitLabIssueTab = .assignedToMe
+    @Published private var sectionFilters: [GitLabWorkspaceSection: GitLabWorkspaceFilter] = [:]
     @Published private(set) var projects: [GitLabProjectSummary] = []
     @Published private(set) var statistics: [GitLabStatistic] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
@@ -34,6 +36,71 @@ final class GitLabDashboardViewModel: ObservableObject {
     var selectedSection: GitLabWorkspaceSection {
         get { selection.section }
         set { selection.section = newValue }
+    }
+
+    var visibleMergeRequests: [GitLabMergeRequest] {
+        GitLabWorkspaceFiltering.sortMergeRequests(
+            GitLabWorkspaceFiltering.mergeRequests(
+                mergeRequests,
+                scope: selectedScope,
+                filter: filter(for: .mergeRequests)
+            ),
+            by: .updatedDescending
+        )
+    }
+
+    var visibleMergeReviews: [GitLabMergeRequest] {
+        GitLabWorkspaceFiltering.sortMergeRequests(
+            GitLabWorkspaceFiltering.mergeRequests(
+                mergeReviews,
+                scope: selectedScope,
+                filter: filter(for: .reviews)
+            ),
+            by: .updatedDescending
+        )
+    }
+
+    var visibleIssues: [GitLabIssue] {
+        GitLabWorkspaceFiltering.sortIssues(
+            GitLabWorkspaceFiltering.issues(
+                issues,
+                scope: selectedScope,
+                tab: selectedIssueTab,
+                filter: filter(for: .issues)
+            )
+        )
+    }
+
+    var visibleNotifications: [GitLabNotification] {
+        GitLabWorkspaceFiltering.sortNotifications(
+            GitLabWorkspaceFiltering.notifications(
+                notifications,
+                scope: selectedScope,
+                filter: filter(for: .notifications)
+            )
+        )
+    }
+
+    var visiblePipelines: [GitLabPipeline] {
+        GitLabWorkspaceFiltering.sortPipelines(
+            GitLabWorkspaceFiltering.pipelines(
+                pipelines,
+                scope: selectedScope,
+                filter: filter(for: .pipelines)
+            )
+        )
+    }
+
+    func filter(for section: GitLabWorkspaceSection) -> GitLabWorkspaceFilter {
+        sectionFilters[section] ?? GitLabWorkspaceFilter()
+    }
+
+    func setFilter(_ filter: GitLabWorkspaceFilter, for section: GitLabWorkspaceSection) {
+        sectionFilters[section] = filter
+    }
+
+    func clearFilters(for section: GitLabWorkspaceSection) {
+        sectionFilters[section] = GitLabWorkspaceFilter()
     }
 
     func select(_ item: GitLabWorkspaceItemID?) {

@@ -105,6 +105,144 @@ enum GitLabProjectScope: Hashable, Sendable {
     }
 }
 
+/// Additional filters retained independently for each workspace section.
+struct GitLabWorkspaceFilter: Equatable, Sendable {
+    var searchText: String
+    var statuses: Set<String>
+    var labels: Set<String>
+    var participant: String?
+
+    init(
+        searchText: String = "",
+        statuses: Set<String> = [],
+        labels: Set<String> = [],
+        participant: String? = nil
+    ) {
+        self.searchText = searchText
+        self.statuses = statuses
+        self.labels = labels
+        self.participant = participant
+    }
+
+    var isEmpty: Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && statuses.isEmpty
+            && labels.isEmpty
+            && participant?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+    }
+}
+
+enum GitLabWorkspaceSort: Equatable, Sendable {
+    case actionablePriority
+    case updatedDescending
+}
+
+/// Pure collection transformations shared by the ViewModel and tests.
+enum GitLabWorkspaceFiltering {
+    static func mergeRequests(
+        _ items: [GitLabMergeRequest],
+        scope: GitLabProjectScope,
+        filter: GitLabWorkspaceFilter
+    ) -> [GitLabMergeRequest] {
+        items.filter { item in
+            scope.includes(projectName: item.project)
+                && matchesSearch(filter.searchText, values: ["!\(item.id)", item.title, item.project])
+                && matchesStatuses(filter.statuses, value: item.status.rawValue)
+                && matchesParticipant(filter.participant, value: item.authorName)
+        }
+    }
+
+    static func issues(
+        _ items: [GitLabIssue],
+        scope: GitLabProjectScope,
+        tab: GitLabIssueTab,
+        filter: GitLabWorkspaceFilter
+    ) -> [GitLabIssue] {
+        items.filter { item in
+            tab.includes(item)
+                && scope.includes(projectName: item.project)
+                && matchesSearch(filter.searchText, values: ["#\(item.id)", item.title, item.project])
+                && matchesLabels(filter.labels, values: item.labels)
+                && matchesParticipant(filter.participant, value: item.assigneeName)
+        }
+    }
+
+    static func notifications(
+        _ items: [GitLabNotification],
+        scope: GitLabProjectScope,
+        filter: GitLabWorkspaceFilter
+    ) -> [GitLabNotification] {
+        items.filter { item in
+            scope.includes(projectName: item.project)
+                && matchesSearch(filter.searchText, values: ["\(item.id)", item.title, item.project])
+                && matchesStatuses(filter.statuses, value: item.kind.rawValue)
+        }
+    }
+
+    static func pipelines(
+        _ items: [GitLabPipeline],
+        scope: GitLabProjectScope,
+        filter: GitLabWorkspaceFilter
+    ) -> [GitLabPipeline] {
+        items.filter { item in
+            scope.includes(projectName: item.project)
+                && matchesSearch(filter.searchText, values: ["\(item.id)", item.branch, item.project])
+                && matchesStatuses(filter.statuses, value: item.status.rawValue)
+        }
+    }
+
+    static func sortMergeRequests(
+        _ items: [GitLabMergeRequest],
+        by sort: GitLabWorkspaceSort
+    ) -> [GitLabMergeRequest] {
+        switch sort {
+        case .actionablePriority, .updatedDescending:
+            items.sorted { $0.id > $1.id }
+        }
+    }
+
+    static func sortIssues(_ items: [GitLabIssue]) -> [GitLabIssue] {
+        items.sorted { $0.id > $1.id }
+    }
+
+    static func sortNotifications(_ items: [GitLabNotification]) -> [GitLabNotification] {
+        items.sorted { $0.id > $1.id }
+    }
+
+    static func sortPipelines(_ items: [GitLabPipeline]) -> [GitLabPipeline] {
+        items.sorted { $0.id > $1.id }
+    }
+
+    private static func matchesSearch(_ searchText: String, values: [String]) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty == false else { return true }
+        return values.contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    private static func matchesStatuses(_ statuses: Set<String>, value: String) -> Bool {
+        guard statuses.isEmpty == false else { return true }
+        let normalizedStatuses = Set(statuses.map(normalize))
+        return normalizedStatuses.contains(normalize(value))
+    }
+
+    private static func matchesLabels(_ labels: Set<String>, values: [String]) -> Bool {
+        guard labels.isEmpty == false else { return true }
+        let normalizedValues = Set(values.map(normalize))
+        return Set(labels.map(normalize)).isSubset(of: normalizedValues)
+    }
+
+    private static func matchesParticipant(_ participant: String?, value: String?) -> Bool {
+        guard let participant else { return true }
+        let query = participant.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty == false else { return true }
+        return value?.localizedCaseInsensitiveContains(query) == true
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
 /// A summary metric shown at the top of the GitLab dashboard.
 struct GitLabStatistic: Identifiable, Hashable, Sendable {
     let icon: String
