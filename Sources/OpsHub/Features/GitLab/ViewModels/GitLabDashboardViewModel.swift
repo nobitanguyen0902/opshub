@@ -3,71 +3,374 @@ import Foundation
 /// Coordinates GitLab dashboard loading state and formatted dashboard data.
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
-    @Published private(set) var statistics: [GitLabStatistic] = []
+    @Published var selection = GitLabWorkspaceSelection()
+    @Published var selectedScope: GitLabProjectScope = .allProjects
+    @Published var selectedIssueTab: GitLabIssueTab = .assignedToMe
+    @Published private var sectionFilters: [GitLabWorkspaceSection: GitLabWorkspaceFilter] = [:]
+    @Published private(set) var projects: [GitLabProjectSummary] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
     @Published private(set) var mergeReviews: [GitLabMergeRequest] = []
     @Published private(set) var issues: [GitLabIssue] = []
     @Published private(set) var notifications: [GitLabNotification] = []
     @Published private(set) var pipelines: [GitLabPipeline] = []
+    @Published private(set) var sectionStates: [GitLabWorkspaceSection: GitLabSectionLoadState] = [:]
+    @Published private(set) var sectionUpdatedAt: [GitLabWorkspaceSection: Date] = [:]
     @Published private(set) var isLoading = false
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var loadWarning: String?
+    @Published private(set) var pipelineWarning: String?
 
     private let service: any GitLabServicing
-    private let gitLabBaseURL: URL?
+    private var loadingScope: GitLabProjectScope?
+    private var loadedScope: GitLabProjectScope?
 
     init(
-        service: any GitLabServicing = GitLabService(),
-        gitLabBaseURL: URL? = nil
+        service: any GitLabServicing = GitLabService()
     ) {
         self.service = service
-        self.gitLabBaseURL = gitLabBaseURL
     }
 
     var isEmpty: Bool {
         mergeRequests.isEmpty && mergeReviews.isEmpty && issues.isEmpty && notifications.isEmpty && pipelines.isEmpty
     }
 
+    var selectedSection: GitLabWorkspaceSection {
+        get { selection.section }
+        set { selection.section = newValue }
+    }
+
+    var searchText: String {
+        get { filter(for: selectedSection).searchText }
+        set {
+            var updatedFilter = filter(for: selectedSection)
+            updatedFilter.searchText = newValue
+            setFilter(updatedFilter, for: selectedSection)
+        }
+    }
+
+    var hasStaleData: Bool {
+        sectionStates.values.contains { state in
+            if case .stale = state { return true }
+            return false
+        }
+    }
+
+    var overviewLoadState: GitLabSectionLoadState {
+        if isLoading {
+            return isEmpty ? .initialLoading : .refreshing
+        }
+
+        let states = GitLabWorkspaceSection.allCases.map(loadState)
+        let message = loadWarning ?? "GitLab activity could not be loaded."
+        if isEmpty, states.contains(where: { if case .failed = $0 { true } else { false } }) {
+            return .failed(message)
+        }
+        if states.contains(where: {
+            if case .failed = $0 { return true }
+            if case .stale = $0 { return true }
+            return false
+        }) {
+            return .stale(message)
+        }
+        return .loaded
+    }
+
+    var summaryMetrics: [GitLabSummaryMetric] {
+        let scopedReviews = mergeReviews.filter { selectedScope.includes(projectName: $0.project) }
+        let assignedIssues = issues.filter {
+            $0.isAssignedToMe && selectedScope.includes(projectName: $0.project)
+        }
+        let failedPipelines = pipelines.filter {
+            $0.status == .failed && selectedScope.includes(projectName: $0.project)
+        }
+        let pendingNotifications = notifications.filter {
+            selectedScope.includes(projectName: $0.project)
+        }
+
+        return [
+            GitLabSummaryMetric(
+                kind: .awaitingReview,
+                title: "Waiting for my review",
+                value: scopedReviews.count,
+                systemImage: "checkmark.bubble",
+                semantic: .warning
+            ),
+            GitLabSummaryMetric(
+                kind: .assignedToMe,
+                title: "Assigned to me",
+                value: assignedIssues.count,
+                systemImage: "person.crop.circle.badge.checkmark",
+                semantic: .information
+            ),
+            GitLabSummaryMetric(
+                kind: .failedPipelines,
+                title: "Failed pipelines",
+                value: failedPipelines.count,
+                systemImage: "xmark.circle",
+                semantic: .error
+            ),
+            GitLabSummaryMetric(
+                kind: .pendingNotifications,
+                title: "Pending",
+                value: pendingNotifications.count,
+                systemImage: "bell.badge",
+                semantic: .information
+            )
+        ]
+    }
+
+    var actionQueue: [GitLabWorkItemPresentation] {
+        filterOverview(GitLabActionQueueBuilder.build(
+            reviews: mergeReviews,
+            issues: issues,
+            pipelines: pipelines,
+            notifications: notifications,
+            scope: selectedScope
+        ))
+    }
+
+    var mergeRequestPreview: [GitLabWorkItemPresentation] {
+        let scopedItems = mergeRequests.filter { selectedScope.includes(projectName: $0.project) }
+        let presentations = GitLabWorkspaceFiltering.sortMergeRequests(scopedItems, by: .updatedDescending).map {
+            GitLabWorkItemPresentation(mergeRequest: $0, context: .mergeRequest)
+        }
+        return Array(filterOverview(presentations).prefix(5))
+    }
+
+    var pipelinePreview: [GitLabWorkItemPresentation] {
+        let scopedItems = pipelines.filter { selectedScope.includes(projectName: $0.project) }
+        let presentations = GitLabWorkspaceFiltering.sortPipelines(scopedItems)
+            .map(GitLabWorkItemPresentation.init(pipeline:))
+        return Array(filterOverview(presentations).prefix(5))
+    }
+
+    var visibleMergeRequests: [GitLabMergeRequest] {
+        GitLabWorkspaceFiltering.sortMergeRequests(
+            GitLabWorkspaceFiltering.mergeRequests(
+                mergeRequests,
+                scope: selectedScope,
+                filter: filter(for: .mergeRequests)
+            ),
+            by: .updatedDescending
+        )
+    }
+
+    var visibleMergeReviews: [GitLabMergeRequest] {
+        GitLabWorkspaceFiltering.sortMergeRequests(
+            GitLabWorkspaceFiltering.mergeRequests(
+                mergeReviews,
+                scope: selectedScope,
+                filter: filter(for: .reviews)
+            ),
+            by: .updatedDescending
+        )
+    }
+
+    var visibleIssues: [GitLabIssue] {
+        GitLabWorkspaceFiltering.sortIssues(
+            GitLabWorkspaceFiltering.issues(
+                issues,
+                scope: selectedScope,
+                tab: selectedIssueTab,
+                filter: filter(for: .issues)
+            )
+        )
+    }
+
+    var visiblePipelines: [GitLabPipeline] {
+        GitLabWorkspaceFiltering.sortPipelines(
+            GitLabWorkspaceFiltering.pipelines(
+                pipelines,
+                scope: selectedScope,
+                filter: filter(for: .pipelines)
+            )
+        )
+    }
+
+    func filter(for section: GitLabWorkspaceSection) -> GitLabWorkspaceFilter {
+        sectionFilters[section] ?? GitLabWorkspaceFilter()
+    }
+
+    func setFilter(_ filter: GitLabWorkspaceFilter, for section: GitLabWorkspaceSection) {
+        sectionFilters[section] = filter
+    }
+
+    func clearFilters(for section: GitLabWorkspaceSection) {
+        sectionFilters[section] = GitLabWorkspaceFilter()
+    }
+
+    func loadState(for section: GitLabWorkspaceSection) -> GitLabSectionLoadState {
+        sectionStates[section] ?? .idle
+    }
+
+    func badgeCount(for section: GitLabWorkspaceSection) -> Int {
+        switch section {
+        case .overview:
+            0
+        case .mergeRequests:
+            visibleMergeRequests.count
+        case .reviews:
+            visibleMergeReviews.count
+        case .issues:
+            visibleIssues.count
+        case .pipelines:
+            visiblePipelines.filter { $0.status == .failed }.count
+        }
+    }
+
+    func activate(_ metric: GitLabSummaryMetricKind) {
+        switch metric {
+        case .awaitingReview:
+            selectedSection = .reviews
+            clearFilters(for: .reviews)
+        case .assignedToMe:
+            selectedSection = .issues
+            selectedIssueTab = .assignedToMe
+            clearFilters(for: .issues)
+        case .failedPipelines:
+            selectedSection = .pipelines
+            setFilter(
+                GitLabWorkspaceFilter(statuses: [GitLabPipelineStatus.failed.rawValue]),
+                for: .pipelines
+            )
+        case .pendingNotifications:
+            selectedSection = .overview
+            clearFilters(for: .overview)
+        }
+    }
+
+    func select(_ item: GitLabWorkspaceItemID?) {
+        selection.item = item
+    }
+
     func loadDashboard() async {
+        let scope = selectedScope
+        guard loadedScope != scope else { return }
         await refresh()
     }
 
     func refresh() async {
+        let scope = selectedScope
+        guard loadingScope != scope else { return }
+        loadingScope = scope
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if loadingScope == scope {
+                loadingScope = nil
+                isLoading = false
+            }
+        }
 
-        async let mergeRequestsTask = loadSection { try await self.service.mergeRequests() }
-        async let mergeReviewsTask = loadSection { try await self.service.mergeReviews() }
-        async let issuesTask = loadSection { try await self.service.issues() }
-        async let notificationsTask = loadSection { try await self.service.notifications() }
-        async let pipelinesTask = loadSection { try await self.service.pipelines() }
+        await service.invalidateProjectCatalog()
 
+        beginLoading(.mergeRequests, hasData: mergeRequests.isEmpty == false)
+        beginLoading(.reviews, hasData: mergeReviews.isEmpty == false)
+        beginLoading(.issues, hasData: issues.isEmpty == false)
+        beginLoading(.overview, hasData: notifications.isEmpty == false)
+        beginLoading(.pipelines, hasData: pipelines.isEmpty == false)
+
+        async let projectsTask = loadSection { try await self.service.projects() }
+        async let mergeRequestsTask = loadSection { try await self.service.mergeRequests(scope: scope) }
+        async let mergeReviewsTask = loadSection { try await self.service.mergeReviews(scope: scope) }
+        async let issuesTask = loadSection { try await self.service.issues(scope: scope) }
+        async let notificationsTask = loadSection { try await self.service.notifications(scope: scope) }
+        async let pipelinesTask = loadSection { try await self.service.pipelineBatch(scope: scope) }
+
+        let projectsResult = await projectsTask
         let mergeRequestsResult = await mergeRequestsTask
         let mergeReviewsResult = await mergeReviewsTask
         let issuesResult = await issuesTask
         let notificationsResult = await notificationsTask
         let pipelinesResult = await pipelinesTask
 
-        mergeRequests = mergeRequestsResult.value ?? []
-        mergeReviews = mergeReviewsResult.value ?? []
-        issues = issuesResult.value ?? []
-        notifications = notificationsResult.value ?? []
-        pipelines = pipelinesResult.value ?? []
+        guard selectedScope == scope else { return }
+
+        if let loadedProjects = projectsResult.value {
+            projects = loadedProjects
+        }
+        let mergeRequestsSucceeded = apply(
+            mergeRequestsResult,
+            section: .mergeRequests,
+            hadData: mergeRequests.isEmpty == false
+        ) { mergeRequests = $0 }
+        let mergeReviewsSucceeded = apply(
+            mergeReviewsResult,
+            section: .reviews,
+            hadData: mergeReviews.isEmpty == false
+        ) { mergeReviews = $0 }
+        let issuesSucceeded = apply(
+            issuesResult,
+            section: .issues,
+            hadData: issues.isEmpty == false
+        ) { issues = $0 }
+        let notificationsSucceeded = apply(
+            notificationsResult,
+            section: .overview,
+            hadData: notifications.isEmpty == false
+        ) { notifications = $0 }
+        let pipelinesSucceeded = apply(
+            pipelinesResult,
+            section: .pipelines,
+            hadData: pipelines.isEmpty == false
+        ) { batch in
+            pipelines = batch.pipelines
+            pipelineWarning = batch.failedProjects.isEmpty
+                ? nil
+                : "Could not load pipelines for: \(batch.failedProjects.joined(separator: ", "))."
+        }
         loadWarning = loadWarning(for: [
+            projectsResult.error,
             mergeRequestsResult.error,
             mergeReviewsResult.error,
             issuesResult.error,
             notificationsResult.error,
             pipelinesResult.error
         ])
-        statistics = makeStatistics(
-            mergeRequests: mergeRequests,
-            mergeReviews: mergeReviews,
-            issues: issues,
-            notifications: notifications,
-            pipelines: pipelines
-        )
-        lastUpdated = .now
+        if projectsResult.value != nil
+            || mergeRequestsSucceeded
+            || mergeReviewsSucceeded
+            || issuesSucceeded
+            || notificationsSucceeded
+            || pipelinesSucceeded {
+            lastUpdated = .now
+            loadedScope = scope
+        }
+    }
+
+    private func beginLoading(_ section: GitLabWorkspaceSection, hasData: Bool) {
+        sectionStates[section] = hasData ? .refreshing : .initialLoading
+    }
+
+    private func filterOverview(
+        _ items: [GitLabWorkItemPresentation]
+    ) -> [GitLabWorkItemPresentation] {
+        let query = filter(for: .overview).searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty == false else { return items }
+        return items.filter { item in
+            [item.reference, item.title, item.project, item.status.title]
+                .contains { $0.localizedCaseInsensitiveContains(query) }
+        }
+    }
+
+    @discardableResult
+    private func apply<Value: Sendable>(
+        _ result: Result<Value, any Error>,
+        section: GitLabWorkspaceSection,
+        hadData: Bool,
+        assign: (Value) -> Void
+    ) -> Bool {
+        switch result {
+        case let .success(value):
+            assign(value)
+            sectionStates[section] = .loaded
+            sectionUpdatedAt[section] = .now
+            return true
+        case let .failure(error):
+            let message = errorMessage(error)
+            sectionStates[section] = hadData ? .stale(message) : .failed(message)
+            return false
+        }
     }
 
     private func loadSection<Value: Sendable>(
@@ -93,83 +396,10 @@ final class GitLabDashboardViewModel: ObservableObject {
         return "Some GitLab sections could not be loaded."
     }
 
-    private func makeStatistics(
-        mergeRequests: [GitLabMergeRequest],
-        mergeReviews: [GitLabMergeRequest],
-        issues: [GitLabIssue],
-        notifications: [GitLabNotification],
-        pipelines: [GitLabPipeline]
-    ) -> [GitLabStatistic] {
-        let failedPipelines = pipelines.filter { $0.status == .failed }.count
-        let reviewRequests = notifications.filter { $0.kind == .reviewRequested }.count
-
-        return [
-            GitLabStatistic(
-                icon: "arrow.triangle.merge",
-                title: "Merge Requests",
-                number: "\(mergeRequests.count)",
-                subtitle: "Assigned open merge requests",
-                webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
-                    URLQueryItem(name: "scope", value: "assigned_to_me"),
-                    URLQueryItem(name: "state", value: "opened")
-                ])
-            ),
-            GitLabStatistic(
-                icon: "checkmark.bubble",
-                title: "Merge Review",
-                number: "\(mergeReviews.count)",
-                subtitle: "Open merge requests awaiting your review",
-                webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
-                    URLQueryItem(name: "scope", value: "reviews_for_me"),
-                    URLQueryItem(name: "state", value: "opened")
-                ])
-            ),
-            GitLabStatistic(
-                icon: "exclamationmark.circle",
-                title: "Issues",
-                number: "\(issues.count)",
-                subtitle: "Assigned open issues",
-                webURL: dashboardURL(path: "dashboard/issues", queryItems: [
-                    URLQueryItem(name: "scope", value: "assigned_to_me"),
-                    URLQueryItem(name: "state", value: "opened")
-                ])
-            ),
-            GitLabStatistic(
-                icon: "bell.badge",
-                title: "Notifications",
-                number: "\(notifications.count)",
-                subtitle: "\(reviewRequests) review requests",
-                webURL: dashboardURL(path: "dashboard/todos")
-            ),
-            GitLabStatistic(
-                icon: "play.circle",
-                title: "Pipelines",
-                number: "\(pipelines.count)",
-                subtitle: "\(failedPipelines) failed pipelines",
-                webURL: dashboardURL(path: "-/pipelines")
-            )
-        ]
+    private func errorMessage(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    private func dashboardURL(
-        path: String,
-        queryItems: [URLQueryItem] = []
-    ) -> URL? {
-        guard
-            let gitLabBaseURL,
-            var components = URLComponents(url: gitLabBaseURL, resolvingAgainstBaseURL: false)
-        else {
-            return nil
-        }
-
-        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let dashboardPath = [basePath, path]
-            .filter { $0.isEmpty == false }
-            .joined(separator: "/")
-        components.path = "/\(dashboardPath)"
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        return components.url
-    }
 }
 
 private extension Result {

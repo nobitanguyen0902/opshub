@@ -2,13 +2,49 @@ import Foundation
 
 /// Provides GitLab dashboard data and settings validation.
 protocol GitLabServicing: Sendable {
-    func dashboardStatistics() async throws -> [GitLabStatistic]
+    func projects() async throws -> [GitLabProjectSummary]
+    func invalidateProjectCatalog() async
     func mergeRequests() async throws -> [GitLabMergeRequest]
+    func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest]
     func mergeReviews() async throws -> [GitLabMergeRequest]
+    func mergeReviews(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest]
     func issues() async throws -> [GitLabIssue]
+    func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue]
     func notifications() async throws -> [GitLabNotification]
+    func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification]
     func pipelines() async throws -> [GitLabPipeline]
+    func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline]
+    func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult
+}
+
+extension GitLabServicing {
+    func projects() async throws -> [GitLabProjectSummary] { [] }
+    func invalidateProjectCatalog() async {}
+
+    func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeRequests().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func mergeReviews(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeReviews().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue] {
+        try await issues().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification] {
+        try await notifications().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline] {
+        try await pipelines().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch {
+        GitLabPipelineBatch(pipelines: try await pipelines(scope: scope), failedProjects: [])
+    }
 }
 
 /// Minimal HTTP client abstraction used by the GitLab REST service and tests.
@@ -18,13 +54,56 @@ protocol GitLabHTTPClient: Sendable {
 
 extension URLSession: GitLabHTTPClient {}
 
+private actor GitLabProjectCatalogCache {
+    private var loadTask: Task<[GitLabProject], any Error>?
+    private var value: [GitLabProject]?
+    private var generation = 0
+
+    func invalidate() {
+        generation += 1
+        loadTask?.cancel()
+        loadTask = nil
+        value = nil
+    }
+
+    func load(
+        operation: @escaping @Sendable () async throws -> [GitLabProject]
+    ) async throws -> [GitLabProject] {
+        if let value {
+            return value
+        }
+
+        if let loadTask {
+            return try await loadTask.value
+        }
+
+        let loadGeneration = generation
+        let task = Task { try await operation() }
+        loadTask = task
+        defer {
+            if generation == loadGeneration {
+                loadTask = nil
+            }
+        }
+        let loadedValue = try await task.value
+        if generation == loadGeneration {
+            value = loadedValue
+        }
+        return loadedValue
+    }
+}
+
+private enum GitLabPipelineProjectResult: Sendable {
+    case success([GitLabPipeline])
+    case failure(String)
+}
+
 /// GitLab REST-backed dashboard data source.
 struct GitLabService: GitLabServicing, @unchecked Sendable {
     private let settingsStore: any GitLabSettingsStoring
     private let httpClient: any GitLabHTTPClient
-    private let decoder: JSONDecoder
-    private let isoDateFormatter: ISO8601DateFormatter
     private let now: @Sendable () -> Date
+    private let projectCatalogCache: GitLabProjectCatalogCache
 
     init(
         settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
@@ -34,71 +113,32 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         self.settingsStore = settingsStore
         self.httpClient = httpClient
         self.now = now
-        decoder = JSONDecoder()
-        isoDateFormatter = ISO8601DateFormatter()
-        isoDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        projectCatalogCache = GitLabProjectCatalogCache()
     }
 
-    func dashboardStatistics() async throws -> [GitLabStatistic] {
-        async let loadedMergeRequests = mergeRequests()
-        async let loadedMergeReviews = mergeReviews()
-        async let loadedIssues = issues()
-        async let loadedNotifications = notifications()
-        async let loadedPipelines = pipelines()
+    func projects() async throws -> [GitLabProjectSummary] {
+        let projects = try await loadProjectCatalog()
+        return projects.map(mapProjectSummary)
+    }
 
-        let mergeRequests = try await loadedMergeRequests
-        let mergeReviews = try await loadedMergeReviews
-        let issues = try await loadedIssues
-        let notifications = try await loadedNotifications
-        let pipelines = try await loadedPipelines
-        let failedPipelines = pipelines.filter { $0.status == .failed }.count
-        let reviewRequests = notifications.filter { $0.kind == .reviewRequested }.count
-
-        return [
-            GitLabStatistic(
-                icon: "arrow.triangle.merge",
-                title: "Merge Requests",
-                number: "\(mergeRequests.count)",
-                subtitle: "Assigned open merge requests",
-                webURL: nil
-            ),
-            GitLabStatistic(
-                icon: "checkmark.bubble",
-                title: "Merge Review",
-                number: "\(mergeReviews.count)",
-                subtitle: "Open merge requests awaiting your review",
-                webURL: nil
-            ),
-            GitLabStatistic(
-                icon: "exclamationmark.circle",
-                title: "Issues",
-                number: "\(issues.count)",
-                subtitle: "Assigned open issues",
-                webURL: nil
-            ),
-            GitLabStatistic(
-                icon: "bell.badge",
-                title: "Notifications",
-                number: "\(notifications.count)",
-                subtitle: "\(reviewRequests) review requests",
-                webURL: nil
-            ),
-            GitLabStatistic(
-                icon: "play.circle",
-                title: "Pipelines",
-                number: "\(pipelines.count)",
-                subtitle: "\(failedPipelines) failed pipelines",
-                webURL: nil
-            )
-        ]
+    func invalidateProjectCatalog() async {
+        await projectCatalogCache.invalidate()
     }
 
     func mergeRequests() async throws -> [GitLabMergeRequest] {
         try await mergeRequests(scope: "assigned_to_me")
     }
 
+    func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeRequests().filter { scope.includes(projectName: $0.project) }
+    }
+
     func mergeReviews() async throws -> [GitLabMergeRequest] {
         try await mergeRequests(scope: "reviews_for_me")
+    }
+
+    func mergeReviews(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeReviews().filter { scope.includes(projectName: $0.project) }
     }
 
     private func mergeRequests(scope: String) async throws -> [GitLabMergeRequest] {
@@ -162,11 +202,15 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         }
     }
 
+    func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue] {
+        try await issues().filter { scope.includes(projectName: $0.project) }
+    }
+
     private func issueUpdatedAfterDate() -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let oneMonthAgo = calendar.date(byAdding: .month, value: -1, to: now()) ?? now()
-        return isoDateFormatter.string(from: oneMonthAgo)
+        return isoDateString(from: oneMonthAgo)
     }
 
     func notifications() async throws -> [GitLabNotification] {
@@ -183,40 +227,94 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         return response.map(mapNotification)
     }
 
+    func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification] {
+        try await notifications().filter { scope.includes(projectName: $0.project) }
+    }
+
     func pipelines() async throws -> [GitLabPipeline] {
+        try await pipelines(scope: .allProjects)
+    }
+
+    func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline] {
+        try await pipelineBatch(scope: scope).pipelines
+    }
+
+    func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch {
         let settings = try configuredSettings()
-        let projectsRequest = try makeRequest(
-            settings: settings,
-            path: "projects",
-            queryItems: [
-                URLQueryItem(name: "membership", value: "true"),
-                URLQueryItem(name: "simple", value: "true"),
-                URLQueryItem(name: "order_by", value: "last_activity_at"),
-                URLQueryItem(name: "sort", value: "desc"),
-                URLQueryItem(name: "per_page", value: "10")
-            ]
-        )
-        let projects: [GitLabProject] = try await send(projectsRequest)
+        let loadedProjects = try await loadProjectCatalog()
+        let projects = loadedProjects.filter { project in
+            scope.includes(projectName: projectDisplayName(project))
+        }
+        let results = try await withThrowingTaskGroup(of: GitLabPipelineProjectResult.self) { group in
+            for project in projects.prefix(5) {
+                let request = try makeRequest(
+                    settings: settings,
+                    path: "projects/\(project.id)/pipelines",
+                    queryItems: [URLQueryItem(name: "per_page", value: "5")]
+                )
+                let projectName = projectDisplayName(project)
+                group.addTask {
+                    do {
+                        let response: [GitLabRESTPipeline] = try await send(request)
+                        return .success(response.map { mapPipeline($0, project: project) })
+                    } catch {
+                        return .failure(projectName)
+                    }
+                }
+            }
+
+            var values: [GitLabPipelineProjectResult] = []
+            for try await result in group { values.append(result) }
+            return values
+        }
         var pipelines: [GitLabPipeline] = []
-
-        for project in projects.prefix(5) {
-            let request = try makeRequest(
-                settings: settings,
-                path: "projects/\(project.id)/pipelines",
-                queryItems: [
-                    URLQueryItem(name: "per_page", value: "5")
-                ]
-            )
-
-            do {
-                let response: [GitLabRESTPipeline] = try await send(request)
-                pipelines.append(contentsOf: response.map { mapPipeline($0, project: project) })
-            } catch {
-                continue
+        var failedProjects: [String] = []
+        for result in results {
+            switch result {
+            case let .success(values): pipelines.append(contentsOf: values)
+            case let .failure(project): failedProjects.append(project)
             }
         }
 
-        return Array(pipelines.sorted { $0.id > $1.id }.prefix(20))
+        return GitLabPipelineBatch(
+            pipelines: Array(pipelines.sorted { $0.id > $1.id }.prefix(20)),
+            failedProjects: failedProjects.sorted()
+        )
+    }
+
+    private func loadProjectCatalog() async throws -> [GitLabProject] {
+        try await projectCatalogCache.load {
+            let settings = try configuredSettings()
+            let request = try makeRequest(
+                settings: settings,
+                path: "projects",
+                queryItems: [
+                    URLQueryItem(name: "membership", value: "true"),
+                    URLQueryItem(name: "simple", value: "true"),
+                    URLQueryItem(name: "order_by", value: "last_activity_at"),
+                    URLQueryItem(name: "sort", value: "desc"),
+                    URLQueryItem(name: "per_page", value: "100")
+                ]
+            )
+            let projects: [GitLabProject] = try await sendAllPages(request)
+            return projects
+        }
+    }
+
+    private func mapProjectSummary(_ project: GitLabProject) -> GitLabProjectSummary {
+        GitLabProjectSummary(
+            id: project.id,
+            nameWithNamespace: projectDisplayName(project),
+            webURL: project.webUrl
+        )
+    }
+
+    private func projectDisplayName(_ project: GitLabProject) -> String {
+        project.nameWithNamespace
+            ?? project.pathWithNamespace
+            ?? project.name
+            ?? project.path
+            ?? "Project #\(project.id)"
     }
 
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult {
@@ -321,7 +419,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200..<300:
-            return try decoder.decode(Response.self, from: data)
+            return try JSONDecoder().decode(Response.self, from: data)
         case 401, 403:
             throw GitLabServiceError.unauthorized
         default:
@@ -341,7 +439,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
 
             switch httpResponse.statusCode {
             case 200..<300:
-                values.append(contentsOf: try decoder.decode([Response].self, from: data))
+                values.append(contentsOf: try JSONDecoder().decode([Response].self, from: data))
             case 401, 403:
                 throw GitLabServiceError.unauthorized
             default:
@@ -370,12 +468,14 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
 
     private func mapMergeRequest(_ mergeRequest: GitLabRESTMergeRequest) -> GitLabMergeRequest {
         GitLabMergeRequest(
-            id: mergeRequest.iid ?? mergeRequest.id,
+            id: mergeRequest.id,
+            iid: mergeRequest.iid,
             title: mergeRequest.title,
             project: projectName(from: mergeRequest.references, projectId: mergeRequest.projectId),
             status: mergeRequestStatus(for: mergeRequest),
             authorName: mergeRequest.author?.name ?? mergeRequest.author?.username,
             authorAvatarURL: mergeRequest.author?.avatarUrl,
+            updatedAt: date(from: mergeRequest.updatedAt),
             updatedTime: relativeTime(from: mergeRequest.updatedAt),
             webURL: mergeRequest.webUrl
         )
@@ -387,7 +487,8 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         isWorkflowProject: Bool
     ) -> GitLabIssue {
         GitLabIssue(
-            id: issue.iid ?? issue.id,
+            id: issue.id,
+            iid: issue.iid,
             title: issue.title,
             project: projectName(from: issue.references, projectId: issue.projectId),
             priority: issuePriority(for: issue.labels.map(\.name)),
@@ -399,19 +500,47 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             isWorkflowProject: isWorkflowProject,
             assigneeName: issue.assignees.first?.name ?? issue.assignees.first?.username,
             assigneeAvatarURL: issue.assignees.first?.avatarUrl,
+            updatedAt: date(from: issue.updatedAt),
             updatedTime: relativeTime(from: issue.updatedAt),
             webURL: issue.webUrl
         )
     }
 
     private func mapNotification(_ notification: GitLabRESTNotification) -> GitLabNotification {
-        GitLabNotification(
+        let project = notification.project?.nameWithNamespace ?? notification.project?.name ?? "GitLab"
+        return GitLabNotification(
             id: notification.id,
             title: notification.target?.title ?? notification.body ?? notification.actionName ?? "GitLab notification",
-            project: notification.project?.nameWithNamespace ?? notification.project?.name ?? "GitLab",
+            project: project,
             kind: notificationKind(for: notification),
-            updatedTime: relativeTime(from: notification.createdAt)
+            authorName: notification.author?.name ?? notification.author?.username,
+            authorAvatarURL: notification.author?.avatarUrl,
+            updatedAt: date(from: notification.createdAt),
+            updatedTime: relativeTime(from: notification.createdAt),
+            webURL: notification.targetUrl ?? notification.target?.url,
+            targetResourceKey: notificationResourceKey(notification, project: project)
         )
+    }
+
+    private func notificationResourceKey(
+        _ notification: GitLabRESTNotification,
+        project: String
+    ) -> GitLabResourceKey? {
+        guard let targetID = notification.target?.id else { return nil }
+        let targetType = (notification.targetType ?? notification.target?.type ?? "")
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+        let kind: GitLabResourceKind
+        if targetType.contains("mergerequest") {
+            kind = .mergeRequest
+        } else if targetType.contains("issue") {
+            kind = .issue
+        } else if targetType.contains("pipeline") {
+            kind = .pipeline
+        } else {
+            return nil
+        }
+        return GitLabResourceKey(kind: kind, project: project, id: targetID)
     }
 
     private func mapPipeline(_ pipeline: GitLabRESTPipeline, project: GitLabProject) -> GitLabPipeline {
@@ -420,7 +549,11 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             project: project.nameWithNamespace ?? project.name ?? "Project #\(project.id)",
             branch: pipeline.ref ?? "-",
             status: pipelineStatus(for: pipeline.status),
-            updatedTime: relativeTime(from: pipeline.updatedAt ?? pipeline.createdAt)
+            userName: pipeline.user?.name ?? pipeline.user?.username,
+            userAvatarURL: pipeline.user?.avatarUrl,
+            updatedAt: date(from: pipeline.updatedAt ?? pipeline.createdAt),
+            updatedTime: relativeTime(from: pipeline.updatedAt ?? pipeline.createdAt),
+            webURL: pipeline.webUrl
         )
     }
 
@@ -518,12 +651,27 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             return "-"
         }
 
-        let date = isoDateFormatter.date(from: dateString) ?? ISO8601DateFormatter().date(from: dateString)
+        let date = date(from: dateString)
         guard let date else {
             return dateString
         }
 
         return date.formatted(.relative(presentation: .named))
+    }
+
+    private func date(from dateString: String?) -> Date? {
+        guard let dateString else { return nil }
+        return makeISODateFormatter().date(from: dateString) ?? ISO8601DateFormatter().date(from: dateString)
+    }
+
+    private func isoDateString(from date: Date) -> String {
+        makeISODateFormatter().string(from: date)
+    }
+
+    private func makeISODateFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
     }
 }
 

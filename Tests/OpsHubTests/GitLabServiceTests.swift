@@ -3,6 +3,100 @@ import XCTest
 @testable import OpsHub
 
 final class GitLabServiceTests: XCTestCase {
+    func testProjectsLoadsEveryMembershipProjectPageAndMapsFallbackName() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7,"name":"opshub","name_with_namespace":"ops/opshub"}]"#,
+                headers: ["X-Next-Page": "2"]
+            ),
+            "/api/v4/projects?page=2": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":8,"name":"worker"}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let projects = try await service.projects()
+
+        XCTAssertEqual(projects.map(\.id), [7, 8])
+        XCTAssertEqual(projects.map(\.nameWithNamespace), ["ops/opshub", "worker"])
+        XCTAssertEqual(httpClient.requests.count, 2)
+    }
+
+    func testScopedMergeRequestsFiltersLoadedItemsByProject() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/merge_requests": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {"id":1001,"iid":41,"title":"OpsHub","references":{"full":"ops/opshub!41"}},
+                  {"id":1002,"iid":42,"title":"Worker","references":{"full":"ops/worker!42"}}
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+        let scope = GitLabProjectScope.project(
+            GitLabProjectSummary(id: 7, nameWithNamespace: "ops/opshub", webURL: nil)
+        )
+
+        let mergeRequests = try await service.mergeRequests(scope: scope)
+
+        XCTAssertEqual(mergeRequests.map(\.id), [1001])
+        XCTAssertEqual(mergeRequests.map(\.iid), [41])
+    }
+
+    func testProjectsAndPipelinesReuseTheMembershipProjectCatalog() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7,"name":"opshub","name_with_namespace":"ops/opshub"}]"#
+            ),
+            "/api/v4/projects/7/pipelines": StubHTTPResponse(statusCode: 200, body: "[]")
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        _ = try await service.projects()
+        _ = try await service.pipelines()
+
+        XCTAssertEqual(
+            httpClient.requests.filter { $0.url?.path == "/api/v4/projects" }.count,
+            1
+        )
+    }
+
+    func testInvalidatingProjectCatalogCausesNextLoadToRefreshMembershipProjects() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7,"name":"opshub","name_with_namespace":"ops/opshub"}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        _ = try await service.projects()
+        await service.invalidateProjectCatalog()
+        _ = try await service.projects()
+
+        XCTAssertEqual(
+            httpClient.requests.filter { $0.url?.path == "/api/v4/projects" }.count,
+            2
+        )
+    }
+
     func testConnectionCallsGitLabUserEndpointWithPrivateToken() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/user": StubHTTPResponse(statusCode: 200, body: #"{"id":1}"#)
@@ -62,7 +156,8 @@ final class GitLabServiceTests: XCTestCase {
         let mergeRequests = try await service.mergeRequests()
 
         XCTAssertEqual(mergeRequests.count, 1)
-        XCTAssertEqual(mergeRequests.first?.id, 42)
+        XCTAssertEqual(mergeRequests.first?.id, 1001)
+        XCTAssertEqual(mergeRequests.first?.iid, 42)
         XCTAssertEqual(mergeRequests.first?.title, "Wire GitLab REST service")
         XCTAssertEqual(mergeRequests.first?.project, "ops/opshub")
         XCTAssertEqual(mergeRequests.first?.status, .reviewing)
@@ -121,7 +216,8 @@ final class GitLabServiceTests: XCTestCase {
 
         let mergeReviews = try await service.mergeReviews()
 
-        XCTAssertEqual(mergeReviews.map(\.id), [43])
+        XCTAssertEqual(mergeReviews.map(\.id), [1002])
+        XCTAssertEqual(mergeReviews.map(\.iid), [43])
         XCTAssertEqual(mergeReviews.first?.title, "Review GitLab dashboard changes")
         let request = try XCTUnwrap(httpClient.requests.first)
         XCTAssertEqual(request.url?.path, "/api/v4/merge_requests")
@@ -211,7 +307,8 @@ final class GitLabServiceTests: XCTestCase {
         let issues = try await service.issues()
 
         XCTAssertEqual(issues.count, 2)
-        XCTAssertEqual(issues.first?.id, 77)
+        XCTAssertEqual(issues.first?.id, 2002)
+        XCTAssertEqual(issues.first?.iid, 77)
         XCTAssertEqual(issues.first?.title, "Make dashboard rows open GitLab")
         XCTAssertEqual(issues.first?.project, "ops/opshub")
         XCTAssertEqual(issues.first?.priority, .high)
@@ -279,8 +376,44 @@ final class GitLabServiceTests: XCTestCase {
 
         let issues = try await service.issues()
 
-        XCTAssertEqual(issues.map(\.id), [1, 2])
+        XCTAssertEqual(issues.map(\.id), [3001, 3002])
+        XCTAssertEqual(issues.map(\.iid), [1, 2])
         XCTAssertTrue(issues.allSatisfy(\.isWorkflowProject))
+    }
+
+    func testNotificationsMapAuthorTimestampAndTargetURL() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/todos": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 303,
+                    "action_name": "review requested",
+                    "target_type": "MergeRequest",
+                    "target_url": "https://gitlab.example.com/ops/opshub/-/merge_requests/42",
+                    "created_at": "2026-06-25T02:00:00.000Z",
+                    "author": {"id":9,"name":"Reviewer"},
+                    "project": {"id":7,"name":"opshub","name_with_namespace":"ops/opshub"},
+                    "target": {"id":42,"title":"Review dashboard"}
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let notifications = try await service.notifications()
+
+        XCTAssertEqual(notifications.first?.authorName, "Reviewer")
+        XCTAssertNotNil(notifications.first?.updatedAt)
+        XCTAssertEqual(
+            notifications.first?.webURL?.absoluteString,
+            "https://gitlab.example.com/ops/opshub/-/merge_requests/42"
+        )
     }
 
     func testPipelinesLoadFromRecentMembershipProjects() async throws {
@@ -306,6 +439,7 @@ final class GitLabServiceTests: XCTestCase {
                     "project_id": 7,
                     "ref": "main",
                     "status": "failed",
+                    "web_url": "https://gitlab.example.com/ops/opshub/-/pipelines/9001",
                     "updated_at": "2026-06-25T02:00:00.000Z"
                   }
                 ]
@@ -324,13 +458,18 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(pipelines.first?.project, "ops/opshub")
         XCTAssertEqual(pipelines.first?.branch, "main")
         XCTAssertEqual(pipelines.first?.status, .failed)
+        XCTAssertNotNil(pipelines.first?.updatedAt)
+        XCTAssertEqual(
+            pipelines.first?.webURL?.absoluteString,
+            "https://gitlab.example.com/ops/opshub/-/pipelines/9001"
+        )
         XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
             "/api/v4/projects",
             "/api/v4/projects/7/pipelines"
         ])
     }
 
-    func testPipelinesSkipsProjectsThatCannotLoadPipelines() async throws {
+    func testPipelineBatchKeepsSuccessfulProjectsAndReportsPartialFailures() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/projects": StubHTTPResponse(
                 statusCode: 200,
@@ -373,10 +512,11 @@ final class GitLabServiceTests: XCTestCase {
             httpClient: httpClient
         )
 
-        let pipelines = try await service.pipelines()
+        let batch = try await service.pipelineBatch(scope: .allProjects)
 
-        XCTAssertEqual(pipelines.map(\.id), [9002])
-        XCTAssertEqual(pipelines.first?.project, "ops/private-service")
+        XCTAssertEqual(batch.pipelines.map(\.id), [9002])
+        XCTAssertEqual(batch.pipelines.first?.project, "ops/private-service")
+        XCTAssertEqual(batch.failedProjects, ["ops/opshub"])
         XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
             "/api/v4/projects",
             "/api/v4/projects/7/pipelines",

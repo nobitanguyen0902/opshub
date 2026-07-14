@@ -2,83 +2,56 @@ import SwiftUI
 
 /// Main GitLab dashboard screen with summary metrics and work item lists.
 struct GitLabDashboardView: View {
-    @StateObject private var viewModel: GitLabDashboardViewModel
-    @State private var selectedMergeRequestID: GitLabMergeRequest.ID?
-    @State private var selectedMergeReviewID: GitLabMergeRequest.ID?
-    @State private var selectedIssueID: GitLabIssue.ID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var viewModel: GitLabDashboardViewModel
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 16, alignment: .top)
-    ]
-
-    init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
-        _viewModel = StateObject(
-            wrappedValue: GitLabDashboardViewModel(
-                service: GitLabService(settingsStore: settingsStore),
-                gitLabBaseURL: URL(string: settingsStore.load().gitLabURL)
-            )
-        )
+    init(viewModel: GitLabDashboardViewModel) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                warning
-                content
+        GitLabAdaptiveLayout { mode in
+            ScrollView {
+                VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xLarge) {
+                    header(mode: mode)
+                    GitLabWorkspaceNavigation(
+                        mode: mode,
+                        selection: selectedSection,
+                        badgeCount: viewModel.badgeCount
+                    )
+                    GitLabSummaryStrip(
+                        metrics: viewModel.summaryMetrics,
+                        mode: mode,
+                        onSelect: viewModel.activate
+                    )
+                    warning
+                    sectionContent(mode: mode)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(mode.pagePadding)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(20)
         }
-        .navigationTitle("GitLab Dashboard")
-        .toolbar {
-            Button {
-                Task { await viewModel.refresh() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .disabled(viewModel.isLoading)
-        }
-        .task {
+        .navigationTitle("GitLab")
+        .task(id: viewModel.selectedScope) {
             await viewModel.loadDashboard()
         }
-        .animation(.smooth(duration: 0.25), value: viewModel.isLoading)
-        .animation(.smooth(duration: 0.25), value: viewModel.mergeRequests)
-        .animation(.smooth(duration: 0.25), value: viewModel.mergeReviews)
-        .animation(.smooth(duration: 0.25), value: viewModel.issues)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.isLoading)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.mergeRequests)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.mergeReviews)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.issues)
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("GitLab Dashboard")
-                    .font(.largeTitle.bold())
-
-                HStack(spacing: 8) {
-                    Text("Overview of your GitLab work")
-
-                    Text("-")
-
-                    Label(lastUpdatedText, systemImage: "clock")
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
-                Task { await viewModel.refresh() }
-            } label: {
-                if viewModel.isLoading {
-                    LoadingSpinnerView()
-                } else {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .disabled(viewModel.isLoading)
+    private func header(mode: GitLabWorkspaceLayoutMode) -> some View {
+        GitLabWorkspaceHeader(
+            mode: mode,
+            projects: viewModel.projects,
+            selectedScope: $viewModel.selectedScope,
+            searchText: searchText,
+            isRefreshing: viewModel.isLoading,
+            hasStaleData: viewModel.hasStaleData,
+            lastUpdated: viewModel.lastUpdated
+        ) {
+            Task { await viewModel.refresh() }
         }
     }
 
@@ -95,63 +68,109 @@ struct GitLabDashboardView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
-        if viewModel.isLoading && viewModel.isEmpty {
-            GitLabLoadingState()
-        } else if viewModel.isEmpty {
-            EmptyStateView(
-                systemImage: "tray",
-                title: "No GitLab activity",
-                message: "Refresh the dashboard after connecting projects or assigning work."
+    private func sectionContent(mode: GitLabWorkspaceLayoutMode) -> some View {
+        switch viewModel.selectedSection {
+        case .overview:
+            GitLabOverviewView(
+                mode: mode,
+                actionQueue: viewModel.actionQueue,
+                mergeRequests: viewModel.mergeRequestPreview,
+                pipelines: viewModel.pipelinePreview,
+                selectedItemID: viewModel.selection.item,
+                loadState: viewModel.overviewLoadState,
+                onSelect: viewModel.select,
+                onShowSection: { viewModel.selectedSection = $0 },
+                onRetry: refresh
             )
-            .frame(maxWidth: .infinity, minHeight: 360)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        } else {
-            statisticGrid
-            MergeRequestsCard(
-                mergeRequests: viewModel.mergeRequests,
-                isLoading: viewModel.isLoading,
-                selectedMergeRequestID: $selectedMergeRequestID
+        case .mergeRequests:
+            GitLabMergeRequestsView(
+                mode: mode,
+                items: viewModel.visibleMergeRequests.map {
+                    GitLabWorkItemPresentation(mergeRequest: $0, context: .mergeRequest)
+                },
+                loadState: viewModel.loadState(for: .mergeRequests),
+                filter: viewModel.filter(for: .mergeRequests),
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onStatusChange: { statuses in
+                    var filter = viewModel.filter(for: .mergeRequests)
+                    filter.statuses = statuses
+                    viewModel.setFilter(filter, for: .mergeRequests)
+                },
+                onClearFilters: { viewModel.clearFilters(for: .mergeRequests) },
+                onRetry: refresh
             )
-            MergeReviewsCard(
-                mergeReviews: viewModel.mergeReviews,
-                isLoading: viewModel.isLoading,
-                selectedMergeReviewID: $selectedMergeReviewID
+        case .reviews:
+            GitLabReviewsView(
+                mode: mode,
+                items: viewModel.visibleMergeReviews.map {
+                    GitLabWorkItemPresentation(mergeRequest: $0, context: .review)
+                },
+                loadState: viewModel.loadState(for: .reviews),
+                filter: viewModel.filter(for: .reviews),
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onStatusChange: { statuses in
+                    var filter = viewModel.filter(for: .reviews)
+                    filter.statuses = statuses
+                    viewModel.setFilter(filter, for: .reviews)
+                },
+                onClearFilters: { viewModel.clearFilters(for: .reviews) },
+                onRetry: refresh
             )
-            IssuesCard(
-                issues: viewModel.issues,
-                isLoading: viewModel.isLoading,
-                selectedIssueID: $selectedIssueID
+        case .issues:
+            GitLabIssuesView(
+                mode: mode,
+                items: viewModel.visibleIssues.map(GitLabWorkItemPresentation.init(issue:)),
+                loadState: viewModel.loadState(for: .issues),
+                filter: viewModel.filter(for: .issues),
+                selectedItemID: viewModel.selection.item,
+                selectedTab: $viewModel.selectedIssueTab,
+                onSelect: viewModel.select,
+                onClearFilters: { viewModel.clearFilters(for: .issues) },
+                onRetry: refresh
+            )
+        case .pipelines:
+            GitLabPipelinesView(
+                mode: mode,
+                items: viewModel.visiblePipelines.map(GitLabWorkItemPresentation.init(pipeline:)),
+                loadState: viewModel.loadState(for: .pipelines),
+                filter: viewModel.filter(for: .pipelines),
+                warning: viewModel.pipelineWarning,
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onStatusChange: { statuses in
+                    var filter = viewModel.filter(for: .pipelines)
+                    filter.statuses = statuses
+                    viewModel.setFilter(filter, for: .pipelines)
+                },
+                onClearFilters: { viewModel.clearFilters(for: .pipelines) },
+                onRetry: refresh
             )
         }
     }
 
-    private var statisticGrid: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-            ForEach(viewModel.statistics) { statistic in
-                StatisticCard(
-                    icon: statistic.icon,
-                    title: statistic.title,
-                    number: statistic.number,
-                    subtitle: statistic.subtitle,
-                    webURL: statistic.webURL
-                )
-            }
-        }
+    private var searchText: Binding<String> {
+        Binding(
+            get: { viewModel.searchText },
+            set: { viewModel.searchText = $0 }
+        )
     }
 
-    private var lastUpdatedText: String {
-        guard let lastUpdated = viewModel.lastUpdated else {
-            return "Last updated: Never"
-        }
+    private var selectedSection: Binding<GitLabWorkspaceSection> {
+        Binding(
+            get: { viewModel.selectedSection },
+            set: { viewModel.selectedSection = $0 }
+        )
+    }
 
-        return "Last updated: \(lastUpdated.formatted(date: .omitted, time: .shortened))"
+    private func refresh() {
+        Task { await viewModel.refresh() }
     }
 }
 
 #Preview {
     NavigationStack {
-        GitLabDashboardView()
+        GitLabDashboardView(viewModel: GitLabDashboardViewModel())
     }
 }

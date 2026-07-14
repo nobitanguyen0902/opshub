@@ -41,6 +41,7 @@ final class AppNavigationState: ObservableObject {
 
 struct ContentView: View {
     @ObservedObject var navigationState: AppNavigationState
+    @StateObject private var gitLabViewModel: GitLabDashboardViewModel
     let settingsStore: any GitLabSettingsStoring
 
     init(
@@ -49,6 +50,11 @@ struct ContentView: View {
     ) {
         self.navigationState = navigationState
         self.settingsStore = settingsStore
+        _gitLabViewModel = StateObject(
+            wrappedValue: GitLabDashboardViewModel(
+                service: GitLabService(settingsStore: settingsStore)
+            )
+        )
     }
 
     var body: some View {
@@ -67,7 +73,7 @@ struct ContentView: View {
             case .brew:
                 BrewListView()
             case .gitLab:
-                GitLabDashboardView(settingsStore: settingsStore)
+                GitLabDashboardView(viewModel: gitLabViewModel)
             case .dashboard:
                 DashboardView()
             case .settings:
