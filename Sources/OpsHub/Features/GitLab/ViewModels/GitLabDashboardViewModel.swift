@@ -19,6 +19,7 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var loadWarning: String?
+    @Published private(set) var pipelineWarning: String?
 
     private let service: any GitLabServicing
     private let gitLabBaseURL: URL?
@@ -256,7 +257,7 @@ final class GitLabDashboardViewModel: ObservableObject {
         async let mergeReviewsTask = loadSection { try await self.service.mergeReviews(scope: scope) }
         async let issuesTask = loadSection { try await self.service.issues(scope: scope) }
         async let notificationsTask = loadSection { try await self.service.notifications(scope: scope) }
-        async let pipelinesTask = loadSection { try await self.service.pipelines(scope: scope) }
+        async let pipelinesTask = loadSection { try await self.service.pipelineBatch(scope: scope) }
 
         let projectsResult = await projectsTask
         let mergeRequestsResult = await mergeRequestsTask
@@ -292,7 +293,12 @@ final class GitLabDashboardViewModel: ObservableObject {
             pipelinesResult,
             section: .pipelines,
             hadData: pipelines.isEmpty == false
-        ) { pipelines = $0 }
+        ) { batch in
+            pipelines = batch.pipelines
+            pipelineWarning = batch.failedProjects.isEmpty
+                ? nil
+                : "Could not load pipelines for: \(batch.failedProjects.joined(separator: ", "))."
+        }
         loadWarning = loadWarning(for: [
             projectsResult.error,
             mergeRequestsResult.error,

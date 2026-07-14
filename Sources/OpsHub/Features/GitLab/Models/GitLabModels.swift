@@ -157,6 +157,11 @@ enum GitLabSectionLoadState: Equatable, Sendable {
     case failed(String)
 }
 
+struct GitLabPipelineBatch: Equatable, Sendable {
+    let pipelines: [GitLabPipeline]
+    let failedProjects: [String]
+}
+
 /// Pure collection transformations shared by the ViewModel and tests.
 enum GitLabWorkspaceFiltering {
     static func mergeRequests(

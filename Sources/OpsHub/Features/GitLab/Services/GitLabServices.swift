@@ -14,6 +14,7 @@ protocol GitLabServicing: Sendable {
     func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification]
     func pipelines() async throws -> [GitLabPipeline]
     func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline]
+    func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult
 }
 
@@ -38,6 +39,10 @@ extension GitLabServicing {
 
     func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline] {
         try await pipelines().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch {
+        GitLabPipelineBatch(pipelines: try await pipelines(scope: scope), failedProjects: [])
     }
 }
 
@@ -265,12 +270,17 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
     }
 
     func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline] {
+        try await pipelineBatch(scope: scope).pipelines
+    }
+
+    func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch {
         let settings = try configuredSettings()
         let loadedProjects = try await loadProjectCatalog()
         let projects = loadedProjects.filter { project in
             scope.includes(projectName: projectDisplayName(project))
         }
         var pipelines: [GitLabPipeline] = []
+        var failedProjects: [String] = []
 
         for project in projects.prefix(5) {
             let request = try makeRequest(
@@ -285,11 +295,14 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
                 let response: [GitLabRESTPipeline] = try await send(request)
                 pipelines.append(contentsOf: response.map { mapPipeline($0, project: project) })
             } catch {
-                continue
+                failedProjects.append(projectDisplayName(project))
             }
         }
 
-        return Array(pipelines.sorted { $0.id > $1.id }.prefix(20))
+        return GitLabPipelineBatch(
+            pipelines: Array(pipelines.sorted { $0.id > $1.id }.prefix(20)),
+            failedProjects: failedProjects
+        )
     }
 
     private func loadProjectCatalog() async throws -> [GitLabProject] {

@@ -132,21 +132,31 @@ struct GitLabDashboardView: View {
                 onClearFilters: { viewModel.clearFilters(for: .issues) }
             )
         case .pipelines:
-            EmptyStateView(
-                systemImage: "play.circle",
-                title: "Pipelines",
-                message: "Pipeline details will appear in this section."
+            GitLabPipelinesView(
+                mode: mode,
+                items: viewModel.visiblePipelines.map(GitLabWorkItemPresentation.init(pipeline:)),
+                loadState: viewModel.loadState(for: .pipelines),
+                filter: viewModel.filter(for: .pipelines),
+                warning: viewModel.pipelineWarning,
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onStatusChange: { statuses in
+                    var filter = viewModel.filter(for: .pipelines)
+                    filter.statuses = statuses
+                    viewModel.setFilter(filter, for: .pipelines)
+                },
+                onClearFilters: { viewModel.clearFilters(for: .pipelines) }
             )
-            .frame(maxWidth: .infinity, minHeight: 240)
-            .gitLabSurface()
         case .notifications:
-            EmptyStateView(
-                systemImage: "bell",
-                title: "Notifications",
-                message: "GitLab notifications will appear in this section."
+            GitLabNotificationsView(
+                mode: mode,
+                items: viewModel.visibleNotifications.map(GitLabWorkItemPresentation.init(notification:)),
+                loadState: viewModel.loadState(for: .notifications),
+                filter: viewModel.filter(for: .notifications),
+                selectedItemID: viewModel.selection.item,
+                onSelect: viewModel.select,
+                onClearFilters: { viewModel.clearFilters(for: .notifications) }
             )
-            .frame(maxWidth: .infinity, minHeight: 240)
-            .gitLabSurface()
         }
     }
 

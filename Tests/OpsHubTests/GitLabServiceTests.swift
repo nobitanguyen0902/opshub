@@ -442,7 +442,7 @@ final class GitLabServiceTests: XCTestCase {
         ])
     }
 
-    func testPipelinesSkipsProjectsThatCannotLoadPipelines() async throws {
+    func testPipelineBatchKeepsSuccessfulProjectsAndReportsPartialFailures() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/projects": StubHTTPResponse(
                 statusCode: 200,
@@ -485,10 +485,11 @@ final class GitLabServiceTests: XCTestCase {
             httpClient: httpClient
         )
 
-        let pipelines = try await service.pipelines()
+        let batch = try await service.pipelineBatch(scope: .allProjects)
 
-        XCTAssertEqual(pipelines.map(\.id), [9002])
-        XCTAssertEqual(pipelines.first?.project, "ops/private-service")
+        XCTAssertEqual(batch.pipelines.map(\.id), [9002])
+        XCTAssertEqual(batch.pipelines.first?.project, "ops/private-service")
+        XCTAssertEqual(batch.failedProjects, ["ops/opshub"])
         XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
             "/api/v4/projects",
             "/api/v4/projects/7/pipelines",
