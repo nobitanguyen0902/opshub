@@ -26,12 +26,12 @@ enum GitLabWorkspaceSection: String, CaseIterable, Identifiable, Hashable, Senda
     }
 }
 
-/// The four compact metrics presented on the GitLab overview.
+/// The compact metrics presented on the GitLab overview.
 enum GitLabSummaryMetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
     case awaitingReview
+    case mergeRequests
     case assignedToMe
     case failedPipelines
-    case pendingNotifications
 
     var id: Self { self }
 }
