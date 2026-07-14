@@ -354,6 +354,41 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertTrue(issues.allSatisfy(\.isWorkflowProject))
     }
 
+    func testNotificationsMapAuthorTimestampAndTargetURL() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/todos": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 303,
+                    "action_name": "review requested",
+                    "target_type": "MergeRequest",
+                    "target_url": "https://gitlab.example.com/ops/opshub/-/merge_requests/42",
+                    "created_at": "2026-06-25T02:00:00.000Z",
+                    "author": {"id":9,"name":"Reviewer"},
+                    "project": {"id":7,"name":"opshub","name_with_namespace":"ops/opshub"},
+                    "target": {"id":42,"title":"Review dashboard"}
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let notifications = try await service.notifications()
+
+        XCTAssertEqual(notifications.first?.authorName, "Reviewer")
+        XCTAssertNotNil(notifications.first?.updatedAt)
+        XCTAssertEqual(
+            notifications.first?.webURL?.absoluteString,
+            "https://gitlab.example.com/ops/opshub/-/merge_requests/42"
+        )
+    }
+
     func testPipelinesLoadFromRecentMembershipProjects() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/projects": StubHTTPResponse(
@@ -377,6 +412,7 @@ final class GitLabServiceTests: XCTestCase {
                     "project_id": 7,
                     "ref": "main",
                     "status": "failed",
+                    "web_url": "https://gitlab.example.com/ops/opshub/-/pipelines/9001",
                     "updated_at": "2026-06-25T02:00:00.000Z"
                   }
                 ]
@@ -395,6 +431,11 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(pipelines.first?.project, "ops/opshub")
         XCTAssertEqual(pipelines.first?.branch, "main")
         XCTAssertEqual(pipelines.first?.status, .failed)
+        XCTAssertNotNil(pipelines.first?.updatedAt)
+        XCTAssertEqual(
+            pipelines.first?.webURL?.absoluteString,
+            "https://gitlab.example.com/ops/opshub/-/pipelines/9001"
+        )
         XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
             "/api/v4/projects",
             "/api/v4/projects/7/pipelines"

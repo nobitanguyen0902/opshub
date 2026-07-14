@@ -484,6 +484,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             status: mergeRequestStatus(for: mergeRequest),
             authorName: mergeRequest.author?.name ?? mergeRequest.author?.username,
             authorAvatarURL: mergeRequest.author?.avatarUrl,
+            updatedAt: date(from: mergeRequest.updatedAt),
             updatedTime: relativeTime(from: mergeRequest.updatedAt),
             webURL: mergeRequest.webUrl
         )
@@ -507,6 +508,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             isWorkflowProject: isWorkflowProject,
             assigneeName: issue.assignees.first?.name ?? issue.assignees.first?.username,
             assigneeAvatarURL: issue.assignees.first?.avatarUrl,
+            updatedAt: date(from: issue.updatedAt),
             updatedTime: relativeTime(from: issue.updatedAt),
             webURL: issue.webUrl
         )
@@ -518,7 +520,11 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             title: notification.target?.title ?? notification.body ?? notification.actionName ?? "GitLab notification",
             project: notification.project?.nameWithNamespace ?? notification.project?.name ?? "GitLab",
             kind: notificationKind(for: notification),
-            updatedTime: relativeTime(from: notification.createdAt)
+            authorName: notification.author?.name ?? notification.author?.username,
+            authorAvatarURL: notification.author?.avatarUrl,
+            updatedAt: date(from: notification.createdAt),
+            updatedTime: relativeTime(from: notification.createdAt),
+            webURL: notification.targetUrl ?? notification.target?.url
         )
     }
 
@@ -528,7 +534,11 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             project: project.nameWithNamespace ?? project.name ?? "Project #\(project.id)",
             branch: pipeline.ref ?? "-",
             status: pipelineStatus(for: pipeline.status),
-            updatedTime: relativeTime(from: pipeline.updatedAt ?? pipeline.createdAt)
+            userName: pipeline.user?.name ?? pipeline.user?.username,
+            userAvatarURL: pipeline.user?.avatarUrl,
+            updatedAt: date(from: pipeline.updatedAt ?? pipeline.createdAt),
+            updatedTime: relativeTime(from: pipeline.updatedAt ?? pipeline.createdAt),
+            webURL: pipeline.webUrl
         )
     }
 
@@ -626,12 +636,17 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             return "-"
         }
 
-        let date = isoDateFormatter.date(from: dateString) ?? ISO8601DateFormatter().date(from: dateString)
+        let date = date(from: dateString)
         guard let date else {
             return dateString
         }
 
         return date.formatted(.relative(presentation: .named))
+    }
+
+    private func date(from dateString: String?) -> Date? {
+        guard let dateString else { return nil }
+        return isoDateFormatter.date(from: dateString) ?? ISO8601DateFormatter().date(from: dateString)
     }
 }
 

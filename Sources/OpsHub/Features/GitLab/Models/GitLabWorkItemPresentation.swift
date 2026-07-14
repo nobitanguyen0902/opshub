@@ -1,0 +1,215 @@
+import Foundation
+
+enum GitLabWorkItemKind: String, Hashable, Sendable {
+    case mergeRequest = "Merge request"
+    case review = "Review"
+    case issue = "Issue"
+    case pipeline = "Pipeline"
+    case notification = "Notification"
+}
+
+enum GitLabStatusSemantic: Hashable, Sendable {
+    case information
+    case success
+    case warning
+    case error
+    case neutral
+}
+
+struct GitLabWorkItemStatus: Hashable, Sendable {
+    let title: String
+    let semantic: GitLabStatusSemantic
+    let systemImage: String
+}
+
+struct GitLabWorkItemParticipant: Hashable, Sendable {
+    let name: String
+    let avatarURL: URL?
+}
+
+enum GitLabMergeRequestContext: Hashable, Sendable {
+    case mergeRequest
+    case review
+}
+
+struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
+    let id: GitLabWorkspaceItemID
+    let kind: GitLabWorkItemKind
+    let reference: String
+    let title: String
+    let project: String
+    let status: GitLabWorkItemStatus
+    let priority: GitLabActionPriority
+    let participants: [GitLabWorkItemParticipant]
+    let labels: [GitLabLabel]
+    let updatedAt: Date?
+    let updatedTime: String
+    let webURL: URL?
+
+    var accessibilitySummary: String {
+        let participantText = participants.map(\.name).joined(separator: ", ")
+        return [
+            "\(kind.rawValue) \(reference)",
+            title,
+            project,
+            status.title,
+            participantText.isEmpty ? nil : participantText,
+            updatedTime
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+    }
+
+    init(mergeRequest: GitLabMergeRequest, context: GitLabMergeRequestContext) {
+        id = context == .review ? .review(mergeRequest.id) : .mergeRequest(mergeRequest.id)
+        kind = context == .review ? .review : .mergeRequest
+        reference = "!\(mergeRequest.id)"
+        title = mergeRequest.title
+        project = mergeRequest.project
+        status = Self.status(for: mergeRequest.status)
+        priority = context == .review ? .high : .normal
+        participants = Self.participants(
+            name: mergeRequest.authorName,
+            avatarURL: mergeRequest.authorAvatarURL
+        )
+        labels = []
+        updatedAt = mergeRequest.updatedAt
+        updatedTime = mergeRequest.updatedTime
+        webURL = mergeRequest.webURL
+    }
+
+    init(issue: GitLabIssue) {
+        id = .issue(issue.id)
+        kind = .issue
+        reference = "#\(issue.id)"
+        title = issue.title
+        project = issue.project
+        status = Self.status(for: issue.priority)
+        priority = Self.actionPriority(for: issue.priority)
+        participants = Self.participants(
+            name: issue.assigneeName,
+            avatarURL: issue.assigneeAvatarURL
+        )
+        labels = issue.labelDetails
+        updatedAt = issue.updatedAt
+        updatedTime = issue.updatedTime
+        webURL = issue.webURL
+    }
+
+    init(pipeline: GitLabPipeline) {
+        id = .pipeline(pipeline.id)
+        kind = .pipeline
+        reference = "Pipeline #\(pipeline.id)"
+        title = pipeline.branch
+        project = pipeline.project
+        status = Self.status(for: pipeline.status)
+        priority = pipeline.status == .failed ? .critical : .low
+        participants = Self.participants(
+            name: pipeline.userName,
+            avatarURL: pipeline.userAvatarURL
+        )
+        labels = []
+        updatedAt = pipeline.updatedAt
+        updatedTime = pipeline.updatedTime
+        webURL = pipeline.webURL
+    }
+
+    init(notification: GitLabNotification) {
+        id = .notification(notification.id)
+        kind = .notification
+        reference = "TODO #\(notification.id)"
+        title = notification.title
+        project = notification.project
+        status = Self.status(for: notification.kind)
+        priority = Self.actionPriority(for: notification.kind)
+        participants = Self.participants(
+            name: notification.authorName,
+            avatarURL: notification.authorAvatarURL
+        )
+        labels = []
+        updatedAt = notification.updatedAt
+        updatedTime = notification.updatedTime
+        webURL = notification.webURL
+    }
+
+    private static func participants(name: String?, avatarURL: URL?) -> [GitLabWorkItemParticipant] {
+        guard let name, name.isEmpty == false else { return [] }
+        return [GitLabWorkItemParticipant(name: name, avatarURL: avatarURL)]
+    }
+
+    private static func status(for status: GitLabMergeRequestStatus) -> GitLabWorkItemStatus {
+        switch status {
+        case .opened:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .success, systemImage: "circle")
+        case .reviewing:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .warning, systemImage: "clock")
+        case .approved:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .information, systemImage: "checkmark.circle")
+        case .draft:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .neutral, systemImage: "pencil")
+        }
+    }
+
+    private static func status(for priority: GitLabIssuePriority) -> GitLabWorkItemStatus {
+        switch priority {
+        case .urgent:
+            GitLabWorkItemStatus(title: priority.rawValue, semantic: .error, systemImage: "exclamationmark.circle")
+        case .high:
+            GitLabWorkItemStatus(title: priority.rawValue, semantic: .warning, systemImage: "arrow.up.circle")
+        case .medium:
+            GitLabWorkItemStatus(title: priority.rawValue, semantic: .information, systemImage: "minus.circle")
+        case .low:
+            GitLabWorkItemStatus(title: priority.rawValue, semantic: .neutral, systemImage: "arrow.down.circle")
+        }
+    }
+
+    private static func status(for status: GitLabPipelineStatus) -> GitLabWorkItemStatus {
+        switch status {
+        case .running:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .warning, systemImage: "clock.arrow.circlepath")
+        case .passed:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .success, systemImage: "checkmark.circle")
+        case .failed:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .error, systemImage: "xmark.circle")
+        case .canceled:
+            GitLabWorkItemStatus(title: status.rawValue, semantic: .neutral, systemImage: "slash.circle")
+        }
+    }
+
+    private static func status(for kind: GitLabNotificationKind) -> GitLabWorkItemStatus {
+        switch kind {
+        case .assigned:
+            GitLabWorkItemStatus(title: kind.rawValue, semantic: .information, systemImage: "person.crop.circle.badge.checkmark")
+        case .mentioned:
+            GitLabWorkItemStatus(title: kind.rawValue, semantic: .information, systemImage: "at")
+        case .reviewRequested:
+            GitLabWorkItemStatus(title: kind.rawValue, semantic: .warning, systemImage: "checkmark.bubble")
+        case .pipelineFailed:
+            GitLabWorkItemStatus(title: kind.rawValue, semantic: .error, systemImage: "xmark.circle")
+        }
+    }
+
+    private static func actionPriority(for priority: GitLabIssuePriority) -> GitLabActionPriority {
+        switch priority {
+        case .urgent:
+            .critical
+        case .high:
+            .high
+        case .medium:
+            .normal
+        case .low:
+            .low
+        }
+    }
+
+    private static func actionPriority(for kind: GitLabNotificationKind) -> GitLabActionPriority {
+        switch kind {
+        case .pipelineFailed:
+            .critical
+        case .reviewRequested:
+            .high
+        case .assigned, .mentioned:
+            .normal
+        }
+    }
+}

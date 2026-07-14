@@ -207,20 +207,40 @@ enum GitLabWorkspaceFiltering {
     ) -> [GitLabMergeRequest] {
         switch sort {
         case .actionablePriority, .updatedDescending:
-            items.sorted { $0.id > $1.id }
+            items.sorted {
+                if $0.updatedAt != $1.updatedAt {
+                    return ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
+                }
+                return $0.id > $1.id
+            }
         }
     }
 
     static func sortIssues(_ items: [GitLabIssue]) -> [GitLabIssue] {
-        items.sorted { $0.id > $1.id }
+        items.sorted {
+            if $0.updatedAt != $1.updatedAt {
+                return ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
+            }
+            return $0.id > $1.id
+        }
     }
 
     static func sortNotifications(_ items: [GitLabNotification]) -> [GitLabNotification] {
-        items.sorted { $0.id > $1.id }
+        items.sorted {
+            if $0.updatedAt != $1.updatedAt {
+                return ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
+            }
+            return $0.id > $1.id
+        }
     }
 
     static func sortPipelines(_ items: [GitLabPipeline]) -> [GitLabPipeline] {
-        items.sorted { $0.id > $1.id }
+        items.sorted {
+            if $0.updatedAt != $1.updatedAt {
+                return ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
+            }
+            return $0.id > $1.id
+        }
     }
 
     private static func matchesSearch(_ searchText: String, values: [String]) -> Bool {
@@ -272,6 +292,7 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
     let status: GitLabMergeRequestStatus
     let authorName: String?
     let authorAvatarURL: URL?
+    let updatedAt: Date?
     let updatedTime: String
     let webURL: URL?
 
@@ -282,6 +303,7 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
         status: GitLabMergeRequestStatus,
         authorName: String? = nil,
         authorAvatarURL: URL? = nil,
+        updatedAt: Date? = nil,
         updatedTime: String,
         webURL: URL?
     ) {
@@ -291,6 +313,7 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
         self.status = status
         self.authorName = authorName
         self.authorAvatarURL = authorAvatarURL
+        self.updatedAt = updatedAt
         self.updatedTime = updatedTime
         self.webURL = webURL
     }
@@ -316,6 +339,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
     let isWorkflowProject: Bool
     let assigneeName: String?
     let assigneeAvatarURL: URL?
+    let updatedAt: Date?
     let updatedTime: String
     let webURL: URL?
 
@@ -330,6 +354,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
         isWorkflowProject: Bool = true,
         assigneeName: String? = nil,
         assigneeAvatarURL: URL? = nil,
+        updatedAt: Date? = nil,
         updatedTime: String,
         webURL: URL?
     ) {
@@ -343,6 +368,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
         self.isWorkflowProject = isWorkflowProject
         self.assigneeName = assigneeName
         self.assigneeAvatarURL = assigneeAvatarURL
+        self.updatedAt = updatedAt
         self.updatedTime = updatedTime
         self.webURL = webURL
     }
@@ -403,7 +429,33 @@ struct GitLabNotification: Identifiable, Hashable, Sendable {
     let title: String
     let project: String
     let kind: GitLabNotificationKind
+    let authorName: String?
+    let authorAvatarURL: URL?
+    let updatedAt: Date?
     let updatedTime: String
+    let webURL: URL?
+
+    init(
+        id: Int,
+        title: String,
+        project: String,
+        kind: GitLabNotificationKind,
+        authorName: String? = nil,
+        authorAvatarURL: URL? = nil,
+        updatedAt: Date? = nil,
+        updatedTime: String,
+        webURL: URL? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.project = project
+        self.kind = kind
+        self.authorName = authorName
+        self.authorAvatarURL = authorAvatarURL
+        self.updatedAt = updatedAt
+        self.updatedTime = updatedTime
+        self.webURL = webURL
+    }
 }
 
 /// The category shown for a GitLab notification.
@@ -420,7 +472,33 @@ struct GitLabPipeline: Identifiable, Hashable, Sendable {
     let project: String
     let branch: String
     let status: GitLabPipelineStatus
+    let userName: String?
+    let userAvatarURL: URL?
+    let updatedAt: Date?
     let updatedTime: String
+    let webURL: URL?
+
+    init(
+        id: Int,
+        project: String,
+        branch: String,
+        status: GitLabPipelineStatus,
+        userName: String? = nil,
+        userAvatarURL: URL? = nil,
+        updatedAt: Date? = nil,
+        updatedTime: String,
+        webURL: URL? = nil
+    ) {
+        self.id = id
+        self.project = project
+        self.branch = branch
+        self.status = status
+        self.userName = userName
+        self.userAvatarURL = userAvatarURL
+        self.updatedAt = updatedAt
+        self.updatedTime = updatedTime
+        self.webURL = webURL
+    }
 }
 
 /// The dashboard status shown for a pipeline.
