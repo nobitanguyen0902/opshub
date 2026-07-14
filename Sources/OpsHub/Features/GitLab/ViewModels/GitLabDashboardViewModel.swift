@@ -14,6 +14,8 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var issues: [GitLabIssue] = []
     @Published private(set) var notifications: [GitLabNotification] = []
     @Published private(set) var pipelines: [GitLabPipeline] = []
+    @Published private(set) var sectionStates: [GitLabWorkspaceSection: GitLabSectionLoadState] = [:]
+    @Published private(set) var sectionUpdatedAt: [GitLabWorkspaceSection: Date] = [:]
     @Published private(set) var isLoading = false
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var loadWarning: String?
@@ -103,6 +105,10 @@ final class GitLabDashboardViewModel: ObservableObject {
         sectionFilters[section] = GitLabWorkspaceFilter()
     }
 
+    func loadState(for section: GitLabWorkspaceSection) -> GitLabSectionLoadState {
+        sectionStates[section] ?? .idle
+    }
+
     func select(_ item: GitLabWorkspaceItemID?) {
         selection.item = item
     }
@@ -112,8 +118,15 @@ final class GitLabDashboardViewModel: ObservableObject {
     }
 
     func refresh() async {
+        guard isLoading == false else { return }
         isLoading = true
         defer { isLoading = false }
+
+        beginLoading(.mergeRequests, hasData: mergeRequests.isEmpty == false)
+        beginLoading(.reviews, hasData: mergeReviews.isEmpty == false)
+        beginLoading(.issues, hasData: issues.isEmpty == false)
+        beginLoading(.notifications, hasData: notifications.isEmpty == false)
+        beginLoading(.pipelines, hasData: pipelines.isEmpty == false)
 
         let scope = selectedScope
         async let projectsTask = loadSection { try await self.service.projects() }
@@ -130,12 +143,34 @@ final class GitLabDashboardViewModel: ObservableObject {
         let notificationsResult = await notificationsTask
         let pipelinesResult = await pipelinesTask
 
-        projects = projectsResult.value ?? []
-        mergeRequests = mergeRequestsResult.value ?? []
-        mergeReviews = mergeReviewsResult.value ?? []
-        issues = issuesResult.value ?? []
-        notifications = notificationsResult.value ?? []
-        pipelines = pipelinesResult.value ?? []
+        if let loadedProjects = projectsResult.value {
+            projects = loadedProjects
+        }
+        let mergeRequestsSucceeded = apply(
+            mergeRequestsResult,
+            section: .mergeRequests,
+            hadData: mergeRequests.isEmpty == false
+        ) { mergeRequests = $0 }
+        let mergeReviewsSucceeded = apply(
+            mergeReviewsResult,
+            section: .reviews,
+            hadData: mergeReviews.isEmpty == false
+        ) { mergeReviews = $0 }
+        let issuesSucceeded = apply(
+            issuesResult,
+            section: .issues,
+            hadData: issues.isEmpty == false
+        ) { issues = $0 }
+        let notificationsSucceeded = apply(
+            notificationsResult,
+            section: .notifications,
+            hadData: notifications.isEmpty == false
+        ) { notifications = $0 }
+        let pipelinesSucceeded = apply(
+            pipelinesResult,
+            section: .pipelines,
+            hadData: pipelines.isEmpty == false
+        ) { pipelines = $0 }
         loadWarning = loadWarning(for: [
             projectsResult.error,
             mergeRequestsResult.error,
@@ -151,7 +186,38 @@ final class GitLabDashboardViewModel: ObservableObject {
             notifications: notifications,
             pipelines: pipelines
         )
-        lastUpdated = .now
+        if projectsResult.value != nil
+            || mergeRequestsSucceeded
+            || mergeReviewsSucceeded
+            || issuesSucceeded
+            || notificationsSucceeded
+            || pipelinesSucceeded {
+            lastUpdated = .now
+        }
+    }
+
+    private func beginLoading(_ section: GitLabWorkspaceSection, hasData: Bool) {
+        sectionStates[section] = hasData ? .refreshing : .initialLoading
+    }
+
+    @discardableResult
+    private func apply<Value: Sendable>(
+        _ result: Result<Value, any Error>,
+        section: GitLabWorkspaceSection,
+        hadData: Bool,
+        assign: (Value) -> Void
+    ) -> Bool {
+        switch result {
+        case let .success(value):
+            assign(value)
+            sectionStates[section] = .loaded
+            sectionUpdatedAt[section] = .now
+            return true
+        case let .failure(error):
+            let message = errorMessage(error)
+            sectionStates[section] = hadData ? .stale(message) : .failed(message)
+            return false
+        }
     }
 
     private func loadSection<Value: Sendable>(
@@ -175,6 +241,10 @@ final class GitLabDashboardViewModel: ObservableObject {
         }
 
         return "Some GitLab sections could not be loaded."
+    }
+
+    private func errorMessage(_ error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
     private func makeStatistics(

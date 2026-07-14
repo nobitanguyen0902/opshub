@@ -137,6 +137,16 @@ enum GitLabWorkspaceSort: Equatable, Sendable {
     case updatedDescending
 }
 
+/// Lifecycle for one independently loaded workspace section.
+enum GitLabSectionLoadState: Equatable, Sendable {
+    case idle
+    case initialLoading
+    case loaded
+    case refreshing
+    case stale(String)
+    case failed(String)
+}
+
 /// Pure collection transformations shared by the ViewModel and tests.
 enum GitLabWorkspaceFiltering {
     static func mergeRequests(

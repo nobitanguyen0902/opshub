@@ -51,7 +51,113 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isEmpty)
         XCTAssertEqual(viewModel.loadWarning, "GitLab request failed with status 403.")
         XCTAssertNotNil(viewModel.lastUpdated)
+        XCTAssertEqual(viewModel.loadState(for: .notifications), .failed("GitLab request failed with status 403."))
     }
+
+    @MainActor
+    func testFailedRefreshKeepsPreviouslyLoadedSectionAndMarksItStale() async {
+        let service = FailAfterFirstGitLabService()
+        let viewModel = GitLabDashboardViewModel(service: service)
+
+        await viewModel.refresh()
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.mergeRequests.map(\.id), [501])
+        XCTAssertEqual(
+            viewModel.loadState(for: .mergeRequests),
+            .stale("GitLab request failed with status 503.")
+        )
+    }
+
+    @MainActor
+    func testConcurrentRefreshRequestsOnlyStartOneLoadCycle() async {
+        let service = SlowCountingGitLabService()
+        let viewModel = GitLabDashboardViewModel(service: service)
+
+        async let first: Void = viewModel.refresh()
+        await Task.yield()
+        XCTAssertEqual(viewModel.loadState(for: .mergeRequests), .initialLoading)
+        async let second: Void = viewModel.refresh()
+        _ = await (first, second)
+
+        let calls = await service.callCount()
+        XCTAssertEqual(calls, 1)
+    }
+
+    @MainActor
+    func testTotalInitialFailureLeavesDashboardEmptyWithoutLastUpdatedTimestamp() async {
+        let viewModel = GitLabDashboardViewModel(service: TotalFailingGitLabService())
+
+        await viewModel.refresh()
+
+        XCTAssertTrue(viewModel.isEmpty)
+        XCTAssertNil(viewModel.lastUpdated)
+        XCTAssertEqual(viewModel.loadWarning, "Some GitLab sections could not be loaded.")
+        XCTAssertEqual(
+            viewModel.loadState(for: .mergeRequests),
+            .failed("GitLab request failed with status 503.")
+        )
+    }
+}
+
+private struct TotalFailingGitLabService: GitLabServicing {
+    func dashboardStatistics() async throws -> [GitLabStatistic] { [] }
+    func projects() async throws -> [GitLabProjectSummary] { throw GitLabServiceError.requestFailed(503) }
+    func mergeRequests() async throws -> [GitLabMergeRequest] { throw GitLabServiceError.requestFailed(503) }
+    func mergeReviews() async throws -> [GitLabMergeRequest] { throw GitLabServiceError.requestFailed(503) }
+    func issues() async throws -> [GitLabIssue] { throw GitLabServiceError.requestFailed(503) }
+    func notifications() async throws -> [GitLabNotification] { throw GitLabServiceError.requestFailed(503) }
+    func pipelines() async throws -> [GitLabPipeline] { throw GitLabServiceError.requestFailed(503) }
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult { .connected }
+}
+
+private actor FailAfterFirstGitLabService: GitLabServicing {
+    private var mergeRequestCalls = 0
+
+    func dashboardStatistics() async throws -> [GitLabStatistic] { [] }
+
+    func mergeRequests() async throws -> [GitLabMergeRequest] {
+        mergeRequestCalls += 1
+        guard mergeRequestCalls == 1 else {
+            throw GitLabServiceError.requestFailed(503)
+        }
+        return [
+            GitLabMergeRequest(
+                id: 501,
+                title: "Keep cached merge request",
+                project: "ops/opshub",
+                status: .opened,
+                updatedTime: "Now",
+                webURL: nil
+            )
+        ]
+    }
+
+    func mergeReviews() async throws -> [GitLabMergeRequest] { [] }
+    func issues() async throws -> [GitLabIssue] { [] }
+    func notifications() async throws -> [GitLabNotification] { [] }
+    func pipelines() async throws -> [GitLabPipeline] { [] }
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult { .connected }
+}
+
+private actor SlowCountingGitLabService: GitLabServicing {
+    private(set) var mergeRequestCalls = 0
+
+    func dashboardStatistics() async throws -> [GitLabStatistic] { [] }
+
+    func mergeRequests() async throws -> [GitLabMergeRequest] {
+        mergeRequestCalls += 1
+        try await Task.sleep(for: .milliseconds(50))
+        return []
+    }
+
+    func mergeReviews() async throws -> [GitLabMergeRequest] { [] }
+    func issues() async throws -> [GitLabIssue] { [] }
+    func notifications() async throws -> [GitLabNotification] { [] }
+    func pipelines() async throws -> [GitLabPipeline] { [] }
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult { .connected }
+
+    func callCount() -> Int { mergeRequestCalls }
 }
 
 private struct StubGitLabService: GitLabServicing {
