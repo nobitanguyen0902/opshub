@@ -121,10 +121,15 @@ struct GitLabDashboardView: View {
                 onClearFilters: { viewModel.clearFilters(for: .reviews) }
             )
         case .issues:
-            IssuesCard(
-                issues: viewModel.issues,
-                isLoading: viewModel.isLoading,
-                selectedIssueID: selectedIssueID
+            GitLabIssuesView(
+                mode: mode,
+                items: viewModel.visibleIssues.map(GitLabWorkItemPresentation.init(issue:)),
+                loadState: viewModel.loadState(for: .issues),
+                filter: viewModel.filter(for: .issues),
+                selectedItemID: viewModel.selection.item,
+                selectedTab: $viewModel.selectedIssueTab,
+                onSelect: viewModel.select,
+                onClearFilters: { viewModel.clearFilters(for: .issues) }
             )
         case .pipelines:
             EmptyStateView(
@@ -143,18 +148,6 @@ struct GitLabDashboardView: View {
             .frame(maxWidth: .infinity, minHeight: 240)
             .gitLabSurface()
         }
-    }
-
-    private var selectedIssueID: Binding<GitLabIssue.ID?> {
-        Binding(
-            get: {
-                guard case let .issue(id) = viewModel.selection.item else { return nil }
-                return id
-            },
-            set: { id in
-                viewModel.select(id.map(GitLabWorkspaceItemID.issue))
-            }
-        )
     }
 
     private var searchText: Binding<String> {
