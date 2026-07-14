@@ -100,6 +100,30 @@ final class GitLabDashboardViewModel: ObservableObject {
         ]
     }
 
+    var actionQueue: [GitLabWorkItemPresentation] {
+        GitLabActionQueueBuilder.build(
+            reviews: mergeReviews,
+            issues: issues,
+            pipelines: pipelines,
+            notifications: notifications,
+            scope: selectedScope
+        )
+    }
+
+    var mergeRequestPreview: [GitLabWorkItemPresentation] {
+        Array(visibleMergeRequests.prefix(5)).map {
+            GitLabWorkItemPresentation(mergeRequest: $0, context: .mergeRequest)
+        }
+    }
+
+    var pipelinePreview: [GitLabWorkItemPresentation] {
+        Array(visiblePipelines.prefix(5)).map(GitLabWorkItemPresentation.init(pipeline:))
+    }
+
+    var notificationPreview: [GitLabWorkItemPresentation] {
+        Array(visibleNotifications.prefix(5)).map(GitLabWorkItemPresentation.init(notification:))
+    }
+
     var visibleMergeRequests: [GitLabMergeRequest] {
         GitLabWorkspaceFiltering.sortMergeRequests(
             GitLabWorkspaceFiltering.mergeRequests(

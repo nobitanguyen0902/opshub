@@ -213,3 +213,38 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         }
     }
 }
+
+enum GitLabActionQueueBuilder {
+    static func build(
+        reviews: [GitLabMergeRequest],
+        issues: [GitLabIssue],
+        pipelines: [GitLabPipeline],
+        notifications: [GitLabNotification],
+        scope: GitLabProjectScope
+    ) -> [GitLabWorkItemPresentation] {
+        let candidates = reviews
+            .filter { scope.includes(projectName: $0.project) }
+            .map { GitLabWorkItemPresentation(mergeRequest: $0, context: .review) }
+            + issues
+                .filter { $0.isAssignedToMe && scope.includes(projectName: $0.project) }
+                .map(GitLabWorkItemPresentation.init(issue:))
+            + pipelines
+                .filter { $0.status == .failed && scope.includes(projectName: $0.project) }
+                .map(GitLabWorkItemPresentation.init(pipeline:))
+            + notifications
+                .filter { scope.includes(projectName: $0.project) }
+                .map(GitLabWorkItemPresentation.init(notification:))
+
+        let unique = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, second in
+            (first.updatedAt ?? .distantPast) >= (second.updatedAt ?? .distantPast) ? first : second
+        })
+
+        return unique.values.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
+            if lhs.updatedAt != rhs.updatedAt {
+                return (lhs.updatedAt ?? .distantPast) > (rhs.updatedAt ?? .distantPast)
+            }
+            return lhs.accessibilitySummary < rhs.accessibilitySummary
+        }
+    }
+}

@@ -29,7 +29,7 @@ struct GitLabDashboardView: View {
                         onSelect: viewModel.activate
                     )
                     warning
-                    sectionContent
+                    sectionContent(mode: mode)
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(mode.pagePadding)
@@ -72,42 +72,20 @@ struct GitLabDashboardView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
-        if viewModel.isLoading && viewModel.isEmpty {
-            GitLabLoadingState()
-        } else if viewModel.isEmpty {
-            EmptyStateView(
-                systemImage: "tray",
-                title: "No GitLab activity",
-                message: "Refresh the dashboard after connecting projects or assigning work."
-            )
-            .frame(maxWidth: .infinity, minHeight: 360)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        } else {
-            MergeRequestsCard(
-                mergeRequests: viewModel.mergeRequests,
-                isLoading: viewModel.isLoading,
-                selectedMergeRequestID: selectedMergeRequestID
-            )
-            MergeReviewsCard(
-                mergeReviews: viewModel.mergeReviews,
-                isLoading: viewModel.isLoading,
-                selectedMergeReviewID: selectedMergeReviewID
-            )
-            IssuesCard(
-                issues: viewModel.issues,
-                isLoading: viewModel.isLoading,
-                selectedIssueID: selectedIssueID
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var sectionContent: some View {
+    private func sectionContent(mode: GitLabWorkspaceLayoutMode) -> some View {
         switch viewModel.selectedSection {
         case .overview:
-            content
+            GitLabOverviewView(
+                mode: mode,
+                actionQueue: viewModel.actionQueue,
+                mergeRequests: viewModel.mergeRequestPreview,
+                pipelines: viewModel.pipelinePreview,
+                notifications: viewModel.notificationPreview,
+                selectedItemID: viewModel.selection.item,
+                loadState: viewModel.isLoading && viewModel.isEmpty ? .initialLoading : .loaded,
+                onSelect: viewModel.select,
+                onShowSection: { viewModel.selectedSection = $0 }
+            )
         case .mergeRequests:
             MergeRequestsCard(
                 mergeRequests: viewModel.visibleMergeRequests,
