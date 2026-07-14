@@ -125,6 +125,23 @@ final class GitLabDashboardViewModel: ObservableObject {
         sectionStates[section] ?? .idle
     }
 
+    func badgeCount(for section: GitLabWorkspaceSection) -> Int {
+        switch section {
+        case .overview:
+            0
+        case .mergeRequests:
+            visibleMergeRequests.count
+        case .reviews:
+            visibleMergeReviews.count
+        case .issues:
+            visibleIssues.count
+        case .pipelines:
+            visiblePipelines.filter { $0.status == .failed }.count
+        case .notifications:
+            visibleNotifications.count
+        }
+    }
+
     func select(_ item: GitLabWorkspaceItemID?) {
         selection.item = item
     }

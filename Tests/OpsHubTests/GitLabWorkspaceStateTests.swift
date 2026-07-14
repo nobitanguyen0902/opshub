@@ -47,4 +47,10 @@ final class GitLabWorkspaceStateTests: XCTestCase {
         XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 1_179), .compact)
         XCTAssertEqual(GitLabWorkspaceLayoutMode(width: 1_180), .wide)
     }
+
+    func testNavigationBadgeHidesZeroAndCapsLargeValues() {
+        XCTAssertNil(GitLabNavigationBadgeText.value(for: 0))
+        XCTAssertEqual(GitLabNavigationBadgeText.value(for: 99), "99")
+        XCTAssertEqual(GitLabNavigationBadgeText.value(for: 100), "99+")
+    }
 }

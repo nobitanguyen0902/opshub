@@ -22,8 +22,13 @@ struct GitLabDashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xLarge) {
                     header(mode: mode)
+                    GitLabWorkspaceNavigation(
+                        mode: mode,
+                        selection: selectedSection,
+                        badgeCount: viewModel.badgeCount
+                    )
                     warning
-                    content
+                    sectionContent
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(mode.pagePadding)
@@ -98,6 +103,48 @@ struct GitLabDashboardView: View {
         }
     }
 
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch viewModel.selectedSection {
+        case .overview:
+            content
+        case .mergeRequests:
+            MergeRequestsCard(
+                mergeRequests: viewModel.visibleMergeRequests,
+                isLoading: viewModel.isLoading,
+                selectedMergeRequestID: selectedMergeRequestID
+            )
+        case .reviews:
+            MergeReviewsCard(
+                mergeReviews: viewModel.visibleMergeReviews,
+                isLoading: viewModel.isLoading,
+                selectedMergeReviewID: selectedMergeReviewID
+            )
+        case .issues:
+            IssuesCard(
+                issues: viewModel.issues,
+                isLoading: viewModel.isLoading,
+                selectedIssueID: selectedIssueID
+            )
+        case .pipelines:
+            EmptyStateView(
+                systemImage: "play.circle",
+                title: "Pipelines",
+                message: "Pipeline details will appear in this section."
+            )
+            .frame(maxWidth: .infinity, minHeight: 240)
+            .gitLabSurface()
+        case .notifications:
+            EmptyStateView(
+                systemImage: "bell",
+                title: "Notifications",
+                message: "GitLab notifications will appear in this section."
+            )
+            .frame(maxWidth: .infinity, minHeight: 240)
+            .gitLabSurface()
+        }
+    }
+
     private var selectedMergeRequestID: Binding<GitLabMergeRequest.ID?> {
         Binding(
             get: {
@@ -152,6 +199,13 @@ struct GitLabDashboardView: View {
         Binding(
             get: { viewModel.searchText },
             set: { viewModel.searchText = $0 }
+        )
+    }
+
+    private var selectedSection: Binding<GitLabWorkspaceSection> {
+        Binding(
+            get: { viewModel.selectedSection },
+            set: { viewModel.selectedSection = $0 }
         )
     }
 }
