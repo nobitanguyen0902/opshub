@@ -74,6 +74,37 @@ struct GitLabWorkspaceSelection: Equatable, Sendable {
     var item: GitLabWorkspaceItemID?
 }
 
+/// A project shown by the workspace scope selector.
+struct GitLabProjectSummary: Identifiable, Hashable, Sendable {
+    let id: Int
+    let nameWithNamespace: String
+    let webURL: URL?
+}
+
+/// Limits all workspace collections to one project or all membership projects.
+enum GitLabProjectScope: Hashable, Sendable {
+    case allProjects
+    case project(GitLabProjectSummary)
+
+    var title: String {
+        switch self {
+        case .allProjects:
+            "All projects"
+        case let .project(project):
+            project.nameWithNamespace
+        }
+    }
+
+    func includes(projectName: String) -> Bool {
+        switch self {
+        case .allProjects:
+            true
+        case let .project(project):
+            project.nameWithNamespace.caseInsensitiveCompare(projectName) == .orderedSame
+        }
+    }
+}
+
 /// A summary metric shown at the top of the GitLab dashboard.
 struct GitLabStatistic: Identifiable, Hashable, Sendable {
     let icon: String

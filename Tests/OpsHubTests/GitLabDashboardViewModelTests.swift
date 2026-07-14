@@ -28,6 +28,7 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
         XCTAssertEqual(viewModel.notifications.map(\.id), [303])
         XCTAssertEqual(viewModel.pipelines.map(\.id), [404])
+        XCTAssertEqual(viewModel.selectedScope, .allProjects)
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertNotNil(viewModel.lastUpdated)
     }

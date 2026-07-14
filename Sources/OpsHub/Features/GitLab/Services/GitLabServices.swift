@@ -3,12 +3,42 @@ import Foundation
 /// Provides GitLab dashboard data and settings validation.
 protocol GitLabServicing: Sendable {
     func dashboardStatistics() async throws -> [GitLabStatistic]
+    func projects() async throws -> [GitLabProjectSummary]
     func mergeRequests() async throws -> [GitLabMergeRequest]
+    func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest]
     func mergeReviews() async throws -> [GitLabMergeRequest]
+    func mergeReviews(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest]
     func issues() async throws -> [GitLabIssue]
+    func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue]
     func notifications() async throws -> [GitLabNotification]
+    func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification]
     func pipelines() async throws -> [GitLabPipeline]
+    func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline]
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult
+}
+
+extension GitLabServicing {
+    func projects() async throws -> [GitLabProjectSummary] { [] }
+
+    func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeRequests().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func mergeReviews(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeReviews().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue] {
+        try await issues().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification] {
+        try await notifications().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline] {
+        try await pipelines().filter { scope.includes(projectName: $0.project) }
+    }
 }
 
 /// Minimal HTTP client abstraction used by the GitLab REST service and tests.
@@ -18,6 +48,30 @@ protocol GitLabHTTPClient: Sendable {
 
 extension URLSession: GitLabHTTPClient {}
 
+private actor GitLabProjectCatalogCache {
+    private var loadTask: Task<[GitLabProject], any Error>?
+    private var value: [GitLabProject]?
+
+    func load(
+        operation: @escaping @Sendable () async throws -> [GitLabProject]
+    ) async throws -> [GitLabProject] {
+        if let value {
+            return value
+        }
+
+        if let loadTask {
+            return try await loadTask.value
+        }
+
+        let task = Task { try await operation() }
+        loadTask = task
+        defer { loadTask = nil }
+        let loadedValue = try await task.value
+        value = loadedValue
+        return loadedValue
+    }
+}
+
 /// GitLab REST-backed dashboard data source.
 struct GitLabService: GitLabServicing, @unchecked Sendable {
     private let settingsStore: any GitLabSettingsStoring
@@ -25,6 +79,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
     private let decoder: JSONDecoder
     private let isoDateFormatter: ISO8601DateFormatter
     private let now: @Sendable () -> Date
+    private let projectCatalogCache: GitLabProjectCatalogCache
 
     init(
         settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
@@ -34,9 +89,15 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         self.settingsStore = settingsStore
         self.httpClient = httpClient
         self.now = now
+        projectCatalogCache = GitLabProjectCatalogCache()
         decoder = JSONDecoder()
         isoDateFormatter = ISO8601DateFormatter()
         isoDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    }
+
+    func projects() async throws -> [GitLabProjectSummary] {
+        let projects = try await loadProjectCatalog()
+        return projects.map(mapProjectSummary)
     }
 
     func dashboardStatistics() async throws -> [GitLabStatistic] {
@@ -97,8 +158,16 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         try await mergeRequests(scope: "assigned_to_me")
     }
 
+    func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeRequests().filter { scope.includes(projectName: $0.project) }
+    }
+
     func mergeReviews() async throws -> [GitLabMergeRequest] {
         try await mergeRequests(scope: "reviews_for_me")
+    }
+
+    func mergeReviews(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
+        try await mergeReviews().filter { scope.includes(projectName: $0.project) }
     }
 
     private func mergeRequests(scope: String) async throws -> [GitLabMergeRequest] {
@@ -162,6 +231,10 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         }
     }
 
+    func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue] {
+        try await issues().filter { scope.includes(projectName: $0.project) }
+    }
+
     private func issueUpdatedAfterDate() -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -183,20 +256,20 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         return response.map(mapNotification)
     }
 
+    func notifications(scope: GitLabProjectScope) async throws -> [GitLabNotification] {
+        try await notifications().filter { scope.includes(projectName: $0.project) }
+    }
+
     func pipelines() async throws -> [GitLabPipeline] {
+        try await pipelines(scope: .allProjects)
+    }
+
+    func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline] {
         let settings = try configuredSettings()
-        let projectsRequest = try makeRequest(
-            settings: settings,
-            path: "projects",
-            queryItems: [
-                URLQueryItem(name: "membership", value: "true"),
-                URLQueryItem(name: "simple", value: "true"),
-                URLQueryItem(name: "order_by", value: "last_activity_at"),
-                URLQueryItem(name: "sort", value: "desc"),
-                URLQueryItem(name: "per_page", value: "10")
-            ]
-        )
-        let projects: [GitLabProject] = try await send(projectsRequest)
+        let loadedProjects = try await loadProjectCatalog()
+        let projects = loadedProjects.filter { project in
+            scope.includes(projectName: projectDisplayName(project))
+        }
         var pipelines: [GitLabPipeline] = []
 
         for project in projects.prefix(5) {
@@ -217,6 +290,41 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         }
 
         return Array(pipelines.sorted { $0.id > $1.id }.prefix(20))
+    }
+
+    private func loadProjectCatalog() async throws -> [GitLabProject] {
+        try await projectCatalogCache.load {
+            let settings = try configuredSettings()
+            let request = try makeRequest(
+                settings: settings,
+                path: "projects",
+                queryItems: [
+                    URLQueryItem(name: "membership", value: "true"),
+                    URLQueryItem(name: "simple", value: "true"),
+                    URLQueryItem(name: "order_by", value: "last_activity_at"),
+                    URLQueryItem(name: "sort", value: "desc"),
+                    URLQueryItem(name: "per_page", value: "100")
+                ]
+            )
+            let projects: [GitLabProject] = try await sendAllPages(request)
+            return projects
+        }
+    }
+
+    private func mapProjectSummary(_ project: GitLabProject) -> GitLabProjectSummary {
+        GitLabProjectSummary(
+            id: project.id,
+            nameWithNamespace: projectDisplayName(project),
+            webURL: project.webUrl
+        )
+    }
+
+    private func projectDisplayName(_ project: GitLabProject) -> String {
+        project.nameWithNamespace
+            ?? project.pathWithNamespace
+            ?? project.name
+            ?? project.path
+            ?? "Project #\(project.id)"
     }
 
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult {

@@ -3,6 +3,77 @@ import XCTest
 @testable import OpsHub
 
 final class GitLabServiceTests: XCTestCase {
+    func testProjectsLoadsEveryMembershipProjectPageAndMapsFallbackName() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7,"name":"opshub","name_with_namespace":"ops/opshub"}]"#,
+                headers: ["X-Next-Page": "2"]
+            ),
+            "/api/v4/projects?page=2": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":8,"name":"worker"}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let projects = try await service.projects()
+
+        XCTAssertEqual(projects.map(\.id), [7, 8])
+        XCTAssertEqual(projects.map(\.nameWithNamespace), ["ops/opshub", "worker"])
+        XCTAssertEqual(httpClient.requests.count, 2)
+    }
+
+    func testScopedMergeRequestsFiltersLoadedItemsByProject() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/merge_requests": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {"id":1001,"iid":41,"title":"OpsHub","references":{"full":"ops/opshub!41"}},
+                  {"id":1002,"iid":42,"title":"Worker","references":{"full":"ops/worker!42"}}
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+        let scope = GitLabProjectScope.project(
+            GitLabProjectSummary(id: 7, nameWithNamespace: "ops/opshub", webURL: nil)
+        )
+
+        let mergeRequests = try await service.mergeRequests(scope: scope)
+
+        XCTAssertEqual(mergeRequests.map(\.id), [41])
+    }
+
+    func testProjectsAndPipelinesReuseTheMembershipProjectCatalog() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7,"name":"opshub","name_with_namespace":"ops/opshub"}]"#
+            ),
+            "/api/v4/projects/7/pipelines": StubHTTPResponse(statusCode: 200, body: "[]")
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        _ = try await service.projects()
+        _ = try await service.pipelines()
+
+        XCTAssertEqual(
+            httpClient.requests.filter { $0.url?.path == "/api/v4/projects" }.count,
+            1
+        )
+    }
+
     func testConnectionCallsGitLabUserEndpointWithPrivateToken() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/user": StubHTTPResponse(statusCode: 200, body: #"{"id":1}"#)

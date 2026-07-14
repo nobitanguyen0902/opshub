@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
     @Published var selection = GitLabWorkspaceSelection()
+    @Published var selectedScope: GitLabProjectScope = .allProjects
+    @Published private(set) var projects: [GitLabProjectSummary] = []
     @Published private(set) var statistics: [GitLabStatistic] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
     @Published private(set) var mergeReviews: [GitLabMergeRequest] = []
@@ -46,24 +48,29 @@ final class GitLabDashboardViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        async let mergeRequestsTask = loadSection { try await self.service.mergeRequests() }
-        async let mergeReviewsTask = loadSection { try await self.service.mergeReviews() }
-        async let issuesTask = loadSection { try await self.service.issues() }
-        async let notificationsTask = loadSection { try await self.service.notifications() }
-        async let pipelinesTask = loadSection { try await self.service.pipelines() }
+        let scope = selectedScope
+        async let projectsTask = loadSection { try await self.service.projects() }
+        async let mergeRequestsTask = loadSection { try await self.service.mergeRequests(scope: scope) }
+        async let mergeReviewsTask = loadSection { try await self.service.mergeReviews(scope: scope) }
+        async let issuesTask = loadSection { try await self.service.issues(scope: scope) }
+        async let notificationsTask = loadSection { try await self.service.notifications(scope: scope) }
+        async let pipelinesTask = loadSection { try await self.service.pipelines(scope: scope) }
 
+        let projectsResult = await projectsTask
         let mergeRequestsResult = await mergeRequestsTask
         let mergeReviewsResult = await mergeReviewsTask
         let issuesResult = await issuesTask
         let notificationsResult = await notificationsTask
         let pipelinesResult = await pipelinesTask
 
+        projects = projectsResult.value ?? []
         mergeRequests = mergeRequestsResult.value ?? []
         mergeReviews = mergeReviewsResult.value ?? []
         issues = issuesResult.value ?? []
         notifications = notificationsResult.value ?? []
         pipelines = pipelinesResult.value ?? []
         loadWarning = loadWarning(for: [
+            projectsResult.error,
             mergeRequestsResult.error,
             mergeReviewsResult.error,
             issuesResult.error,
