@@ -3,6 +3,7 @@ import Foundation
 /// Coordinates GitLab dashboard loading state and formatted dashboard data.
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
+    @Published var selection = GitLabWorkspaceSelection()
     @Published private(set) var statistics: [GitLabStatistic] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
     @Published private(set) var mergeReviews: [GitLabMergeRequest] = []
@@ -26,6 +27,15 @@ final class GitLabDashboardViewModel: ObservableObject {
 
     var isEmpty: Bool {
         mergeRequests.isEmpty && mergeReviews.isEmpty && issues.isEmpty && notifications.isEmpty && pipelines.isEmpty
+    }
+
+    var selectedSection: GitLabWorkspaceSection {
+        get { selection.section }
+        set { selection.section = newValue }
+    }
+
+    func select(_ item: GitLabWorkspaceItemID?) {
+        selection.item = item
     }
 
     func loadDashboard() async {
@@ -116,7 +126,7 @@ final class GitLabDashboardViewModel: ObservableObject {
             ),
             GitLabStatistic(
                 icon: "checkmark.bubble",
-                title: "Merge Review",
+                title: "Reviews",
                 number: "\(mergeReviews.count)",
                 subtitle: "Open merge requests awaiting your review",
                 webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [

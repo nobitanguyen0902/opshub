@@ -1,5 +1,79 @@
 import Foundation
 
+/// Top-level destinations inside the GitLab workspace.
+enum GitLabWorkspaceSection: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case overview
+    case mergeRequests
+    case reviews
+    case issues
+    case pipelines
+    case notifications
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .overview:
+            "Overview"
+        case .mergeRequests:
+            "Merge Requests"
+        case .reviews:
+            "Reviews"
+        case .issues:
+            "Issues"
+        case .pipelines:
+            "Pipelines"
+        case .notifications:
+            "Notifications"
+        }
+    }
+}
+
+/// The four compact metrics presented on the GitLab overview.
+enum GitLabSummaryMetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case awaitingReview
+    case assignedToMe
+    case failedPipelines
+    case unreadNotifications
+
+    var id: Self { self }
+}
+
+/// Keeps count meanings explicit instead of overloading a single badge value.
+struct GitLabCount: Equatable, Sendable {
+    let total: Int
+    let actionable: Int
+    let unread: Int
+    let visible: Int
+}
+
+/// Ordering used by the action-first overview queue.
+enum GitLabActionPriority: Int, Comparable, CaseIterable, Sendable {
+    case critical
+    case high
+    case normal
+    case low
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+/// Identifies a selected item without mixing resource identifier spaces.
+enum GitLabWorkspaceItemID: Hashable, Sendable {
+    case mergeRequest(Int)
+    case review(Int)
+    case issue(Int)
+    case pipeline(Int)
+    case notification(Int)
+}
+
+/// Shared workspace selection retained while navigating between sections.
+struct GitLabWorkspaceSelection: Equatable, Sendable {
+    var section: GitLabWorkspaceSection = .overview
+    var item: GitLabWorkspaceItemID?
+}
+
 /// A summary metric shown at the top of the GitLab dashboard.
 struct GitLabStatistic: Identifiable, Hashable, Sendable {
     let icon: String

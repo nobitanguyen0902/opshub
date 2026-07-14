@@ -3,9 +3,6 @@ import SwiftUI
 /// Main GitLab dashboard screen with summary metrics and work item lists.
 struct GitLabDashboardView: View {
     @StateObject private var viewModel: GitLabDashboardViewModel
-    @State private var selectedMergeRequestID: GitLabMergeRequest.ID?
-    @State private var selectedMergeReviewID: GitLabMergeRequest.ID?
-    @State private var selectedIssueID: GitLabIssue.ID?
 
     private let columns = [
         GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 16, alignment: .top)
@@ -112,19 +109,55 @@ struct GitLabDashboardView: View {
             MergeRequestsCard(
                 mergeRequests: viewModel.mergeRequests,
                 isLoading: viewModel.isLoading,
-                selectedMergeRequestID: $selectedMergeRequestID
+                selectedMergeRequestID: selectedMergeRequestID
             )
             MergeReviewsCard(
                 mergeReviews: viewModel.mergeReviews,
                 isLoading: viewModel.isLoading,
-                selectedMergeReviewID: $selectedMergeReviewID
+                selectedMergeReviewID: selectedMergeReviewID
             )
             IssuesCard(
                 issues: viewModel.issues,
                 isLoading: viewModel.isLoading,
-                selectedIssueID: $selectedIssueID
+                selectedIssueID: selectedIssueID
             )
         }
+    }
+
+    private var selectedMergeRequestID: Binding<GitLabMergeRequest.ID?> {
+        Binding(
+            get: {
+                guard case let .mergeRequest(id) = viewModel.selection.item else { return nil }
+                return id
+            },
+            set: { id in
+                viewModel.select(id.map(GitLabWorkspaceItemID.mergeRequest))
+            }
+        )
+    }
+
+    private var selectedMergeReviewID: Binding<GitLabMergeRequest.ID?> {
+        Binding(
+            get: {
+                guard case let .review(id) = viewModel.selection.item else { return nil }
+                return id
+            },
+            set: { id in
+                viewModel.select(id.map(GitLabWorkspaceItemID.review))
+            }
+        )
+    }
+
+    private var selectedIssueID: Binding<GitLabIssue.ID?> {
+        Binding(
+            get: {
+                guard case let .issue(id) = viewModel.selection.item else { return nil }
+                return id
+            },
+            set: { id in
+                viewModel.select(id.map(GitLabWorkspaceItemID.issue))
+            }
+        )
     }
 
     private var statisticGrid: some View {

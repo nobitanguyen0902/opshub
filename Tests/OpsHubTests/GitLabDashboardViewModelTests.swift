@@ -13,7 +13,7 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(
             viewModel.statistics.map(\.title),
-            ["Merge Requests", "Merge Review", "Issues", "Notifications", "Pipelines"]
+            ["Merge Requests", "Reviews", "Issues", "Notifications", "Pipelines"]
         )
         XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "1", "1", "1"])
         XCTAssertEqual(viewModel.statistics.map { $0.webURL?.absoluteString }, [
