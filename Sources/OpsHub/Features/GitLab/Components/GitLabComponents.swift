@@ -3,6 +3,7 @@ import SwiftUI
 /// Summary metric card used by the GitLab dashboard.
 struct StatisticCard: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let icon: String
     let title: String
@@ -41,15 +42,9 @@ struct StatisticCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08))
-        }
-        .shadow(color: .black.opacity(isHovering ? 0.12 : 0.05), radius: isHovering ? 14 : 6, y: isHovering ? 8 : 3)
-        .scaleEffect(isHovering ? 1.015 : 1)
+        .gitLabSurface(isEmphasized: isHovering)
         .onHover { isHovering = $0 }
-        .animation(.smooth(duration: 0.18), value: isHovering)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: isHovering)
     }
 
     private func openDashboard() {
@@ -190,6 +185,7 @@ struct GitLabLoadingState: View {
 }
 
 private struct GitLabListCard<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let count: Int
     let isLoading: Bool
@@ -260,18 +256,14 @@ private struct GitLabListCard<Content: View>: View {
                 }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08))
-        }
-        .shadow(color: .black.opacity(isHovering ? 0.12 : 0.05), radius: isHovering ? 16 : 6, y: isHovering ? 8 : 3)
+        .gitLabSurface(isEmphasized: isHovering)
         .onHover { isHovering = $0 }
-        .animation(.smooth(duration: 0.18), value: isHovering)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: isHovering)
     }
 }
 
 private struct RowHoverBackground: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isSelected: Bool
     @State private var isHovering = false
 
@@ -284,15 +276,15 @@ private struct RowHoverBackground: ViewModifier {
                     .padding(.vertical, 3)
             }
             .onHover { isHovering = $0 }
-            .animation(.smooth(duration: 0.16), value: isHovering)
-            .animation(.smooth(duration: 0.16), value: isSelected)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: isHovering)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: isSelected)
     }
 
     private var backgroundColor: Color {
         if isSelected {
-            Color.accentColor.opacity(0.14)
+            GitLabDesignTokens.surfaceSelected
         } else if isHovering {
-            Color.primary.opacity(0.06)
+            GitLabDesignTokens.surfaceHover
         } else {
             Color.clear
         }
@@ -529,20 +521,17 @@ private struct GitLabLabelBadge: View {
     var body: some View {
         Text(label.name)
             .font(.caption.weight(.medium))
-            .foregroundStyle(foregroundColor)
+            .foregroundStyle(.primary)
             .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(backgroundColor, in: Capsule())
+            .background(backgroundColor.opacity(0.18), in: Capsule())
     }
 
     private var backgroundColor: Color {
         Color(gitLabHex: label.color) ?? Color.accentColor.opacity(0.1)
     }
 
-    private var foregroundColor: Color {
-        Color(gitLabHex: label.textColor) ?? Color.accentColor
-    }
 }
 
 private extension Color {
@@ -611,19 +600,36 @@ private struct MergeRequestStatusBadge: View {
     let status: GitLabMergeRequestStatus
 
     var body: some View {
-        GitLabBadge(title: status.rawValue, foregroundColor: foregroundColor)
+        GitLabStatusBadge(
+            title: status.rawValue,
+            systemImage: systemImage,
+            severity: severity
+        )
     }
 
-    private var foregroundColor: Color {
+    private var severity: GitLabStatusSeverity {
         switch status {
         case .opened:
-            .green
+            .success
         case .reviewing:
-            .orange
+            .warning
         case .approved:
-            .blue
+            .information
         case .draft:
-            .secondary
+            .neutral
+        }
+    }
+
+    private var systemImage: String {
+        switch status {
+        case .opened:
+            "circle"
+        case .reviewing:
+            "clock"
+        case .approved:
+            "checkmark.circle"
+        case .draft:
+            "pencil"
         }
     }
 
@@ -633,36 +639,37 @@ private struct IssuePriorityBadge: View {
     let priority: GitLabIssuePriority
 
     var body: some View {
-        GitLabBadge(title: priority.rawValue, foregroundColor: foregroundColor)
+        GitLabStatusBadge(
+            title: priority.rawValue,
+            systemImage: systemImage,
+            severity: severity
+        )
     }
 
-    private var foregroundColor: Color {
+    private var severity: GitLabStatusSeverity {
         switch priority {
         case .urgent:
-            .red
+            .error
         case .high:
-            .orange
+            .warning
         case .medium:
-            .blue
+            .information
         case .low:
-            .secondary
+            .neutral
         }
     }
 
-}
-
-private struct GitLabBadge: View {
-    let title: String
-    let foregroundColor: Color
-
-    var body: some View {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(foregroundColor)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(foregroundColor.opacity(0.14), in: Capsule())
+    private var systemImage: String {
+        switch priority {
+        case .urgent:
+            "exclamationmark.circle"
+        case .high:
+            "arrow.up.circle"
+        case .medium:
+            "minus.circle"
+        case .low:
+            "arrow.down.circle"
+        }
     }
 }
 
