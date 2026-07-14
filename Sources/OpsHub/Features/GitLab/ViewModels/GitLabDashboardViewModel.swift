@@ -8,7 +8,6 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published var selectedIssueTab: GitLabIssueTab = .assignedToMe
     @Published private var sectionFilters: [GitLabWorkspaceSection: GitLabWorkspaceFilter] = [:]
     @Published private(set) var projects: [GitLabProjectSummary] = []
-    @Published private(set) var statistics: [GitLabStatistic] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
     @Published private(set) var mergeReviews: [GitLabMergeRequest] = []
     @Published private(set) var issues: [GitLabIssue] = []
@@ -22,14 +21,13 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var pipelineWarning: String?
 
     private let service: any GitLabServicing
-    private let gitLabBaseURL: URL?
+    private var loadingScope: GitLabProjectScope?
+    private var loadedScope: GitLabProjectScope?
 
     init(
-        service: any GitLabServicing = GitLabService(),
-        gitLabBaseURL: URL? = nil
+        service: any GitLabServicing = GitLabService()
     ) {
         self.service = service
-        self.gitLabBaseURL = gitLabBaseURL
     }
 
     var isEmpty: Bool {
@@ -55,6 +53,26 @@ final class GitLabDashboardViewModel: ObservableObject {
             if case .stale = state { return true }
             return false
         }
+    }
+
+    var overviewLoadState: GitLabSectionLoadState {
+        if isLoading {
+            return isEmpty ? .initialLoading : .refreshing
+        }
+
+        let states = GitLabWorkspaceSection.allCases.map(loadState)
+        let message = loadWarning ?? "GitLab activity could not be loaded."
+        if isEmpty, states.contains(where: { if case .failed = $0 { true } else { false } }) {
+            return .failed(message)
+        }
+        if states.contains(where: {
+            if case .failed = $0 { return true }
+            if case .stale = $0 { return true }
+            return false
+        }) {
+            return .stale(message)
+        }
+        return .loaded
     }
 
     var summaryMetrics: [GitLabSummaryMetric] {
@@ -92,8 +110,8 @@ final class GitLabDashboardViewModel: ObservableObject {
                 semantic: .error
             ),
             GitLabSummaryMetric(
-                kind: .unreadNotifications,
-                title: "Unread",
+                kind: .pendingNotifications,
+                title: "Pending",
                 value: pendingNotifications.count,
                 systemImage: "bell.badge",
                 semantic: .information
@@ -102,27 +120,28 @@ final class GitLabDashboardViewModel: ObservableObject {
     }
 
     var actionQueue: [GitLabWorkItemPresentation] {
-        GitLabActionQueueBuilder.build(
+        filterOverview(GitLabActionQueueBuilder.build(
             reviews: mergeReviews,
             issues: issues,
             pipelines: pipelines,
             notifications: notifications,
             scope: selectedScope
-        )
+        ))
     }
 
     var mergeRequestPreview: [GitLabWorkItemPresentation] {
-        Array(visibleMergeRequests.prefix(5)).map {
+        let scopedItems = mergeRequests.filter { selectedScope.includes(projectName: $0.project) }
+        let presentations = GitLabWorkspaceFiltering.sortMergeRequests(scopedItems, by: .updatedDescending).map {
             GitLabWorkItemPresentation(mergeRequest: $0, context: .mergeRequest)
         }
+        return Array(filterOverview(presentations).prefix(5))
     }
 
     var pipelinePreview: [GitLabWorkItemPresentation] {
-        Array(visiblePipelines.prefix(5)).map(GitLabWorkItemPresentation.init(pipeline:))
-    }
-
-    var notificationPreview: [GitLabWorkItemPresentation] {
-        Array(visibleNotifications.prefix(5)).map(GitLabWorkItemPresentation.init(notification:))
+        let scopedItems = pipelines.filter { selectedScope.includes(projectName: $0.project) }
+        let presentations = GitLabWorkspaceFiltering.sortPipelines(scopedItems)
+            .map(GitLabWorkItemPresentation.init(pipeline:))
+        return Array(filterOverview(presentations).prefix(5))
     }
 
     var visibleMergeRequests: [GitLabMergeRequest] {
@@ -154,16 +173,6 @@ final class GitLabDashboardViewModel: ObservableObject {
                 scope: selectedScope,
                 tab: selectedIssueTab,
                 filter: filter(for: .issues)
-            )
-        )
-    }
-
-    var visibleNotifications: [GitLabNotification] {
-        GitLabWorkspaceFiltering.sortNotifications(
-            GitLabWorkspaceFiltering.notifications(
-                notifications,
-                scope: selectedScope,
-                filter: filter(for: .notifications)
             )
         )
     }
@@ -206,8 +215,6 @@ final class GitLabDashboardViewModel: ObservableObject {
             visibleIssues.count
         case .pipelines:
             visiblePipelines.filter { $0.status == .failed }.count
-        case .notifications:
-            visibleNotifications.count
         }
     }
 
@@ -226,9 +233,9 @@ final class GitLabDashboardViewModel: ObservableObject {
                 GitLabWorkspaceFilter(statuses: [GitLabPipelineStatus.failed.rawValue]),
                 for: .pipelines
             )
-        case .unreadNotifications:
-            selectedSection = .notifications
-            clearFilters(for: .notifications)
+        case .pendingNotifications:
+            selectedSection = .overview
+            clearFilters(for: .overview)
         }
     }
 
@@ -237,21 +244,31 @@ final class GitLabDashboardViewModel: ObservableObject {
     }
 
     func loadDashboard() async {
+        let scope = selectedScope
+        guard loadedScope != scope else { return }
         await refresh()
     }
 
     func refresh() async {
-        guard isLoading == false else { return }
+        let scope = selectedScope
+        guard loadingScope != scope else { return }
+        loadingScope = scope
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if loadingScope == scope {
+                loadingScope = nil
+                isLoading = false
+            }
+        }
+
+        await service.invalidateProjectCatalog()
 
         beginLoading(.mergeRequests, hasData: mergeRequests.isEmpty == false)
         beginLoading(.reviews, hasData: mergeReviews.isEmpty == false)
         beginLoading(.issues, hasData: issues.isEmpty == false)
-        beginLoading(.notifications, hasData: notifications.isEmpty == false)
+        beginLoading(.overview, hasData: notifications.isEmpty == false)
         beginLoading(.pipelines, hasData: pipelines.isEmpty == false)
 
-        let scope = selectedScope
         async let projectsTask = loadSection { try await self.service.projects() }
         async let mergeRequestsTask = loadSection { try await self.service.mergeRequests(scope: scope) }
         async let mergeReviewsTask = loadSection { try await self.service.mergeReviews(scope: scope) }
@@ -265,6 +282,8 @@ final class GitLabDashboardViewModel: ObservableObject {
         let issuesResult = await issuesTask
         let notificationsResult = await notificationsTask
         let pipelinesResult = await pipelinesTask
+
+        guard selectedScope == scope else { return }
 
         if let loadedProjects = projectsResult.value {
             projects = loadedProjects
@@ -286,7 +305,7 @@ final class GitLabDashboardViewModel: ObservableObject {
         ) { issues = $0 }
         let notificationsSucceeded = apply(
             notificationsResult,
-            section: .notifications,
+            section: .overview,
             hadData: notifications.isEmpty == false
         ) { notifications = $0 }
         let pipelinesSucceeded = apply(
@@ -307,13 +326,6 @@ final class GitLabDashboardViewModel: ObservableObject {
             notificationsResult.error,
             pipelinesResult.error
         ])
-        statistics = makeStatistics(
-            mergeRequests: mergeRequests,
-            mergeReviews: mergeReviews,
-            issues: issues,
-            notifications: notifications,
-            pipelines: pipelines
-        )
         if projectsResult.value != nil
             || mergeRequestsSucceeded
             || mergeReviewsSucceeded
@@ -321,11 +333,24 @@ final class GitLabDashboardViewModel: ObservableObject {
             || notificationsSucceeded
             || pipelinesSucceeded {
             lastUpdated = .now
+            loadedScope = scope
         }
     }
 
     private func beginLoading(_ section: GitLabWorkspaceSection, hasData: Bool) {
         sectionStates[section] = hasData ? .refreshing : .initialLoading
+    }
+
+    private func filterOverview(
+        _ items: [GitLabWorkItemPresentation]
+    ) -> [GitLabWorkItemPresentation] {
+        let query = filter(for: .overview).searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty == false else { return items }
+        return items.filter { item in
+            [item.reference, item.title, item.project, item.status.title]
+                .contains { $0.localizedCaseInsensitiveContains(query) }
+        }
     }
 
     @discardableResult
@@ -375,83 +400,6 @@ final class GitLabDashboardViewModel: ObservableObject {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    private func makeStatistics(
-        mergeRequests: [GitLabMergeRequest],
-        mergeReviews: [GitLabMergeRequest],
-        issues: [GitLabIssue],
-        notifications: [GitLabNotification],
-        pipelines: [GitLabPipeline]
-    ) -> [GitLabStatistic] {
-        let failedPipelines = pipelines.filter { $0.status == .failed }.count
-        let reviewRequests = notifications.filter { $0.kind == .reviewRequested }.count
-
-        return [
-            GitLabStatistic(
-                icon: "arrow.triangle.merge",
-                title: "Merge Requests",
-                number: "\(mergeRequests.count)",
-                subtitle: "Assigned open merge requests",
-                webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
-                    URLQueryItem(name: "scope", value: "assigned_to_me"),
-                    URLQueryItem(name: "state", value: "opened")
-                ])
-            ),
-            GitLabStatistic(
-                icon: "checkmark.bubble",
-                title: "Reviews",
-                number: "\(mergeReviews.count)",
-                subtitle: "Open merge requests awaiting your review",
-                webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
-                    URLQueryItem(name: "scope", value: "reviews_for_me"),
-                    URLQueryItem(name: "state", value: "opened")
-                ])
-            ),
-            GitLabStatistic(
-                icon: "exclamationmark.circle",
-                title: "Issues",
-                number: "\(issues.count)",
-                subtitle: "Assigned open issues",
-                webURL: dashboardURL(path: "dashboard/issues", queryItems: [
-                    URLQueryItem(name: "scope", value: "assigned_to_me"),
-                    URLQueryItem(name: "state", value: "opened")
-                ])
-            ),
-            GitLabStatistic(
-                icon: "bell.badge",
-                title: "Notifications",
-                number: "\(notifications.count)",
-                subtitle: "\(reviewRequests) review requests",
-                webURL: dashboardURL(path: "dashboard/todos")
-            ),
-            GitLabStatistic(
-                icon: "play.circle",
-                title: "Pipelines",
-                number: "\(pipelines.count)",
-                subtitle: "\(failedPipelines) failed pipelines",
-                webURL: dashboardURL(path: "-/pipelines")
-            )
-        ]
-    }
-
-    private func dashboardURL(
-        path: String,
-        queryItems: [URLQueryItem] = []
-    ) -> URL? {
-        guard
-            let gitLabBaseURL,
-            var components = URLComponents(url: gitLabBaseURL, resolvingAgainstBaseURL: false)
-        else {
-            return nil
-        }
-
-        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let dashboardPath = [basePath, path]
-            .filter { $0.isEmpty == false }
-            .joined(separator: "/")
-        components.path = "/\(dashboardPath)"
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        return components.url
-    }
 }
 
 private extension Result {

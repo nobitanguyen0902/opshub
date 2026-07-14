@@ -111,7 +111,6 @@ final class GitLabWorkspaceFilterTests: XCTestCase {
 }
 
 private struct EmptyGitLabService: GitLabServicing {
-    func dashboardStatistics() async throws -> [GitLabStatistic] { [] }
     func mergeRequests() async throws -> [GitLabMergeRequest] { [] }
     func mergeReviews() async throws -> [GitLabMergeRequest] { [] }
     func issues() async throws -> [GitLabIssue] { [] }

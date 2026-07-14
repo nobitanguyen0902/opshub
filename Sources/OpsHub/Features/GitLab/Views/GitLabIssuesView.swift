@@ -9,6 +9,7 @@ struct GitLabIssuesView: View {
     @Binding var selectedTab: GitLabIssueTab
     let onSelect: (GitLabWorkspaceItemID) -> Void
     let onClearFilters: () -> Void
+    let onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.medium) {
@@ -33,7 +34,8 @@ struct GitLabIssuesView: View {
                 emptyMessage: "Issues matching the selected workflow will appear here.",
                 onSelect: onSelect,
                 onQuickAction: nil,
-                onClearFilters: onClearFilters
+                onClearFilters: onClearFilters,
+                onRetry: onRetry
             )
         }
     }

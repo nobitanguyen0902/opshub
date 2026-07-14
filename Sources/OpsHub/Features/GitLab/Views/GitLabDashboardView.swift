@@ -2,15 +2,11 @@ import SwiftUI
 
 /// Main GitLab dashboard screen with summary metrics and work item lists.
 struct GitLabDashboardView: View {
-    @StateObject private var viewModel: GitLabDashboardViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var viewModel: GitLabDashboardViewModel
 
-    init(settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()) {
-        _viewModel = StateObject(
-            wrappedValue: GitLabDashboardViewModel(
-                service: GitLabService(settingsStore: settingsStore),
-                gitLabBaseURL: URL(string: settingsStore.load().gitLabURL)
-            )
-        )
+    init(viewModel: GitLabDashboardViewModel) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
     }
 
     var body: some View {
@@ -36,13 +32,13 @@ struct GitLabDashboardView: View {
             }
         }
         .navigationTitle("GitLab")
-        .task {
+        .task(id: viewModel.selectedScope) {
             await viewModel.loadDashboard()
         }
-        .animation(.smooth(duration: 0.25), value: viewModel.isLoading)
-        .animation(.smooth(duration: 0.25), value: viewModel.mergeRequests)
-        .animation(.smooth(duration: 0.25), value: viewModel.mergeReviews)
-        .animation(.smooth(duration: 0.25), value: viewModel.issues)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.isLoading)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.mergeRequests)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.mergeReviews)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.issues)
     }
 
     private func header(mode: GitLabWorkspaceLayoutMode) -> some View {
@@ -80,11 +76,11 @@ struct GitLabDashboardView: View {
                 actionQueue: viewModel.actionQueue,
                 mergeRequests: viewModel.mergeRequestPreview,
                 pipelines: viewModel.pipelinePreview,
-                notifications: viewModel.notificationPreview,
                 selectedItemID: viewModel.selection.item,
-                loadState: viewModel.isLoading && viewModel.isEmpty ? .initialLoading : .loaded,
+                loadState: viewModel.overviewLoadState,
                 onSelect: viewModel.select,
-                onShowSection: { viewModel.selectedSection = $0 }
+                onShowSection: { viewModel.selectedSection = $0 },
+                onRetry: refresh
             )
         case .mergeRequests:
             GitLabMergeRequestsView(
@@ -101,7 +97,8 @@ struct GitLabDashboardView: View {
                     filter.statuses = statuses
                     viewModel.setFilter(filter, for: .mergeRequests)
                 },
-                onClearFilters: { viewModel.clearFilters(for: .mergeRequests) }
+                onClearFilters: { viewModel.clearFilters(for: .mergeRequests) },
+                onRetry: refresh
             )
         case .reviews:
             GitLabReviewsView(
@@ -118,7 +115,8 @@ struct GitLabDashboardView: View {
                     filter.statuses = statuses
                     viewModel.setFilter(filter, for: .reviews)
                 },
-                onClearFilters: { viewModel.clearFilters(for: .reviews) }
+                onClearFilters: { viewModel.clearFilters(for: .reviews) },
+                onRetry: refresh
             )
         case .issues:
             GitLabIssuesView(
@@ -129,7 +127,8 @@ struct GitLabDashboardView: View {
                 selectedItemID: viewModel.selection.item,
                 selectedTab: $viewModel.selectedIssueTab,
                 onSelect: viewModel.select,
-                onClearFilters: { viewModel.clearFilters(for: .issues) }
+                onClearFilters: { viewModel.clearFilters(for: .issues) },
+                onRetry: refresh
             )
         case .pipelines:
             GitLabPipelinesView(
@@ -145,17 +144,8 @@ struct GitLabDashboardView: View {
                     filter.statuses = statuses
                     viewModel.setFilter(filter, for: .pipelines)
                 },
-                onClearFilters: { viewModel.clearFilters(for: .pipelines) }
-            )
-        case .notifications:
-            GitLabNotificationsView(
-                mode: mode,
-                items: viewModel.visibleNotifications.map(GitLabWorkItemPresentation.init(notification:)),
-                loadState: viewModel.loadState(for: .notifications),
-                filter: viewModel.filter(for: .notifications),
-                selectedItemID: viewModel.selection.item,
-                onSelect: viewModel.select,
-                onClearFilters: { viewModel.clearFilters(for: .notifications) }
+                onClearFilters: { viewModel.clearFilters(for: .pipelines) },
+                onRetry: refresh
             )
         }
     }
@@ -173,10 +163,14 @@ struct GitLabDashboardView: View {
             set: { viewModel.selectedSection = $0 }
         )
     }
+
+    private func refresh() {
+        Task { await viewModel.refresh() }
+    }
 }
 
 #Preview {
     NavigationStack {
-        GitLabDashboardView()
+        GitLabDashboardView(viewModel: GitLabDashboardViewModel())
     }
 }

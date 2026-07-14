@@ -49,7 +49,8 @@ final class GitLabServiceTests: XCTestCase {
 
         let mergeRequests = try await service.mergeRequests(scope: scope)
 
-        XCTAssertEqual(mergeRequests.map(\.id), [41])
+        XCTAssertEqual(mergeRequests.map(\.id), [1001])
+        XCTAssertEqual(mergeRequests.map(\.iid), [41])
     }
 
     func testProjectsAndPipelinesReuseTheMembershipProjectCatalog() async throws {
@@ -71,6 +72,28 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(
             httpClient.requests.filter { $0.url?.path == "/api/v4/projects" }.count,
             1
+        )
+    }
+
+    func testInvalidatingProjectCatalogCausesNextLoadToRefreshMembershipProjects() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7,"name":"opshub","name_with_namespace":"ops/opshub"}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        _ = try await service.projects()
+        await service.invalidateProjectCatalog()
+        _ = try await service.projects()
+
+        XCTAssertEqual(
+            httpClient.requests.filter { $0.url?.path == "/api/v4/projects" }.count,
+            2
         )
     }
 
@@ -133,7 +156,8 @@ final class GitLabServiceTests: XCTestCase {
         let mergeRequests = try await service.mergeRequests()
 
         XCTAssertEqual(mergeRequests.count, 1)
-        XCTAssertEqual(mergeRequests.first?.id, 42)
+        XCTAssertEqual(mergeRequests.first?.id, 1001)
+        XCTAssertEqual(mergeRequests.first?.iid, 42)
         XCTAssertEqual(mergeRequests.first?.title, "Wire GitLab REST service")
         XCTAssertEqual(mergeRequests.first?.project, "ops/opshub")
         XCTAssertEqual(mergeRequests.first?.status, .reviewing)
@@ -192,7 +216,8 @@ final class GitLabServiceTests: XCTestCase {
 
         let mergeReviews = try await service.mergeReviews()
 
-        XCTAssertEqual(mergeReviews.map(\.id), [43])
+        XCTAssertEqual(mergeReviews.map(\.id), [1002])
+        XCTAssertEqual(mergeReviews.map(\.iid), [43])
         XCTAssertEqual(mergeReviews.first?.title, "Review GitLab dashboard changes")
         let request = try XCTUnwrap(httpClient.requests.first)
         XCTAssertEqual(request.url?.path, "/api/v4/merge_requests")
@@ -282,7 +307,8 @@ final class GitLabServiceTests: XCTestCase {
         let issues = try await service.issues()
 
         XCTAssertEqual(issues.count, 2)
-        XCTAssertEqual(issues.first?.id, 77)
+        XCTAssertEqual(issues.first?.id, 2002)
+        XCTAssertEqual(issues.first?.iid, 77)
         XCTAssertEqual(issues.first?.title, "Make dashboard rows open GitLab")
         XCTAssertEqual(issues.first?.project, "ops/opshub")
         XCTAssertEqual(issues.first?.priority, .high)
@@ -350,7 +376,8 @@ final class GitLabServiceTests: XCTestCase {
 
         let issues = try await service.issues()
 
-        XCTAssertEqual(issues.map(\.id), [1, 2])
+        XCTAssertEqual(issues.map(\.id), [3001, 3002])
+        XCTAssertEqual(issues.map(\.iid), [1, 2])
         XCTAssertTrue(issues.allSatisfy(\.isWorkflowProject))
     }
 

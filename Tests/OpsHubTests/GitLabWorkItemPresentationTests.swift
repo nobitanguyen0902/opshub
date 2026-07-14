@@ -5,7 +5,8 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
     func testMergeRequestPresentationKeepsIdentityParticipantAndTimestamp() {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let mergeRequest = GitLabMergeRequest(
-            id: 42,
+            id: 1_042,
+            iid: 42,
             title: "Improve dashboard",
             project: "ops/opshub",
             status: .reviewing,
@@ -18,7 +19,7 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
 
         let item = GitLabWorkItemPresentation(mergeRequest: mergeRequest, context: .mergeRequest)
 
-        XCTAssertEqual(item.id, .mergeRequest(42))
+        XCTAssertEqual(item.id, .mergeRequest(1_042))
         XCTAssertEqual(item.reference, "!42")
         XCTAssertEqual(item.status.title, "Reviewing")
         XCTAssertEqual(item.participants.map(\.name), ["Octo Cat"])
@@ -28,7 +29,8 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
 
     func testReviewPresentationUsesSeparateIdentifierSpace() {
         let mergeRequest = GitLabMergeRequest(
-            id: 42,
+            id: 1_042,
+            iid: 42,
             title: "Review dashboard",
             project: "ops/opshub",
             status: .reviewing,
@@ -38,13 +40,14 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
 
         let item = GitLabWorkItemPresentation(mergeRequest: mergeRequest, context: .review)
 
-        XCTAssertEqual(item.id, .review(42))
+        XCTAssertEqual(item.id, .review(1_042))
         XCTAssertNil(item.webURL)
     }
 
     func testIssuePresentationPreservesLabelsAndMissingURL() {
         let issue = GitLabIssue(
-            id: 77,
+            id: 2_077,
+            iid: 77,
             title: "Production bug",
             project: "ops/opshub",
             priority: .urgent,
@@ -55,7 +58,7 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
 
         let item = GitLabWorkItemPresentation(issue: issue)
 
-        XCTAssertEqual(item.id, .issue(77))
+        XCTAssertEqual(item.id, .issue(2_077))
         XCTAssertEqual(item.labels.map(\.name), ["Bug Production"])
         XCTAssertEqual(item.priority, .critical)
         XCTAssertNil(item.webURL)

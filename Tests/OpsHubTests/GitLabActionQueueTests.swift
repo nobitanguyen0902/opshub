@@ -67,4 +67,22 @@ final class GitLabActionQueueTests: XCTestCase {
         XCTAssertEqual(result.first?.priority, .high)
         XCTAssertEqual(result.first?.id, .notification(1_999))
     }
+
+    func testQueueDeduplicatesNotificationTargetingTheSameMergeRequest() {
+        let review = GitLabMergeRequest(
+            id: 1_001, iid: 7, title: "Review me", project: "ops/app",
+            status: .reviewing, updatedTime: "Now", webURL: nil
+        )
+        let notification = GitLabNotification(
+            id: 99, title: "Review requested", project: "ops/app", kind: .reviewRequested,
+            updatedTime: "Now",
+            targetResourceKey: GitLabResourceKey(kind: .mergeRequest, project: "ops/app", id: 1_001)
+        )
+
+        let result = GitLabActionQueueBuilder.build(
+            reviews: [review], issues: [], pipelines: [], notifications: [notification], scope: .allProjects
+        )
+
+        XCTAssertEqual(result.map(\.id), [.review(1_001)])
+    }
 }

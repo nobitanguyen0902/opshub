@@ -12,6 +12,7 @@ struct GitLabWorkItemList: View {
     let onSelect: (GitLabWorkspaceItemID) -> Void
     let onQuickAction: ((GitLabWorkspaceItemID) -> Void)?
     let onClearFilters: (() -> Void)?
+    let onRetry: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,11 +60,17 @@ struct GitLabWorkItemList: View {
             ProgressView("Loading \(title)...")
                 .frame(maxWidth: .infinity, minHeight: 180)
         } else if case let .failed(message) = loadState, items.isEmpty {
-            EmptyStateView(
-                systemImage: "exclamationmark.triangle",
-                title: "Unable to load \(title)",
-                message: message
-            )
+            VStack(spacing: GitLabDesignTokens.Spacing.medium) {
+                EmptyStateView(
+                    systemImage: "exclamationmark.triangle",
+                    title: "Unable to load \(title)",
+                    message: message
+                )
+                if let onRetry {
+                    Button("Retry", action: onRetry)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
             .frame(maxWidth: .infinity, minHeight: 180)
         } else if items.isEmpty {
             VStack(spacing: GitLabDesignTokens.Spacing.medium) {
@@ -113,7 +120,8 @@ struct GitLabWorkItemList: View {
         emptyMessage: "Merge requests awaiting review will appear here.",
         onSelect: { _ in },
         onQuickAction: nil,
-        onClearFilters: nil
+        onClearFilters: nil,
+        onRetry: nil
     )
     .padding()
 }

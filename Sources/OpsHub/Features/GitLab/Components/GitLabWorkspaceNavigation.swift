@@ -8,21 +8,37 @@ enum GitLabNavigationBadgeText {
 }
 
 struct GitLabWorkspaceNavigation: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let mode: GitLabWorkspaceLayoutMode
     @Binding var selection: GitLabWorkspaceSection
     let badgeCount: (GitLabWorkspaceSection) -> Int
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: GitLabDesignTokens.Spacing.xSmall) {
-                ForEach(GitLabWorkspaceSection.allCases) { section in
-                    navigationButton(for: section)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: GitLabDesignTokens.Spacing.xSmall) {
+                    ForEach(GitLabWorkspaceSection.allCases) { section in
+                        navigationButton(for: section)
+                    }
+                }
+                .padding(GitLabDesignTokens.Spacing.xSmall)
+            }
+            .onChange(of: selection) { _, section in
+                if reduceMotion {
+                    proxy.scrollTo(section, anchor: scrollAnchor)
+                } else {
+                    withAnimation(.smooth(duration: 0.2)) {
+                        proxy.scrollTo(section, anchor: scrollAnchor)
+                    }
                 }
             }
-            .padding(GitLabDesignTokens.Spacing.xSmall)
         }
         .gitLabSurface(cornerRadius: GitLabDesignTokens.Radius.control)
         .accessibilityLabel("GitLab sections")
+    }
+
+    private var scrollAnchor: UnitPoint {
+        mode == .narrow ? .center : .leading
     }
 
     private func navigationButton(for section: GitLabWorkspaceSection) -> some View {
@@ -65,7 +81,7 @@ struct GitLabWorkspaceNavigation: View {
     GitLabWorkspaceNavigation(
         mode: .wide,
         selection: .constant(.overview),
-        badgeCount: { section in section == .notifications ? 120 : 2 }
+        badgeCount: { section in section == .pipelines ? 120 : 2 }
     )
     .padding()
     .frame(width: 900)

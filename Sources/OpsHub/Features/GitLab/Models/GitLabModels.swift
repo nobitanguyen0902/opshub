@@ -7,7 +7,6 @@ enum GitLabWorkspaceSection: String, CaseIterable, Identifiable, Hashable, Senda
     case reviews
     case issues
     case pipelines
-    case notifications
 
     var id: Self { self }
 
@@ -23,8 +22,6 @@ enum GitLabWorkspaceSection: String, CaseIterable, Identifiable, Hashable, Senda
             "Issues"
         case .pipelines:
             "Pipelines"
-        case .notifications:
-            "Notifications"
         }
     }
 }
@@ -34,7 +31,7 @@ enum GitLabSummaryMetricKind: String, CaseIterable, Identifiable, Hashable, Send
     case awaitingReview
     case assignedToMe
     case failedPipelines
-    case unreadNotifications
+    case pendingNotifications
 
     var id: Self { self }
 }
@@ -82,6 +79,18 @@ enum GitLabWorkspaceItemID: Hashable, Sendable {
 struct GitLabWorkspaceSelection: Equatable, Sendable {
     var section: GitLabWorkspaceSection = .overview
     var item: GitLabWorkspaceItemID?
+}
+
+enum GitLabResourceKind: String, Hashable, Sendable {
+    case mergeRequest
+    case issue
+    case pipeline
+}
+
+struct GitLabResourceKey: Hashable, Sendable {
+    let kind: GitLabResourceKind
+    let project: String
+    let id: Int
 }
 
 /// A project shown by the workspace scope selector.
@@ -171,7 +180,7 @@ enum GitLabWorkspaceFiltering {
     ) -> [GitLabMergeRequest] {
         items.filter { item in
             scope.includes(projectName: item.project)
-                && matchesSearch(filter.searchText, values: ["!\(item.id)", item.title, item.project])
+                && matchesSearch(filter.searchText, values: ["!\(item.iid)", item.title, item.project])
                 && matchesStatuses(filter.statuses, value: item.status.rawValue)
                 && matchesParticipant(filter.participant, value: item.authorName)
         }
@@ -186,21 +195,9 @@ enum GitLabWorkspaceFiltering {
         items.filter { item in
             tab.includes(item)
                 && scope.includes(projectName: item.project)
-                && matchesSearch(filter.searchText, values: ["#\(item.id)", item.title, item.project])
+                && matchesSearch(filter.searchText, values: ["#\(item.iid)", item.title, item.project])
                 && matchesLabels(filter.labels, values: item.labels)
                 && matchesParticipant(filter.participant, value: item.assigneeName)
-        }
-    }
-
-    static func notifications(
-        _ items: [GitLabNotification],
-        scope: GitLabProjectScope,
-        filter: GitLabWorkspaceFilter
-    ) -> [GitLabNotification] {
-        items.filter { item in
-            scope.includes(projectName: item.project)
-                && matchesSearch(filter.searchText, values: ["\(item.id)", item.title, item.project])
-                && matchesStatuses(filter.statuses, value: item.kind.rawValue)
         }
     }
 
@@ -232,15 +229,6 @@ enum GitLabWorkspaceFiltering {
     }
 
     static func sortIssues(_ items: [GitLabIssue]) -> [GitLabIssue] {
-        items.sorted {
-            if $0.updatedAt != $1.updatedAt {
-                return ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
-            }
-            return $0.id > $1.id
-        }
-    }
-
-    static func sortNotifications(_ items: [GitLabNotification]) -> [GitLabNotification] {
         items.sorted {
             if $0.updatedAt != $1.updatedAt {
                 return ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
@@ -288,20 +276,10 @@ enum GitLabWorkspaceFiltering {
     }
 }
 
-/// A summary metric shown at the top of the GitLab dashboard.
-struct GitLabStatistic: Identifiable, Hashable, Sendable {
-    let icon: String
-    let title: String
-    let number: String
-    let subtitle: String
-    let webURL: URL?
-
-    var id: String { title }
-}
-
 /// A merge request item formatted for the dashboard list.
 struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
     let id: Int
+    let iid: Int
     let title: String
     let project: String
     let status: GitLabMergeRequestStatus
@@ -313,6 +291,7 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
 
     init(
         id: Int,
+        iid: Int? = nil,
         title: String,
         project: String,
         status: GitLabMergeRequestStatus,
@@ -323,6 +302,7 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
         webURL: URL?
     ) {
         self.id = id
+        self.iid = iid ?? id
         self.title = title
         self.project = project
         self.status = status
@@ -345,6 +325,7 @@ enum GitLabMergeRequestStatus: String, Hashable, Sendable {
 /// An issue item formatted for the dashboard list.
 struct GitLabIssue: Identifiable, Hashable, Sendable {
     let id: Int
+    let iid: Int
     let title: String
     let project: String
     let priority: GitLabIssuePriority
@@ -360,6 +341,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
 
     init(
         id: Int,
+        iid: Int? = nil,
         title: String,
         project: String,
         priority: GitLabIssuePriority,
@@ -374,6 +356,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
         webURL: URL?
     ) {
         self.id = id
+        self.iid = iid ?? id
         self.title = title
         self.project = project
         self.priority = priority
@@ -449,6 +432,7 @@ struct GitLabNotification: Identifiable, Hashable, Sendable {
     let updatedAt: Date?
     let updatedTime: String
     let webURL: URL?
+    let targetResourceKey: GitLabResourceKey?
 
     init(
         id: Int,
@@ -459,7 +443,8 @@ struct GitLabNotification: Identifiable, Hashable, Sendable {
         authorAvatarURL: URL? = nil,
         updatedAt: Date? = nil,
         updatedTime: String,
-        webURL: URL? = nil
+        webURL: URL? = nil,
+        targetResourceKey: GitLabResourceKey? = nil
     ) {
         self.id = id
         self.title = title
@@ -470,6 +455,7 @@ struct GitLabNotification: Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.updatedTime = updatedTime
         self.webURL = webURL
+        self.targetResourceKey = targetResourceKey
     }
 }
 

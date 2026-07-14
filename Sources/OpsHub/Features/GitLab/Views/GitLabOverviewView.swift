@@ -5,11 +5,11 @@ struct GitLabOverviewView: View {
     let actionQueue: [GitLabWorkItemPresentation]
     let mergeRequests: [GitLabWorkItemPresentation]
     let pipelines: [GitLabWorkItemPresentation]
-    let notifications: [GitLabWorkItemPresentation]
     let selectedItemID: GitLabWorkspaceItemID?
     let loadState: GitLabSectionLoadState
     let onSelect: (GitLabWorkspaceItemID) -> Void
     let onShowSection: (GitLabWorkspaceSection) -> Void
+    let onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xLarge) {
@@ -24,7 +24,8 @@ struct GitLabOverviewView: View {
                 emptyMessage: "New reviews, assignments, failures, and mentions will appear here.",
                 onSelect: onSelect,
                 onQuickAction: nil,
-                onClearFilters: nil
+                onClearFilters: nil,
+                onRetry: onRetry
             )
 
             previewGrid
@@ -37,13 +38,11 @@ struct GitLabOverviewView: View {
             HStack(alignment: .top, spacing: GitLabDesignTokens.Spacing.large) {
                 preview(title: "My merge requests", items: mergeRequests, section: .mergeRequests)
                 preview(title: "Recent pipelines", items: pipelines, section: .pipelines)
-                preview(title: "Recent notifications", items: notifications, section: .notifications)
             }
         } else {
             VStack(spacing: GitLabDesignTokens.Spacing.large) {
                 preview(title: "My merge requests", items: mergeRequests, section: .mergeRequests)
                 preview(title: "Recent pipelines", items: pipelines, section: .pipelines)
-                preview(title: "Recent notifications", items: notifications, section: .notifications)
             }
         }
     }
@@ -65,7 +64,7 @@ struct GitLabOverviewView: View {
             GitLabWorkItemList(
                 title: title,
                 items: items,
-                mode: mode,
+                mode: mode == .wide ? .narrow : mode,
                 loadState: .loaded,
                 isFiltered: false,
                 selectedItemID: selectedItemID,
@@ -73,7 +72,8 @@ struct GitLabOverviewView: View {
                 emptyMessage: "Activity will appear here.",
                 onSelect: onSelect,
                 onQuickAction: nil,
-                onClearFilters: nil
+                onClearFilters: nil,
+                onRetry: nil
             )
         }
         .frame(maxWidth: .infinity, alignment: .top)

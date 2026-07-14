@@ -90,12 +90,14 @@ struct GitLabWorkItemRow: View {
                 if item.labels.isEmpty == false {
                     GitLabWorkItemFlowLayout(spacing: 6) {
                         ForEach(item.labels, id: \.self) { label in
+                            let colors = labelColors(label)
                             Text(label.name)
                                 .font(.caption.weight(.medium))
                                 .lineLimit(1)
+                                .foregroundStyle(colors.foreground)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(labelTint(label).opacity(0.18), in: Capsule())
+                                .background(colors.background, in: Capsule())
                         }
                     }
                 }
@@ -163,14 +165,24 @@ struct GitLabWorkItemRow: View {
         }
     }
 
-    private func labelTint(_ label: GitLabLabel) -> Color {
-        guard let value = label.color else { return .accentColor }
+    private func labelColors(_ label: GitLabLabel) -> (background: Color, foreground: Color) {
+        let background = parsedColor(label.color) ?? (Color.accentColor, 0.35)
+        if let foreground = parsedColor(label.textColor)?.color {
+            return (background.color, foreground)
+        }
+        return (background.color, background.luminance > 0.55 ? .black : .white)
+    }
+
+    private func parsedColor(_ value: String?) -> (color: Color, luminance: Double)? {
+        guard let value else { return nil }
         let hex = value.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        guard hex.count == 6, let number = UInt64(hex, radix: 16) else { return .accentColor }
-        return Color(
-            red: Double((number >> 16) & 0xFF) / 255,
-            green: Double((number >> 8) & 0xFF) / 255,
-            blue: Double(number & 0xFF) / 255
+        guard hex.count == 6, let number = UInt64(hex, radix: 16) else { return nil }
+        let red = Double((number >> 16) & 0xFF) / 255
+        let green = Double((number >> 8) & 0xFF) / 255
+        let blue = Double(number & 0xFF) / 255
+        return (
+            Color(red: red, green: green, blue: blue),
+            (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
         )
     }
 }

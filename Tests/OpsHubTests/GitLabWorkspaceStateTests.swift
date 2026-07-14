@@ -5,11 +5,11 @@ final class GitLabWorkspaceStateTests: XCTestCase {
     func testWorkspaceSectionsHaveStableApprovedOrder() {
         XCTAssertEqual(
             GitLabWorkspaceSection.allCases,
-            [.overview, .mergeRequests, .reviews, .issues, .pipelines, .notifications]
+            [.overview, .mergeRequests, .reviews, .issues, .pipelines]
         )
         XCTAssertEqual(
             GitLabWorkspaceSection.allCases.map(\.title),
-            ["Overview", "Merge Requests", "Reviews", "Issues", "Pipelines", "Notifications"]
+            ["Overview", "Merge Requests", "Reviews", "Issues", "Pipelines"]
         )
     }
 
@@ -52,5 +52,24 @@ final class GitLabWorkspaceStateTests: XCTestCase {
         XCTAssertNil(GitLabNavigationBadgeText.value(for: 0))
         XCTAssertEqual(GitLabNavigationBadgeText.value(for: 99), "99")
         XCTAssertEqual(GitLabNavigationBadgeText.value(for: 100), "99+")
+    }
+
+    func testWorkItemIdentityUsesGlobalIDWhileReferenceUsesProjectIID() {
+        let first = GitLabWorkItemPresentation(
+            issue: GitLabIssue(
+                id: 1_001, iid: 7, title: "First", project: "group/one",
+                priority: .medium, updatedTime: "Now", webURL: nil
+            )
+        )
+        let second = GitLabWorkItemPresentation(
+            issue: GitLabIssue(
+                id: 2_001, iid: 7, title: "Second", project: "group/two",
+                priority: .medium, updatedTime: "Now", webURL: nil
+            )
+        )
+
+        XCTAssertNotEqual(first.id, second.id)
+        XCTAssertEqual(first.reference, "#7")
+        XCTAssertEqual(second.reference, "#7")
     }
 }

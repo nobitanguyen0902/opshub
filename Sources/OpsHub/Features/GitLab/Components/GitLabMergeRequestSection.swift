@@ -1,11 +1,14 @@
 import SwiftUI
 
-struct GitLabPipelinesView: View {
+struct GitLabMergeRequestSection: View {
+    let title: String
+    let filterAccessibilityLabel: String
+    let emptyTitle: String
+    let emptyMessage: String
     let mode: GitLabWorkspaceLayoutMode
     let items: [GitLabWorkItemPresentation]
     let loadState: GitLabSectionLoadState
     let filter: GitLabWorkspaceFilter
-    let warning: String?
     let selectedItemID: GitLabWorkspaceItemID?
     let onSelect: (GitLabWorkspaceItemID) -> Void
     let onStatusChange: (Set<String>) -> Void
@@ -14,13 +17,6 @@ struct GitLabPipelinesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.medium) {
-            if let warning {
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Partial pipeline results. \(warning)")
-            }
-
             Menu {
                 Button("All statuses") { onStatusChange([]) }
                 Divider()
@@ -31,16 +27,17 @@ struct GitLabPipelinesView: View {
                 Label(filter.statuses.first ?? "All statuses", systemImage: "line.3.horizontal.decrease.circle")
             }
             .buttonStyle(.bordered)
+            .accessibilityLabel(filterAccessibilityLabel)
 
             GitLabWorkItemList(
-                title: "Pipelines",
+                title: title,
                 items: items,
                 mode: mode,
                 loadState: loadState,
                 isFiltered: filter.isEmpty == false,
                 selectedItemID: selectedItemID,
-                emptyTitle: "No pipelines",
-                emptyMessage: "Recent project pipelines will appear here.",
+                emptyTitle: emptyTitle,
+                emptyMessage: emptyMessage,
                 onSelect: onSelect,
                 onQuickAction: nil,
                 onClearFilters: onClearFilters,
@@ -49,7 +46,7 @@ struct GitLabPipelinesView: View {
         }
     }
 
-    private var statuses: [GitLabPipelineStatus] {
-        [.running, .passed, .failed, .canceled]
+    private var statuses: [GitLabMergeRequestStatus] {
+        [.opened, .reviewing, .approved, .draft]
     }
 }

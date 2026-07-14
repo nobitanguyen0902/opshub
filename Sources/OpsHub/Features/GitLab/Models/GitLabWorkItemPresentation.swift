@@ -45,6 +45,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
     let updatedAt: Date?
     let updatedTime: String
     let webURL: URL?
+    let resourceKey: GitLabResourceKey?
 
     var accessibilitySummary: String {
         let participantText = participants.map(\.name).joined(separator: ", ")
@@ -63,7 +64,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
     init(mergeRequest: GitLabMergeRequest, context: GitLabMergeRequestContext) {
         id = context == .review ? .review(mergeRequest.id) : .mergeRequest(mergeRequest.id)
         kind = context == .review ? .review : .mergeRequest
-        reference = "!\(mergeRequest.id)"
+        reference = "!\(mergeRequest.iid)"
         title = mergeRequest.title
         project = mergeRequest.project
         status = Self.status(for: mergeRequest.status)
@@ -76,12 +77,13 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         updatedAt = mergeRequest.updatedAt
         updatedTime = mergeRequest.updatedTime
         webURL = mergeRequest.webURL
+        resourceKey = GitLabResourceKey(kind: .mergeRequest, project: mergeRequest.project, id: mergeRequest.id)
     }
 
     init(issue: GitLabIssue) {
         id = .issue(issue.id)
         kind = .issue
-        reference = "#\(issue.id)"
+        reference = "#\(issue.iid)"
         title = issue.title
         project = issue.project
         status = Self.status(for: issue.priority)
@@ -94,6 +96,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         updatedAt = issue.updatedAt
         updatedTime = issue.updatedTime
         webURL = issue.webURL
+        resourceKey = GitLabResourceKey(kind: .issue, project: issue.project, id: issue.id)
     }
 
     init(pipeline: GitLabPipeline) {
@@ -112,6 +115,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         updatedAt = pipeline.updatedAt
         updatedTime = pipeline.updatedTime
         webURL = pipeline.webURL
+        resourceKey = GitLabResourceKey(kind: .pipeline, project: pipeline.project, id: pipeline.id)
     }
 
     init(notification: GitLabNotification) {
@@ -130,6 +134,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         updatedAt = notification.updatedAt
         updatedTime = notification.updatedTime
         webURL = notification.webURL
+        resourceKey = notification.targetResourceKey
     }
 
     private static func participants(name: String?, avatarURL: URL?) -> [GitLabWorkItemParticipant] {
@@ -235,9 +240,7 @@ enum GitLabActionQueueBuilder {
                 .filter { scope.includes(projectName: $0.project) }
                 .map(GitLabWorkItemPresentation.init(notification:))
 
-        let unique = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, second in
-            (first.updatedAt ?? .distantPast) >= (second.updatedAt ?? .distantPast) ? first : second
-        })
+        let unique = Dictionary(candidates.map { (dedupeKey(for: $0), $0) }, uniquingKeysWith: preferred)
 
         return unique.values.sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
@@ -246,5 +249,26 @@ enum GitLabActionQueueBuilder {
             }
             return lhs.accessibilitySummary < rhs.accessibilitySummary
         }
+    }
+
+    private enum DedupeKey: Hashable {
+        case resource(GitLabResourceKey)
+        case item(GitLabWorkspaceItemID)
+    }
+
+    private static func dedupeKey(for item: GitLabWorkItemPresentation) -> DedupeKey {
+        item.resourceKey.map(DedupeKey.resource) ?? .item(item.id)
+    }
+
+    private static func preferred(
+        _ first: GitLabWorkItemPresentation,
+        _ second: GitLabWorkItemPresentation
+    ) -> GitLabWorkItemPresentation {
+        if first.priority != second.priority {
+            return first.priority < second.priority ? first : second
+        }
+        if first.kind == .notification, second.kind != .notification { return second }
+        if second.kind == .notification, first.kind != .notification { return first }
+        return (first.updatedAt ?? .distantPast) >= (second.updatedAt ?? .distantPast) ? first : second
     }
 }
