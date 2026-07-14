@@ -93,7 +93,13 @@ final class GitLabServiceTests: XCTestCase {
                     "project_id": 7,
                     "title": "Make dashboard rows open GitLab",
                     "state": "opened",
-                    "labels": ["priority::high"],
+                    "labels": [
+                      {
+                        "name": "priority::high",
+                        "color": "#D9534F",
+                        "text_color": "#FFFFFF"
+                      }
+                    ],
                     "assignees": [
                       {
                         "id": 19,
@@ -149,6 +155,10 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(issues.first?.project, "ops/opshub")
         XCTAssertEqual(issues.first?.priority, .high)
         XCTAssertEqual(issues.first?.labels, ["priority::high"])
+        XCTAssertEqual(
+            issues.first?.labelDetails,
+            [GitLabLabel(name: "priority::high", color: "#D9534F", textColor: "#FFFFFF")]
+        )
         XCTAssertEqual(issues.first?.isAssignedToMe, true)
         XCTAssertEqual(issues.first?.isWorkflowProject, true)
         XCTAssertEqual(issues.first?.assigneeName, "Issue Assignee")
@@ -179,6 +189,11 @@ final class GitLabServiceTests: XCTestCase {
                 .value
         }
         XCTAssertEqual(updatedAfterValues, ["2026-06-13T12:00:00.000Z", "2026-06-13T12:00:00.000Z"])
+        XCTAssertTrue(httpClient.requests.allSatisfy { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .contains(URLQueryItem(name: "with_labels_details", value: "true")) == true
+        })
     }
 
     func testIssuesLoadsEveryWorkflowProjectPage() async throws {

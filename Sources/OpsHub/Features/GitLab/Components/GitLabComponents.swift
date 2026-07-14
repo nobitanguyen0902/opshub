@@ -312,7 +312,8 @@ private struct GitLabSelectableRow<Badge: View>: View {
     let avatarURL: URL?
     let avatarAccessibilityLabel: String?
     let showsAvatar: Bool
-    let labels: [String]
+    let showsFullContent: Bool
+    let labels: [GitLabLabel]
     let updatedTime: String
     let webURL: URL?
     let isSelected: Bool
@@ -326,7 +327,8 @@ private struct GitLabSelectableRow<Badge: View>: View {
         avatarURL: URL? = nil,
         avatarAccessibilityLabel: String? = nil,
         showsAvatar: Bool = false,
-        labels: [String] = [],
+        showsFullContent: Bool = false,
+        labels: [GitLabLabel] = [],
         updatedTime: String,
         webURL: URL?,
         isSelected: Bool,
@@ -339,6 +341,7 @@ private struct GitLabSelectableRow<Badge: View>: View {
         self.avatarURL = avatarURL
         self.avatarAccessibilityLabel = avatarAccessibilityLabel
         self.showsAvatar = showsAvatar
+        self.showsFullContent = showsFullContent
         self.labels = labels
         self.updatedTime = updatedTime
         self.webURL = webURL
@@ -367,20 +370,20 @@ private struct GitLabSelectableRow<Badge: View>: View {
                     Text(title)
                         .font(.body.weight(.medium))
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
+                        .lineLimit(showsFullContent ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: showsFullContent)
 
-                    HStack(spacing: 6) {
-                        Text(project)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    Text(project)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(showsFullContent ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: showsFullContent)
 
-                        ForEach(visibleLabels, id: \.self) { label in
-                            GitLabLabelBadge(title: label)
-                        }
-
-                        if hiddenLabelCount > 0 {
-                            GitLabLabelBadge(title: "+\(hiddenLabelCount)")
+                    if labels.isEmpty == false {
+                        GitLabFlowLayout(spacing: 6) {
+                            ForEach(labels, id: \.self) { label in
+                                GitLabLabelBadge(label: label)
+                            }
                         }
                     }
                 }
@@ -409,12 +412,61 @@ private struct GitLabSelectableRow<Badge: View>: View {
         }
     }
 
-    private var visibleLabels: [String] {
-        Array(labels.prefix(2))
+}
+
+private struct GitLabFlowLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        layout(proposal: proposal, subviews: subviews).size
     }
 
-    private var hiddenLabelCount: Int {
-        max(labels.count - visibleLabels.count, 0)
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let result = layout(
+            proposal: ProposedViewSize(width: bounds.width, height: proposal.height),
+            subviews: subviews
+        )
+
+        for (index, point) in result.points.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y),
+                anchor: .topLeading,
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, points: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var points: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > maxWidth {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            points.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+
+        let width = maxWidth.isFinite ? maxWidth : max(x - spacing, 0)
+        return (CGSize(width: width, height: y + lineHeight), points)
     }
 }
 
@@ -446,16 +498,38 @@ private struct GitLabAvatar: View {
 }
 
 private struct GitLabLabelBadge: View {
-    let title: String
+    let label: GitLabLabel
 
     var body: some View {
-        Text(title)
+        Text(label.name)
             .font(.caption.weight(.medium))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(foregroundColor)
             .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color.accentColor.opacity(0.1), in: Capsule())
+            .background(backgroundColor, in: Capsule())
+    }
+
+    private var backgroundColor: Color {
+        Color(gitLabHex: label.color) ?? Color.accentColor.opacity(0.1)
+    }
+
+    private var foregroundColor: Color {
+        Color(gitLabHex: label.textColor) ?? Color.accentColor
+    }
+}
+
+private extension Color {
+    init?(gitLabHex value: String?) {
+        guard let value else { return nil }
+        let hex = value.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        guard hex.count == 6, let number = UInt64(hex, radix: 16) else { return nil }
+
+        self.init(
+            red: Double((number >> 16) & 0xFF) / 255,
+            green: Double((number >> 8) & 0xFF) / 255,
+            blue: Double(number & 0xFF) / 255
+        )
     }
 }
 
@@ -495,7 +569,8 @@ private struct IssueRow: View {
             avatarURL: issue.assigneeAvatarURL,
             avatarAccessibilityLabel: issue.assigneeName,
             showsAvatar: true,
-            labels: issue.labels,
+            showsFullContent: true,
+            labels: issue.labelDetails,
             updatedTime: issue.updatedTime,
             webURL: issue.webURL,
             isSelected: isSelected,

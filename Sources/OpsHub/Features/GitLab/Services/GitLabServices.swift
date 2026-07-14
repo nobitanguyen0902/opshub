@@ -110,6 +110,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
                 URLQueryItem(name: "updated_after", value: updatedAfter),
                 URLQueryItem(name: "order_by", value: "updated_at"),
                 URLQueryItem(name: "sort", value: "desc"),
+                URLQueryItem(name: "with_labels_details", value: "true"),
                 URLQueryItem(name: "per_page", value: "100")
             ]
         )
@@ -122,6 +123,7 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
                 URLQueryItem(name: "updated_after", value: updatedAfter),
                 URLQueryItem(name: "order_by", value: "updated_at"),
                 URLQueryItem(name: "sort", value: "desc"),
+                URLQueryItem(name: "with_labels_details", value: "true"),
                 URLQueryItem(name: "per_page", value: "100")
             ]
         )
@@ -370,8 +372,11 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
             id: issue.iid ?? issue.id,
             title: issue.title,
             project: projectName(from: issue.references, projectId: issue.projectId),
-            priority: issuePriority(for: issue.labels),
-            labels: issue.labels,
+            priority: issuePriority(for: issue.labels.map(\.name)),
+            labels: issue.labels.map(\.name),
+            labelDetails: issue.labels.map {
+                GitLabLabel(name: $0.name, color: $0.color, textColor: $0.textColor)
+            },
             isAssignedToMe: isAssignedToMe,
             isWorkflowProject: isWorkflowProject,
             assigneeName: issue.assignees.first?.name ?? issue.assignees.first?.username,

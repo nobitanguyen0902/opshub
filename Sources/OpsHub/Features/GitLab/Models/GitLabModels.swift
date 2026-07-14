@@ -58,6 +58,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
     let project: String
     let priority: GitLabIssuePriority
     let labels: [String]
+    let labelDetails: [GitLabLabel]
     let isAssignedToMe: Bool
     let isWorkflowProject: Bool
     let assigneeName: String?
@@ -71,6 +72,7 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
         project: String,
         priority: GitLabIssuePriority,
         labels: [String] = [],
+        labelDetails: [GitLabLabel]? = nil,
         isAssignedToMe: Bool = true,
         isWorkflowProject: Bool = true,
         assigneeName: String? = nil,
@@ -83,12 +85,26 @@ struct GitLabIssue: Identifiable, Hashable, Sendable {
         self.project = project
         self.priority = priority
         self.labels = labels
+        self.labelDetails = labelDetails ?? labels.map { GitLabLabel(name: $0) }
         self.isAssignedToMe = isAssignedToMe
         self.isWorkflowProject = isWorkflowProject
         self.assigneeName = assigneeName
         self.assigneeAvatarURL = assigneeAvatarURL
         self.updatedTime = updatedTime
         self.webURL = webURL
+    }
+}
+
+/// The display details GitLab provides for an issue label.
+struct GitLabLabel: Hashable, Sendable {
+    let name: String
+    let color: String?
+    let textColor: String?
+
+    init(name: String, color: String? = nil, textColor: String? = nil) {
+        self.name = name
+        self.color = color
+        self.textColor = textColor
     }
 }
 

@@ -113,7 +113,7 @@ struct GitLabRESTIssue: Codable, Identifiable, Hashable, Sendable {
     let description: String?
     let state: State?
     let issueType: String?
-    let labels: [String]
+    let labels: [GitLabRESTLabel]
     let author: GitLabUser?
     let assignees: [GitLabUser]
     let milestone: GitLabMilestone?
@@ -184,7 +184,7 @@ struct GitLabRESTIssue: Codable, Identifiable, Hashable, Sendable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         state = try container.decodeIfPresent(State.self, forKey: .state)
         issueType = try container.decodeIfPresent(String.self, forKey: .issueType)
-        labels = try container.decodeIfPresent([String].self, forKey: .labels) ?? []
+        labels = try container.decodeIfPresent([GitLabRESTLabel].self, forKey: .labels) ?? []
         author = try container.decodeIfPresent(GitLabUser.self, forKey: .author)
         assignees = try container.decodeIfPresent([GitLabUser].self, forKey: .assignees) ?? []
         milestone = try container.decodeIfPresent(GitLabMilestone.self, forKey: .milestone)
@@ -200,6 +200,40 @@ struct GitLabRESTIssue: Codable, Identifiable, Hashable, Sendable {
         createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
         closedAt = try container.decodeIfPresent(String.self, forKey: .closedAt)
+    }
+}
+
+/// A label returned either as a name or as the detailed object requested from GitLab.
+struct GitLabRESTLabel: Codable, Hashable, Sendable {
+    let name: String
+    let color: String?
+    let textColor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case color
+        case textColor = "text_color"
+    }
+
+    init(from decoder: Decoder) throws {
+        if let name = try? decoder.singleValueContainer().decode(String.self) {
+            self.name = name
+            color = nil
+            textColor = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        color = try container.decodeIfPresent(String.self, forKey: .color)
+        textColor = try container.decodeIfPresent(String.self, forKey: .textColor)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(color, forKey: .color)
+        try container.encodeIfPresent(textColor, forKey: .textColor)
     }
 }
 
