@@ -115,7 +115,7 @@ private struct GitLabSummaryMetricView: View {
 
 private let previewMetrics = [
     GitLabSummaryMetric(kind: .awaitingReview, title: "Waiting for my review", value: 2, systemImage: "checkmark.bubble", semantic: .warning),
+    GitLabSummaryMetric(kind: .mergeRequests, title: "Merge Requests", value: 4, systemImage: "arrow.triangle.branch", semantic: .information),
     GitLabSummaryMetric(kind: .assignedToMe, title: "Assigned to me", value: 12, systemImage: "person.crop.circle.badge.checkmark", semantic: .information),
-    GitLabSummaryMetric(kind: .failedPipelines, title: "Failed pipelines", value: 3, systemImage: "xmark.circle", semantic: .error),
-    GitLabSummaryMetric(kind: .pendingNotifications, title: "Pending", value: 20, systemImage: "bell.badge", semantic: .information)
+    GitLabSummaryMetric(kind: .failedPipelines, title: "Failed pipelines", value: 3, systemImage: "xmark.circle", semantic: .error)
 ]

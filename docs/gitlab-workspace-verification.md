@@ -46,7 +46,7 @@ Branch: `codex/gitlab-workspace-layout`
 ## Regression checklist
 
 - [x] Five workspace destinations route to real content.
-- [x] Pending remains an Overview metric and notification-derived work remains in Action queue.
+- [x] Overview does not render notification metrics, previews or notification-derived Action queue items.
 - [x] Overview uses the common WorkItemList/WorkItemRow contract with two preview sections.
 - [x] Merge Requests, Reviews, Issues and Pipelines use the common list contract.
 - [x] Reopening GitLab with the same selected scope reuses in-memory data until Refresh or scope change.

@@ -11,7 +11,6 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
     @Published private(set) var mergeReviews: [GitLabMergeRequest] = []
     @Published private(set) var issues: [GitLabIssue] = []
-    @Published private(set) var notifications: [GitLabNotification] = []
     @Published private(set) var pipelines: [GitLabPipeline] = []
     @Published private(set) var sectionStates: [GitLabWorkspaceSection: GitLabSectionLoadState] = [:]
     @Published private(set) var sectionUpdatedAt: [GitLabWorkspaceSection: Date] = [:]
@@ -31,7 +30,7 @@ final class GitLabDashboardViewModel: ObservableObject {
     }
 
     var isEmpty: Bool {
-        mergeRequests.isEmpty && mergeReviews.isEmpty && issues.isEmpty && notifications.isEmpty && pipelines.isEmpty
+        mergeRequests.isEmpty && mergeReviews.isEmpty && issues.isEmpty && pipelines.isEmpty
     }
 
     var selectedSection: GitLabWorkspaceSection {
@@ -60,7 +59,9 @@ final class GitLabDashboardViewModel: ObservableObject {
             return isEmpty ? .initialLoading : .refreshing
         }
 
-        let states = GitLabWorkspaceSection.allCases.map(loadState)
+        let states = GitLabWorkspaceSection.allCases
+            .filter { $0 != .overview }
+            .map(loadState)
         let message = loadWarning ?? "GitLab activity could not be loaded."
         if isEmpty, states.contains(where: { if case .failed = $0 { true } else { false } }) {
             return .failed(message)
@@ -77,16 +78,15 @@ final class GitLabDashboardViewModel: ObservableObject {
 
     var summaryMetrics: [GitLabSummaryMetric] {
         let scopedReviews = mergeReviews.filter { selectedScope.includes(projectName: $0.project) }
+        let scopedMergeRequests = mergeRequests.filter {
+            selectedScope.includes(projectName: $0.project)
+        }
         let assignedIssues = issues.filter {
             $0.isAssignedToMe && selectedScope.includes(projectName: $0.project)
         }
         let failedPipelines = pipelines.filter {
             $0.status == .failed && selectedScope.includes(projectName: $0.project)
         }
-        let pendingNotifications = notifications.filter {
-            selectedScope.includes(projectName: $0.project)
-        }
-
         return [
             GitLabSummaryMetric(
                 kind: .awaitingReview,
@@ -94,6 +94,13 @@ final class GitLabDashboardViewModel: ObservableObject {
                 value: scopedReviews.count,
                 systemImage: "checkmark.bubble",
                 semantic: .warning
+            ),
+            GitLabSummaryMetric(
+                kind: .mergeRequests,
+                title: "Merge Requests",
+                value: scopedMergeRequests.count,
+                systemImage: "arrow.triangle.branch",
+                semantic: .information
             ),
             GitLabSummaryMetric(
                 kind: .assignedToMe,
@@ -108,13 +115,6 @@ final class GitLabDashboardViewModel: ObservableObject {
                 value: failedPipelines.count,
                 systemImage: "xmark.circle",
                 semantic: .error
-            ),
-            GitLabSummaryMetric(
-                kind: .pendingNotifications,
-                title: "Pending",
-                value: pendingNotifications.count,
-                systemImage: "bell.badge",
-                semantic: .information
             )
         ]
     }
@@ -124,7 +124,7 @@ final class GitLabDashboardViewModel: ObservableObject {
             reviews: mergeReviews,
             issues: issues,
             pipelines: pipelines,
-            notifications: notifications,
+            notifications: [],
             scope: selectedScope
         ))
     }
@@ -223,6 +223,9 @@ final class GitLabDashboardViewModel: ObservableObject {
         case .awaitingReview:
             selectedSection = .reviews
             clearFilters(for: .reviews)
+        case .mergeRequests:
+            selectedSection = .mergeRequests
+            clearFilters(for: .mergeRequests)
         case .assignedToMe:
             selectedSection = .issues
             selectedIssueTab = .assignedToMe
@@ -233,9 +236,6 @@ final class GitLabDashboardViewModel: ObservableObject {
                 GitLabWorkspaceFilter(statuses: [GitLabPipelineStatus.failed.rawValue]),
                 for: .pipelines
             )
-        case .pendingNotifications:
-            selectedSection = .overview
-            clearFilters(for: .overview)
         }
     }
 
@@ -266,21 +266,18 @@ final class GitLabDashboardViewModel: ObservableObject {
         beginLoading(.mergeRequests, hasData: mergeRequests.isEmpty == false)
         beginLoading(.reviews, hasData: mergeReviews.isEmpty == false)
         beginLoading(.issues, hasData: issues.isEmpty == false)
-        beginLoading(.overview, hasData: notifications.isEmpty == false)
         beginLoading(.pipelines, hasData: pipelines.isEmpty == false)
 
         async let projectsTask = loadSection { try await self.service.projects() }
         async let mergeRequestsTask = loadSection { try await self.service.mergeRequests(scope: scope) }
         async let mergeReviewsTask = loadSection { try await self.service.mergeReviews(scope: scope) }
         async let issuesTask = loadSection { try await self.service.issues(scope: scope) }
-        async let notificationsTask = loadSection { try await self.service.notifications(scope: scope) }
         async let pipelinesTask = loadSection { try await self.service.pipelineBatch(scope: scope) }
 
         let projectsResult = await projectsTask
         let mergeRequestsResult = await mergeRequestsTask
         let mergeReviewsResult = await mergeReviewsTask
         let issuesResult = await issuesTask
-        let notificationsResult = await notificationsTask
         let pipelinesResult = await pipelinesTask
 
         guard selectedScope == scope else { return }
@@ -303,11 +300,6 @@ final class GitLabDashboardViewModel: ObservableObject {
             section: .issues,
             hadData: issues.isEmpty == false
         ) { issues = $0 }
-        let notificationsSucceeded = apply(
-            notificationsResult,
-            section: .overview,
-            hadData: notifications.isEmpty == false
-        ) { notifications = $0 }
         let pipelinesSucceeded = apply(
             pipelinesResult,
             section: .pipelines,
@@ -323,14 +315,12 @@ final class GitLabDashboardViewModel: ObservableObject {
             mergeRequestsResult.error,
             mergeReviewsResult.error,
             issuesResult.error,
-            notificationsResult.error,
             pipelinesResult.error
         ])
         if projectsResult.value != nil
             || mergeRequestsSucceeded
             || mergeReviewsSucceeded
             || issuesSucceeded
-            || notificationsSucceeded
             || pipelinesSucceeded {
             lastUpdated = .now
             loadedScope = scope

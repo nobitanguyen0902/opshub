@@ -11,13 +11,13 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
         XCTAssertEqual(viewModel.mergeReviews.map(\.id), [102])
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
-        XCTAssertEqual(viewModel.notifications.map(\.id), [303])
         XCTAssertEqual(viewModel.pipelines.map(\.id), [404])
         XCTAssertEqual(
             viewModel.summaryMetrics.map(\.kind),
-            [.awaitingReview, .assignedToMe, .failedPipelines, .pendingNotifications]
+            [.awaitingReview, .mergeRequests, .assignedToMe, .failedPipelines]
         )
-        XCTAssertEqual(viewModel.summaryMetrics.map(\.value), [1, 1, 0, 1])
+        XCTAssertEqual(viewModel.summaryMetrics.map(\.value), [1, 1, 1, 0])
+        XCTAssertFalse(viewModel.actionQueue.contains { $0.id == .notification(303) })
         XCTAssertEqual(viewModel.selectedScope, .allProjects)
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertNotNil(viewModel.lastUpdated)
@@ -32,13 +32,12 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
         XCTAssertEqual(viewModel.mergeReviews.map(\.id), [102])
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
-        XCTAssertTrue(viewModel.notifications.isEmpty)
         XCTAssertTrue(viewModel.pipelines.isEmpty)
         XCTAssertFalse(viewModel.isEmpty)
         XCTAssertEqual(viewModel.loadWarning, "GitLab request failed with status 403.")
         XCTAssertNotNil(viewModel.lastUpdated)
         XCTAssertEqual(
-            viewModel.loadState(for: .overview),
+            viewModel.loadState(for: .pipelines),
             .failed("GitLab request failed with status 403.")
         )
         XCTAssertEqual(
@@ -143,6 +142,10 @@ final class GitLabDashboardViewModelTests: XCTestCase {
     func testSummaryMetricRoutesToItsSectionAndFilter() {
         let viewModel = GitLabDashboardViewModel(service: StubGitLabService())
 
+        viewModel.activate(.mergeRequests)
+
+        XCTAssertEqual(viewModel.selectedSection, .mergeRequests)
+
         viewModel.activate(.failedPipelines)
 
         XCTAssertEqual(viewModel.selectedSection, .pipelines)
@@ -155,22 +158,6 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.selectedSection, .issues)
         XCTAssertEqual(viewModel.selectedIssueTab, .assignedToMe)
-    }
-
-    @MainActor
-    func testPendingMetricKeepsUserOnOverviewAndNotificationsRemainInActionQueue() async {
-        let viewModel = GitLabDashboardViewModel(service: StubGitLabService())
-        await viewModel.refresh()
-        viewModel.selectedSection = .pipelines
-
-        viewModel.activate(.pendingNotifications)
-
-        XCTAssertEqual(viewModel.selectedSection, .overview)
-        XCTAssertTrue(viewModel.actionQueue.contains { $0.id == .notification(303) })
-        XCTAssertEqual(
-            viewModel.summaryMetrics.first { $0.kind == .pendingNotifications }?.value,
-            1
-        )
     }
 
     @MainActor
@@ -436,11 +423,11 @@ private struct PartiallyFailingGitLabService: GitLabServicing {
     }
 
     func notifications() async throws -> [GitLabNotification] {
-        throw GitLabServiceError.requestFailed(403)
+        []
     }
 
     func pipelines() async throws -> [GitLabPipeline] {
-        []
+        throw GitLabServiceError.requestFailed(403)
     }
 
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult {
