@@ -80,6 +80,67 @@ final class GitLabServiceTests: XCTestCase {
         )
     }
 
+    func testMergeReviewsLoadsOpenItemsAssignedToCurrentUserForReview() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/merge_requests?scope=reviews_for_me": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 1002,
+                    "iid": 43,
+                    "project_id": 7,
+                    "title": "Review GitLab dashboard changes",
+                    "state": "opened",
+                    "draft": false,
+                    "labels": [],
+                    "author": {
+                      "id": 10,
+                      "username": "review-author",
+                      "name": "Review Author"
+                    },
+                    "reviewers": [
+                      {
+                        "id": 9,
+                        "username": "current-user",
+                        "name": "Current User"
+                      }
+                    ],
+                    "references": {"full": "ops/opshub!43"},
+                    "web_url": "https://gitlab.example.com/ops/opshub/-/merge_requests/43",
+                    "updated_at": "2026-07-14T02:00:00.000Z"
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let mergeReviews = try await service.mergeReviews()
+
+        XCTAssertEqual(mergeReviews.map(\.id), [43])
+        XCTAssertEqual(mergeReviews.first?.title, "Review GitLab dashboard changes")
+        let request = try XCTUnwrap(httpClient.requests.first)
+        XCTAssertEqual(request.url?.path, "/api/v4/merge_requests")
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "scope" })?
+                .value,
+            "reviews_for_me"
+        )
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "state" })?
+                .value,
+            "opened"
+        )
+    }
+
     func testIssuesLoadsAllOpenItemsAndMarksAssignedItemsFromGitLabAPI() async throws {
         let now = ISO8601DateFormatter().date(from: "2026-07-13T12:00:00Z")!
         let httpClient = StubGitLabHTTPClient(responses: [

@@ -85,6 +85,32 @@ struct MergeRequestsCard: View {
     }
 }
 
+/// List card for merge requests awaiting review by the current GitLab user.
+struct MergeReviewsCard: View {
+    let mergeReviews: [GitLabMergeRequest]
+    let isLoading: Bool
+    @Binding var selectedMergeReviewID: GitLabMergeRequest.ID?
+
+    var body: some View {
+        GitLabListCard(
+            title: "Merge Review",
+            count: mergeReviews.count,
+            isLoading: isLoading,
+            emptyTitle: "No merge reviews",
+            emptyMessage: "Merge requests awaiting your review will appear here after refresh."
+        ) {
+            GitLabSelectableList(items: mergeReviews) { mergeRequest in
+                MergeRequestRow(
+                    mergeRequest: mergeRequest,
+                    isSelected: selectedMergeReviewID == mergeRequest.id
+                ) {
+                    selectedMergeReviewID = mergeRequest.id
+                }
+            }
+        }
+    }
+}
+
 /// List card for issues on the GitLab dashboard.
 struct IssuesCard: View {
     let issues: [GitLabIssue]

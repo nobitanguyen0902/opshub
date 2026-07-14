@@ -4,6 +4,7 @@ import Foundation
 protocol GitLabServicing: Sendable {
     func dashboardStatistics() async throws -> [GitLabStatistic]
     func mergeRequests() async throws -> [GitLabMergeRequest]
+    func mergeReviews() async throws -> [GitLabMergeRequest]
     func issues() async throws -> [GitLabIssue]
     func notifications() async throws -> [GitLabNotification]
     func pipelines() async throws -> [GitLabPipeline]
@@ -40,11 +41,13 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
 
     func dashboardStatistics() async throws -> [GitLabStatistic] {
         async let loadedMergeRequests = mergeRequests()
+        async let loadedMergeReviews = mergeReviews()
         async let loadedIssues = issues()
         async let loadedNotifications = notifications()
         async let loadedPipelines = pipelines()
 
         let mergeRequests = try await loadedMergeRequests
+        let mergeReviews = try await loadedMergeReviews
         let issues = try await loadedIssues
         let notifications = try await loadedNotifications
         let pipelines = try await loadedPipelines
@@ -57,6 +60,13 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
                 title: "Merge Requests",
                 number: "\(mergeRequests.count)",
                 subtitle: "Assigned open merge requests",
+                webURL: nil
+            ),
+            GitLabStatistic(
+                icon: "checkmark.bubble",
+                title: "Merge Review",
+                number: "\(mergeReviews.count)",
+                subtitle: "Open merge requests awaiting your review",
                 webURL: nil
             ),
             GitLabStatistic(
@@ -84,12 +94,20 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
     }
 
     func mergeRequests() async throws -> [GitLabMergeRequest] {
+        try await mergeRequests(scope: "assigned_to_me")
+    }
+
+    func mergeReviews() async throws -> [GitLabMergeRequest] {
+        try await mergeRequests(scope: "reviews_for_me")
+    }
+
+    private func mergeRequests(scope: String) async throws -> [GitLabMergeRequest] {
         let settings = try configuredSettings()
         let request = try makeRequest(
             settings: settings,
             path: "merge_requests",
             queryItems: [
-                URLQueryItem(name: "scope", value: "assigned_to_me"),
+                URLQueryItem(name: "scope", value: scope),
                 URLQueryItem(name: "state", value: "opened"),
                 URLQueryItem(name: "order_by", value: "updated_at"),
                 URLQueryItem(name: "sort", value: "desc"),

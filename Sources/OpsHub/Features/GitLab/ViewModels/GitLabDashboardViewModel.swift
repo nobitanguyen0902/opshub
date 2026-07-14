@@ -5,6 +5,7 @@ import Foundation
 final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var statistics: [GitLabStatistic] = []
     @Published private(set) var mergeRequests: [GitLabMergeRequest] = []
+    @Published private(set) var mergeReviews: [GitLabMergeRequest] = []
     @Published private(set) var issues: [GitLabIssue] = []
     @Published private(set) var notifications: [GitLabNotification] = []
     @Published private(set) var pipelines: [GitLabPipeline] = []
@@ -24,7 +25,7 @@ final class GitLabDashboardViewModel: ObservableObject {
     }
 
     var isEmpty: Bool {
-        mergeRequests.isEmpty && issues.isEmpty && notifications.isEmpty && pipelines.isEmpty
+        mergeRequests.isEmpty && mergeReviews.isEmpty && issues.isEmpty && notifications.isEmpty && pipelines.isEmpty
     }
 
     func loadDashboard() async {
@@ -36,27 +37,32 @@ final class GitLabDashboardViewModel: ObservableObject {
         defer { isLoading = false }
 
         async let mergeRequestsTask = loadSection { try await self.service.mergeRequests() }
+        async let mergeReviewsTask = loadSection { try await self.service.mergeReviews() }
         async let issuesTask = loadSection { try await self.service.issues() }
         async let notificationsTask = loadSection { try await self.service.notifications() }
         async let pipelinesTask = loadSection { try await self.service.pipelines() }
 
         let mergeRequestsResult = await mergeRequestsTask
+        let mergeReviewsResult = await mergeReviewsTask
         let issuesResult = await issuesTask
         let notificationsResult = await notificationsTask
         let pipelinesResult = await pipelinesTask
 
         mergeRequests = mergeRequestsResult.value ?? []
+        mergeReviews = mergeReviewsResult.value ?? []
         issues = issuesResult.value ?? []
         notifications = notificationsResult.value ?? []
         pipelines = pipelinesResult.value ?? []
         loadWarning = loadWarning(for: [
             mergeRequestsResult.error,
+            mergeReviewsResult.error,
             issuesResult.error,
             notificationsResult.error,
             pipelinesResult.error
         ])
         statistics = makeStatistics(
             mergeRequests: mergeRequests,
+            mergeReviews: mergeReviews,
             issues: issues,
             notifications: notifications,
             pipelines: pipelines
@@ -89,6 +95,7 @@ final class GitLabDashboardViewModel: ObservableObject {
 
     private func makeStatistics(
         mergeRequests: [GitLabMergeRequest],
+        mergeReviews: [GitLabMergeRequest],
         issues: [GitLabIssue],
         notifications: [GitLabNotification],
         pipelines: [GitLabPipeline]
@@ -104,6 +111,16 @@ final class GitLabDashboardViewModel: ObservableObject {
                 subtitle: "Assigned open merge requests",
                 webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
                     URLQueryItem(name: "scope", value: "assigned_to_me"),
+                    URLQueryItem(name: "state", value: "opened")
+                ])
+            ),
+            GitLabStatistic(
+                icon: "checkmark.bubble",
+                title: "Merge Review",
+                number: "\(mergeReviews.count)",
+                subtitle: "Open merge requests awaiting your review",
+                webURL: dashboardURL(path: "dashboard/merge_requests", queryItems: [
+                    URLQueryItem(name: "scope", value: "reviews_for_me"),
                     URLQueryItem(name: "state", value: "opened")
                 ])
             ),

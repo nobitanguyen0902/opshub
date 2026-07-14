@@ -4,6 +4,7 @@ import SwiftUI
 struct GitLabDashboardView: View {
     @StateObject private var viewModel: GitLabDashboardViewModel
     @State private var selectedMergeRequestID: GitLabMergeRequest.ID?
+    @State private var selectedMergeReviewID: GitLabMergeRequest.ID?
     @State private var selectedIssueID: GitLabIssue.ID?
 
     private let columns = [
@@ -43,6 +44,7 @@ struct GitLabDashboardView: View {
         }
         .animation(.smooth(duration: 0.25), value: viewModel.isLoading)
         .animation(.smooth(duration: 0.25), value: viewModel.mergeRequests)
+        .animation(.smooth(duration: 0.25), value: viewModel.mergeReviews)
         .animation(.smooth(duration: 0.25), value: viewModel.issues)
     }
 
@@ -111,6 +113,11 @@ struct GitLabDashboardView: View {
                 mergeRequests: viewModel.mergeRequests,
                 isLoading: viewModel.isLoading,
                 selectedMergeRequestID: $selectedMergeRequestID
+            )
+            MergeReviewsCard(
+                mergeReviews: viewModel.mergeReviews,
+                isLoading: viewModel.isLoading,
+                selectedMergeReviewID: $selectedMergeReviewID
             )
             IssuesCard(
                 issues: viewModel.issues,

@@ -13,16 +13,18 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 
         XCTAssertEqual(
             viewModel.statistics.map(\.title),
-            ["Merge Requests", "Issues", "Notifications", "Pipelines"]
+            ["Merge Requests", "Merge Review", "Issues", "Notifications", "Pipelines"]
         )
-        XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "1", "1"])
+        XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "1", "1", "1"])
         XCTAssertEqual(viewModel.statistics.map { $0.webURL?.absoluteString }, [
             "https://gitlab.example.com/dashboard/merge_requests?scope=assigned_to_me&state=opened",
+            "https://gitlab.example.com/dashboard/merge_requests?scope=reviews_for_me&state=opened",
             "https://gitlab.example.com/dashboard/issues?scope=assigned_to_me&state=opened",
             "https://gitlab.example.com/dashboard/todos",
             "https://gitlab.example.com/-/pipelines"
         ])
         XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
+        XCTAssertEqual(viewModel.mergeReviews.map(\.id), [102])
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
         XCTAssertEqual(viewModel.notifications.map(\.id), [303])
         XCTAssertEqual(viewModel.pipelines.map(\.id), [404])
@@ -39,8 +41,9 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 
         await viewModel.refresh()
 
-        XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "0", "0"])
+        XCTAssertEqual(viewModel.statistics.map(\.number), ["1", "1", "1", "0", "0"])
         XCTAssertEqual(viewModel.mergeRequests.map(\.id), [101])
+        XCTAssertEqual(viewModel.mergeReviews.map(\.id), [102])
         XCTAssertEqual(viewModel.issues.map(\.id), [202])
         XCTAssertTrue(viewModel.notifications.isEmpty)
         XCTAssertTrue(viewModel.pipelines.isEmpty)
@@ -72,6 +75,19 @@ private struct StubGitLabService: GitLabServicing {
                 status: .reviewing,
                 updatedTime: "Now",
                 webURL: URL(string: "https://gitlab.example.com/opshub/-/merge_requests/101")
+            )
+        ]
+    }
+
+    func mergeReviews() async throws -> [GitLabMergeRequest] {
+        [
+            GitLabMergeRequest(
+                id: 102,
+                title: "Review protocol-driven GitLab services",
+                project: "opshub",
+                status: .reviewing,
+                updatedTime: "Now",
+                webURL: URL(string: "https://gitlab.example.com/opshub/-/merge_requests/102")
             )
         ]
     }
@@ -125,6 +141,10 @@ private struct PartiallyFailingGitLabService: GitLabServicing {
 
     func mergeRequests() async throws -> [GitLabMergeRequest] {
         try await StubGitLabService().mergeRequests()
+    }
+
+    func mergeReviews() async throws -> [GitLabMergeRequest] {
+        try await StubGitLabService().mergeReviews()
     }
 
     func issues() async throws -> [GitLabIssue] {
