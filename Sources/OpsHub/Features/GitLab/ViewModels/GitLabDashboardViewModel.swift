@@ -3,6 +3,8 @@ import Foundation
 /// Coordinates GitLab dashboard loading state and formatted dashboard data.
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
+    static let autoRefreshInterval: Duration = .seconds(5 * 60)
+
     @Published var selection = GitLabWorkspaceSelection()
     @Published var selectedScope: GitLabProjectScope = .allProjects
     @Published var selectedIssueTab: GitLabIssueTab = .assignedToMe
@@ -247,6 +249,18 @@ final class GitLabDashboardViewModel: ObservableObject {
         let scope = selectedScope
         guard loadedScope != scope else { return }
         await refresh()
+    }
+
+    func autoRefresh(every interval: Duration = autoRefreshInterval) async {
+        while Task.isCancelled == false {
+            do {
+                try await Task.sleep(for: interval)
+            } catch {
+                return
+            }
+            guard Task.isCancelled == false else { return }
+            await refresh()
+        }
     }
 
     func refresh() async {
