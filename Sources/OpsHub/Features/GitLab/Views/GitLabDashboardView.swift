@@ -11,29 +11,39 @@ struct GitLabDashboardView: View {
 
     var body: some View {
         GitLabAdaptiveLayout { mode in
-            ScrollView {
-                VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xLarge) {
-                    header(mode: mode)
-                    GitLabWorkspaceNavigation(
-                        mode: mode,
-                        selection: selectedSection,
-                        badgeCount: viewModel.badgeCount
-                    )
-                    GitLabSummaryStrip(
-                        metrics: viewModel.summaryMetrics,
-                        mode: mode,
-                        onSelect: viewModel.activate
-                    )
-                    warning
-                    sectionContent(mode: mode)
+            VStack(alignment: .leading, spacing: 0) {
+                header(mode: mode)
+                    .padding(.horizontal, mode.pagePadding)
+                    .padding(.top, mode.pagePadding)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xLarge) {
+                        GitLabWorkspaceNavigation(
+                            mode: mode,
+                            selection: selectedSection,
+                            badgeCount: viewModel.badgeCount
+                        )
+                        GitLabSummaryStrip(
+                            metrics: viewModel.summaryMetrics,
+                            mode: mode,
+                            onSelect: viewModel.activate
+                        )
+                        warning
+                        sectionContent(mode: mode)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, mode.pagePadding)
+                    .padding(.top, GitLabDesignTokens.Spacing.xLarge)
+                    .padding(.bottom, mode.pagePadding)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(mode.pagePadding)
             }
         }
         .navigationTitle("GitLab")
         .task(id: viewModel.selectedScope) {
             await viewModel.loadDashboard()
+        }
+        .task {
+            await viewModel.autoRefresh()
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.isLoading)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: viewModel.mergeRequests)

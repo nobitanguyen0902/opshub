@@ -80,6 +80,29 @@ final class GitLabDashboardViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testAutoRefreshLoadsAfterIntervalAndStopsWhenCancelled() async {
+        let service = SlowCountingGitLabService(delay: .zero)
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let autoRefreshTask = Task {
+            await viewModel.autoRefresh(every: .milliseconds(100))
+        }
+
+        for _ in 0..<200 {
+            if await service.callCount() > 0 { break }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+
+        let callsAfterInterval = await service.callCount()
+        XCTAssertGreaterThan(callsAfterInterval, 0)
+        autoRefreshTask.cancel()
+        await autoRefreshTask.value
+        let callsAtCancellation = await service.callCount()
+        try? await Task.sleep(for: .milliseconds(120))
+        let callsAfterCancellation = await service.callCount()
+        XCTAssertEqual(callsAfterCancellation, callsAtCancellation)
+    }
+
+    @MainActor
     func testLoadDashboardReusesCurrentScopeUntilManualRefresh() async {
         let service = SlowCountingGitLabService()
         let viewModel = GitLabDashboardViewModel(service: service)
@@ -271,11 +294,16 @@ private actor FailAfterFirstGitLabService: GitLabServicing {
 }
 
 private actor SlowCountingGitLabService: GitLabServicing {
+    private let delay: Duration
     private(set) var mergeRequestCalls = 0
+
+    init(delay: Duration = .milliseconds(50)) {
+        self.delay = delay
+    }
 
     func mergeRequests() async throws -> [GitLabMergeRequest] {
         mergeRequestCalls += 1
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: delay)
         return []
     }
 
