@@ -396,6 +396,7 @@ enum GitLabIssuePriority: String, Hashable, Sendable {
 /// Filters available for the issue list on the GitLab dashboard.
 enum GitLabIssueTab: String, CaseIterable, Identifiable, Sendable {
     case assignedToMe = "Assign me"
+    case doing = "Doing"
     case testing = "Test"
     case passed = "Passed"
     case build = "Build"
@@ -409,6 +410,8 @@ enum GitLabIssueTab: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .assignedToMe:
             issue.isAssignedToMe
+        case .doing:
+            issue.isWorkflowProject && labels.contains("doing")
         case .testing:
             issue.isWorkflowProject && (labels.contains("testing") || labels.contains("totest"))
         case .passed:

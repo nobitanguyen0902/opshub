@@ -7,6 +7,28 @@ final class GitLabIssueTabTests: XCTestCase {
         XCTAssertFalse(GitLabIssueTab.assignedToMe.includes(makeIssue(labels: [], isAssignedToMe: false)))
     }
 
+    func testDoingTabIncludesWorkflowProjectIssueWithDoingLabel() {
+        XCTAssertTrue(GitLabIssueTab.doing.includes(makeIssue(labels: ["Doing"])))
+        XCTAssertFalse(GitLabIssueTab.doing.includes(makeIssue(labels: ["Testing"])))
+    }
+
+    func testDoingTabLabelMatchingIsCaseInsensitiveAndTrimsWhitespace() {
+        XCTAssertTrue(GitLabIssueTab.doing.includes(makeIssue(labels: [" DOING "])))
+    }
+
+    func testDoingTabExcludesIssuesFromOtherProjects() {
+        let issue = makeIssue(labels: ["Doing"], isWorkflowProject: false)
+
+        XCTAssertFalse(GitLabIssueTab.doing.includes(issue))
+    }
+
+    func testDoingTabAppearsImmediatelyAfterAssignedToMe() {
+        XCTAssertEqual(
+            GitLabIssueTab.allCases.prefix(2).map(\.rawValue),
+            ["Assign me", "Doing"]
+        )
+    }
+
     func testTestingTabIncludesTestingOrToTestLabels() {
         XCTAssertTrue(GitLabIssueTab.testing.includes(makeIssue(labels: ["Testing"])))
         XCTAssertTrue(GitLabIssueTab.testing.includes(makeIssue(labels: ["ToTest"])))
