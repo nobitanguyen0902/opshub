@@ -99,7 +99,7 @@ private enum GitLabPipelineProjectResult: Sendable {
 }
 
 /// GitLab REST-backed dashboard data source.
-struct GitLabService: GitLabServicing, @unchecked Sendable {
+struct GitLabService: GitLabServicing, DevRoomServicing, @unchecked Sendable {
     private let settingsStore: any GitLabSettingsStoring
     private let httpClient: any GitLabHTTPClient
     private let now: @Sendable () -> Date
@@ -204,6 +204,41 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
 
     func issues(scope: GitLabProjectScope) async throws -> [GitLabIssue] {
         try await issues().filter { scope.includes(projectName: $0.project) }
+    }
+
+    func openIssues(projectPath: String) async throws -> [DevRoomSourceIssue] {
+        let settings = try configuredSettings()
+        let request = try makeProjectIssuesRequest(
+            settings: settings,
+            projectPath: projectPath,
+            queryItems: [
+                URLQueryItem(name: "state", value: "opened"),
+                URLQueryItem(name: "order_by", value: "updated_at"),
+                URLQueryItem(name: "sort", value: "desc"),
+                URLQueryItem(name: "with_labels_details", value: "true"),
+                URLQueryItem(name: "per_page", value: "100")
+            ]
+        )
+        let issues: [GitLabRESTIssue] = try await sendAllPages(request)
+        return issues.map { issue in
+            let user = issue.assignees.first
+            return DevRoomSourceIssue(
+                id: issue.id,
+                iid: issue.iid ?? issue.id,
+                title: issue.title,
+                labels: issue.labels.map(\.name),
+                assignee: user.map {
+                    DevRoomEmployee(
+                        id: $0.id,
+                        name: $0.name ?? $0.username ?? "GitLab user #\($0.id)",
+                        username: $0.username,
+                        avatarURL: $0.avatarUrl
+                    )
+                },
+                updatedAt: date(from: issue.updatedAt),
+                webURL: issue.webUrl
+            )
+        }
     }
 
     private func issueUpdatedAfterDate() -> String {
@@ -395,13 +430,31 @@ struct GitLabService: GitLabServicing, @unchecked Sendable {
         settings: GitLabSettings,
         queryItems: [URLQueryItem]
     ) throws -> URLRequest {
+        try makeProjectIssuesRequest(
+            settings: settings,
+            projectPath: GitLabWorkflowProject.path,
+            queryItems: queryItems
+        )
+    }
+
+    private func makeProjectIssuesRequest(
+        settings: GitLabSettings,
+        projectPath: String,
+        queryItems: [URLQueryItem]
+    ) throws -> URLRequest {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        guard let encodedProject = projectPath.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw GitLabServiceError.invalidURL
+        }
+
         var request = try makeRequest(settings: settings, path: "projects", queryItems: [])
         guard let requestURL = request.url,
               var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false) else {
             throw GitLabServiceError.invalidURL
         }
 
-        components.percentEncodedPath += "/social%2Fsocom-issues/issues"
+        components.percentEncodedPath += "/\(encodedProject)/issues"
         components.queryItems = queryItems
         guard let url = components.url else {
             throw GitLabServiceError.invalidURL
