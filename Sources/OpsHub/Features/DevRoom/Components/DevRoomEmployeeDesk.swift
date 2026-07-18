@@ -3,25 +3,64 @@ import SwiftUI
 struct DevRoomEmployeeDesk: View {
     let summary: DevRoomEmployeeSummary
     let selectedStage: DevRoomWorkflowStage?
+    let animationEvent: DevRoomAnimationEvent?
+    let isWindowActive: Bool
+    let reduceMotion: Bool
     let onSelect: () -> Void
+
+    @State private var pulse = false
+    @State private var pulseTask: Task<Void, Never>?
 
     var body: some View {
         Button(action: onSelect) {
             VStack(spacing: 8) {
                 employeeCard
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.secondary.opacity(0.10))
-                    .frame(height: 100)
-                    .overlay {
-                        Image(systemName: "laptopcomputer")
-                            .font(.system(size: 44))
-                            .foregroundStyle(.secondary)
-                    }
+                DevRoomCharacterView(
+                    employeeID: summary.employee.id,
+                    isActive: isWindowActive,
+                    reduceMotion: reduceMotion
+                )
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .scaleEffect(pulse ? 1.025 : 1)
         .accessibilityLabel("\(summary.employee.name), \(summary.total) task")
+        .onChange(of: animationEvent?.generation) {
+            guard isWindowActive,
+                  reduceMotion == false,
+                  animationEvent?.employeeIDs.contains(summary.employee.id) == true else {
+                return
+            }
+
+            pulseTask?.cancel()
+            withAnimation(.spring(duration: 0.28)) {
+                pulse = true
+            }
+            pulseTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: .milliseconds(320))
+                } catch {
+                    return
+                }
+
+                guard Task.isCancelled == false else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    pulse = false
+                }
+            }
+        }
+        .onChange(of: isWindowActive) {
+            guard isWindowActive == false else { return }
+            cancelPulse()
+        }
+        .onChange(of: reduceMotion) {
+            guard reduceMotion else { return }
+            cancelPulse()
+        }
+        .onDisappear {
+            cancelPulse()
+        }
     }
 
     private var employeeCard: some View {
@@ -52,6 +91,11 @@ struct DevRoomEmployeeDesk: View {
                             .frame(width: 7, height: 7)
                         Text("\(summary.count(for: stage))")
                             .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(
+                                reduceMotion ? nil : .smooth(duration: 0.24),
+                                value: summary.count(for: stage)
+                            )
                     }
                     .font(.caption2)
                     .frame(maxWidth: .infinity)
@@ -68,6 +112,12 @@ struct DevRoomEmployeeDesk: View {
             RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
                 .stroke(Color(nsColor: .separatorColor))
         }
+    }
+
+    private func cancelPulse() {
+        pulseTask?.cancel()
+        pulseTask = nil
+        pulse = false
     }
 
     @ViewBuilder

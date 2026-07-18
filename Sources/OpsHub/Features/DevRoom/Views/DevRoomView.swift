@@ -3,6 +3,10 @@ import SwiftUI
 struct DevRoomView: View {
     @ObservedObject var viewModel: DevRoomViewModel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.controlActiveState) private var controlActiveState
+    @State private var displayedAnimationEvent: DevRoomAnimationEvent?
+
     var body: some View {
         VStack(spacing: 0) {
             DevRoomHeader(
@@ -22,6 +26,12 @@ struct DevRoomView: View {
         .navigationTitle("Dev Room")
         .task { await viewModel.loadIfNeeded() }
         .task { await viewModel.autoRefresh() }
+        .onChange(of: viewModel.animationEvent?.generation) {
+            displayedAnimationEvent = viewModel.animationEvent
+        }
+        .onDisappear {
+            displayedAnimationEvent = nil
+        }
     }
 
     @ViewBuilder
@@ -74,6 +84,9 @@ struct DevRoomView: View {
                                 DevRoomEmployeeDesk(
                                     summary: employee,
                                     selectedStage: viewModel.selectedStage,
+                                    animationEvent: displayedAnimationEvent,
+                                    isWindowActive: controlActiveState == .key,
+                                    reduceMotion: reduceMotion,
                                     onSelect: { viewModel.selectEmployee(employee.id) }
                                 )
                             }

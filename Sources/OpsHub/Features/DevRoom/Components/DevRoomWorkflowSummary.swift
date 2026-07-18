@@ -5,6 +5,8 @@ struct DevRoomWorkflowSummary: View {
     let selectedStage: DevRoomWorkflowStage?
     let onSelect: (DevRoomWorkflowStage) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 5),
@@ -20,6 +22,11 @@ struct DevRoomWorkflowSummary: View {
                         Text("\(data.count(for: stage))")
                             .font(.title.bold())
                             .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(
+                                reduceMotion ? nil : .smooth(duration: 0.24),
+                                value: data.count(for: stage)
+                            )
                             .foregroundStyle(.primary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
