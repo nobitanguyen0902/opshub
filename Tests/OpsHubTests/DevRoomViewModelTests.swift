@@ -150,6 +150,29 @@ final class DevRoomViewModelTests: XCTestCase {
         let callsAfterCancel = await service.callCount()
         XCTAssertEqual(callsAfterCancel, callsAtCancel)
     }
+
+    @MainActor
+    func testCancellingInFlightRefreshKeepsCachedDataLoaded() async {
+        let cachedSource = source(id: 1, employeeID: 10, labels: ["Doing"])
+        let service = CancelDuringRequestDevRoomService(first: [cachedSource])
+        let viewModel = DevRoomViewModel(service: service)
+        await viewModel.refresh()
+        let cachedLastUpdated = viewModel.lastUpdated
+
+        let refreshTask = Task { await viewModel.refresh() }
+        for _ in 0..<200 {
+            if await service.callCount() == 2 { break }
+            await Task.yield()
+        }
+
+        refreshTask.cancel()
+        await refreshTask.value
+
+        XCTAssertEqual(viewModel.loadState, .loaded)
+        XCTAssertEqual(viewModel.data.issues.map(\.id), [1])
+        XCTAssertEqual(viewModel.lastUpdated, cachedLastUpdated)
+        XCTAssertNil(viewModel.animationEvent)
+    }
 }
 
 private func source(
@@ -220,4 +243,22 @@ private actor FailAfterFirstDevRoomService: DevRoomServicing {
         if calls == 1 { return first }
         throw GitLabServiceError.requestFailed(503)
     }
+}
+
+private actor CancelDuringRequestDevRoomService: DevRoomServicing {
+    let first: [DevRoomSourceIssue]
+    private var calls = 0
+
+    init(first: [DevRoomSourceIssue]) {
+        self.first = first
+    }
+
+    func openIssues(projectPath: String) async throws -> [DevRoomSourceIssue] {
+        calls += 1
+        if calls == 1 { return first }
+        try await Task.sleep(for: .seconds(60))
+        return []
+    }
+
+    func callCount() -> Int { calls }
 }

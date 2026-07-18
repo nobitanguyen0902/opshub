@@ -48,6 +48,7 @@ struct DevRoomWorkflowSummary: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(stage.title), \(data.count(for: stage)) task")
+                .accessibilityAddTraits(selectedStage == stage ? .isSelected : [])
             }
         }
     }

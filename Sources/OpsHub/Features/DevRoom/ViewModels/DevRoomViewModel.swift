@@ -78,6 +78,7 @@ final class DevRoomViewModel: ObservableObject {
     func refresh() async {
         guard isLoading == false else { return }
 
+        let previousLoadState = loadState
         isLoading = true
         loadState = hasLoaded ? .refreshing : .initialLoading
         defer { isLoading = false }
@@ -108,6 +109,8 @@ final class DevRoomViewModel: ObservableObject {
                data.employees.contains(where: { $0.id == selectedEmployeeID }) == false {
                 self.selectedEmployeeID = nil
             }
+        } catch where Task.isCancelled {
+            loadState = previousLoadState
         } catch {
             let message = error.localizedDescription
             loadState = hasLoaded ? .stale(message) : .failed(message)

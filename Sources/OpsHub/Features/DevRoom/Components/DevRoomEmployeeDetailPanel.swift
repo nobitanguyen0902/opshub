@@ -10,6 +10,7 @@ struct DevRoomEmployeeDetailPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
+                avatar
                 VStack(alignment: .leading, spacing: 2) {
                     Text(summary.employee.name)
                         .font(.title2.bold())
@@ -44,6 +45,28 @@ struct DevRoomEmployeeDetailPanel: View {
             }
         }
         .padding(20)
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let avatarURL = summary.employee.avatarURL {
+            AsyncImage(url: avatarURL) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
+            } placeholder: {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(Circle())
+        } else {
+            Image(systemName: "person.crop.circle.fill")
+                .resizable()
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 44)
+        }
     }
 
     private var orderedStages: [DevRoomWorkflowStage] {

@@ -18,7 +18,7 @@ struct DevRoomCharacterView: View {
             Circle()
                 .fill(characterColor.opacity(0.22))
                 .frame(width: 54, height: 54)
-                .offset(y: -20)
+                .offset(y: isTyping ? -21 : -19)
                 .overlay {
                     HStack(spacing: 12) {
                         Capsule()
@@ -29,8 +29,13 @@ struct DevRoomCharacterView: View {
                     .offset(y: -20)
                 }
 
+            hair
+                .offset(y: isTyping ? -43 : -41)
+
             Image(systemName: "laptopcomputer")
                 .font(.system(size: 48))
+                .foregroundStyle(isTyping ? Color.primary : Color.secondary)
+                .opacity(isTyping ? 1 : 0.72)
                 .offset(y: 28)
 
             HStack(spacing: 26) {
@@ -87,5 +92,27 @@ struct DevRoomCharacterView: View {
 
     private var characterColor: Color {
         [.blue, .green, .orange, .purple][abs(employeeID % 4)]
+    }
+
+    @ViewBuilder
+    private var hair: some View {
+        switch abs(employeeID % 3) {
+        case 0:
+            Capsule()
+                .fill(Color.primary.opacity(0.72))
+                .frame(width: 42, height: 12)
+        case 1:
+            HStack(spacing: 10) {
+                Circle()
+                Circle()
+            }
+            .foregroundStyle(Color.primary.opacity(0.72))
+            .frame(width: 44, height: 16)
+        default:
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.primary.opacity(0.72))
+                .frame(width: 34, height: 14)
+                .rotationEffect(.degrees(-5))
+        }
     }
 }
