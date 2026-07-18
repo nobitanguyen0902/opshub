@@ -53,6 +53,52 @@ final class DevRoomViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshDeduplicatesIssueIDBeforeBuildingSnapshot() async {
+        let service = SequencedDevRoomService(results: [
+            [
+                source(
+                    id: 1,
+                    employeeID: 10,
+                    labels: ["Doing"],
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+                source(
+                    id: 1,
+                    employeeID: 20,
+                    labels: ["Test"],
+                    updatedAt: Date(timeIntervalSince1970: 2)
+                )
+            ],
+            [
+                source(
+                    id: 1,
+                    employeeID: 20,
+                    labels: ["Test"],
+                    updatedAt: Date(timeIntervalSince1970: 2)
+                ),
+                source(
+                    id: 1,
+                    employeeID: 30,
+                    labels: ["Passed"],
+                    updatedAt: Date(timeIntervalSince1970: 3)
+                )
+            ]
+        ])
+        let viewModel = DevRoomViewModel(service: service)
+
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.data.total, 1)
+        XCTAssertEqual(viewModel.data.issues.first?.assignee.id, 20)
+
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.data.total, 1)
+        XCTAssertEqual(viewModel.data.issues.first?.assignee.id, 30)
+        XCTAssertEqual(viewModel.animationEvent?.employeeIDs, [20, 30])
+        XCTAssertEqual(viewModel.animationEvent?.generation, 1)
+    }
+
+    @MainActor
     func testFailedRefreshKeepsCachedDataAndSnapshot() async {
         let service = FailAfterFirstDevRoomService(
             first: [source(id: 1, employeeID: 10, labels: ["Doing"])]
@@ -178,7 +224,8 @@ final class DevRoomViewModelTests: XCTestCase {
 private func source(
     id: Int,
     employeeID: Int,
-    labels: [String]
+    labels: [String],
+    updatedAt: Date? = nil
 ) -> DevRoomSourceIssue {
     DevRoomSourceIssue(
         id: id,
@@ -186,7 +233,7 @@ private func source(
         title: "Issue \(id)",
         labels: labels,
         assignee: DevRoomEmployee(id: employeeID, name: "User \(employeeID)", username: nil, avatarURL: nil),
-        updatedAt: nil,
+        updatedAt: updatedAt,
         webURL: nil
     )
 }

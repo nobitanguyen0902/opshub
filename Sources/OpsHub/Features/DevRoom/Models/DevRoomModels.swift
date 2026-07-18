@@ -94,7 +94,11 @@ struct DevRoomData: Equatable, Sendable {
 
 enum DevRoomAggregator {
     static func makeData(from sources: [DevRoomSourceIssue]) -> DevRoomData {
-        let issues = sources.compactMap { source -> DevRoomIssue? in
+        let uniqueSources = Dictionary(
+            sources.map { ($0.id, $0) },
+            uniquingKeysWith: preferredSource
+        ).values
+        let issues = uniqueSources.compactMap { source -> DevRoomIssue? in
             guard let assignee = source.assignee,
                   let stage = DevRoomWorkflowStage.stage(for: source.labels) else {
                 return nil
@@ -125,6 +129,14 @@ enum DevRoomAggregator {
             }
 
         return DevRoomData(issues: issues, employees: employees)
+    }
+
+    private static func preferredSource(
+        _ lhs: DevRoomSourceIssue,
+        _ rhs: DevRoomSourceIssue
+    ) -> DevRoomSourceIssue {
+        guard lhs.updatedAt != rhs.updatedAt else { return lhs }
+        return (lhs.updatedAt ?? .distantPast) > (rhs.updatedAt ?? .distantPast) ? lhs : rhs
     }
 
     private static func issueSort(_ lhs: DevRoomIssue, _ rhs: DevRoomIssue) -> Bool {

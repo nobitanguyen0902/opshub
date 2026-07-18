@@ -67,6 +67,62 @@ final class DevRoomAggregationTests: XCTestCase {
         XCTAssertEqual(data.employees[0].previewIssues.map(\.title), ["Newest", "Middle"])
     }
 
+    func testAggregationCountsDuplicateIssueIDOnceUsingMostRecentlyUpdatedSource() {
+        let alice = employee(id: 1, name: "Alice")
+        let bob = employee(id: 2, name: "Bob")
+        let sources = [
+            source(
+                id: 1,
+                title: "Older",
+                labels: ["Doing"],
+                assignee: alice,
+                updatedAt: Date(timeIntervalSince1970: 1)
+            ),
+            source(
+                id: 1,
+                title: "Current",
+                labels: ["Test"],
+                assignee: bob,
+                updatedAt: Date(timeIntervalSince1970: 2)
+            )
+        ]
+
+        let data = DevRoomAggregator.makeData(from: sources)
+
+        XCTAssertEqual(data.total, 1)
+        XCTAssertEqual(data.issues.map(\.title), ["Current"])
+        XCTAssertEqual(data.employees.map(\.employee.id), [2])
+        XCTAssertEqual(data.count(for: .test), 1)
+        XCTAssertEqual(data.count(for: .doing), 0)
+    }
+
+    func testAggregationKeepsFirstDuplicateWhenUpdatedTimestampsMatch() {
+        let alice = employee(id: 1, name: "Alice")
+        let bob = employee(id: 2, name: "Bob")
+        let timestamp = Date(timeIntervalSince1970: 1)
+        let sources = [
+            source(
+                id: 1,
+                title: "First in response",
+                labels: ["Doing"],
+                assignee: alice,
+                updatedAt: timestamp
+            ),
+            source(
+                id: 1,
+                title: "Later duplicate",
+                labels: ["Test"],
+                assignee: bob,
+                updatedAt: timestamp
+            )
+        ]
+
+        let data = DevRoomAggregator.makeData(from: sources)
+
+        XCTAssertEqual(data.issues.map(\.title), ["First in response"])
+        XCTAssertEqual(data.employees.map(\.employee.id), [1])
+    }
+
     private func employee(id: Int, name: String) -> DevRoomEmployee {
         DevRoomEmployee(id: id, name: name, username: name.lowercased(), avatarURL: nil)
     }

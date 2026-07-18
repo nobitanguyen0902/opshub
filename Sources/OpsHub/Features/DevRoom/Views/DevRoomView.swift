@@ -67,7 +67,7 @@ struct DevRoomView: View {
 
                     if viewModel.displayedEmployees.isEmpty {
                         ContentUnavailableView(
-                            "Không có task đang mở trong Dev Room",
+                            emptyRoomTitle,
                             systemImage: "person.3"
                         )
                     } else {
@@ -106,5 +106,12 @@ struct DevRoomView: View {
                 .frame(width: 340)
             }
         }
+    }
+
+    private var emptyRoomTitle: String {
+        guard viewModel.data.total > 0, let selectedStage = viewModel.selectedStage else {
+            return "Không có task đang mở trong Dev Room"
+        }
+        return "Không có nhân viên ở bước \(selectedStage.title)"
     }
 }
