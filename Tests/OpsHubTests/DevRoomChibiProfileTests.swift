@@ -79,6 +79,25 @@ final class DevRoomChibiProfileTests: XCTestCase {
         )
     }
 
+    func testFallbackProfilesCoverAllSupportedCharacterTraits() {
+        let profiles = (0..<2_000).map { employeeID in
+            DevRoomChibiProfileStore.production.profile(
+                for: DevRoomEmployee(
+                    id: employeeID,
+                    name: "Employee \(employeeID)",
+                    username: nil,
+                    avatarURL: nil
+                )
+            )
+        }
+
+        XCTAssertEqual(Set(profiles.map(\.skinTone)), Set(DevRoomChibiSkinTone.allCases))
+        XCTAssertEqual(Set(profiles.map(\.hairStyle)), Set(DevRoomChibiHairStyle.allCases))
+        XCTAssertEqual(Set(profiles.map(\.hairColor)), Set(DevRoomChibiHairColor.allCases))
+        XCTAssertEqual(Set(profiles.map(\.shirtColor)), Set(DevRoomChibiShirtColor.allCases))
+        XCTAssertEqual(Set(profiles.map(\.accessory)), Set(DevRoomChibiAccessory.allCases))
+    }
+
     private func profile(
         skinTone: DevRoomChibiSkinTone,
         hairStyle: DevRoomChibiHairStyle,
