@@ -99,7 +99,7 @@ private enum GitLabPipelineProjectResult: Sendable {
 }
 
 /// GitLab REST-backed dashboard data source.
-struct GitLabService: GitLabServicing, DevRoomServicing, @unchecked Sendable {
+struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing, @unchecked Sendable {
     private let settingsStore: any GitLabSettingsStoring
     private let httpClient: any GitLabHTTPClient
     private let now: @Sendable () -> Date
@@ -238,6 +238,32 @@ struct GitLabService: GitLabServicing, DevRoomServicing, @unchecked Sendable {
                 updatedAt: date(from: issue.updatedAt),
                 webURL: issue.webUrl
             )
+        }
+    }
+
+    func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
+        let settings = try configuredSettings()
+        let request = try makeProjectRequest(
+            settings: settings,
+            projectPath: projectPath,
+            suffix: "members/all",
+            queryItems: [URLQueryItem(name: "per_page", value: "100")]
+        )
+        let members: [GitLabProjectMember] = try await sendAllPages(request)
+        return members.map {
+            DevRoomProjectMember(
+                id: $0.id,
+                username: $0.username,
+                name: $0.name,
+                avatarURL: $0.avatarUrl,
+                accessLevel: $0.accessLevel
+            )
+        }
+        .sorted {
+            let comparison = $0.name.localizedCaseInsensitiveCompare($1.name)
+            return comparison == .orderedSame
+                ? $0.id < $1.id
+                : comparison == .orderedAscending
         }
     }
 
@@ -442,6 +468,20 @@ struct GitLabService: GitLabServicing, DevRoomServicing, @unchecked Sendable {
         projectPath: String,
         queryItems: [URLQueryItem]
     ) throws -> URLRequest {
+        try makeProjectRequest(
+            settings: settings,
+            projectPath: projectPath,
+            suffix: "issues",
+            queryItems: queryItems
+        )
+    }
+
+    private func makeProjectRequest(
+        settings: GitLabSettings,
+        projectPath: String,
+        suffix: String,
+        queryItems: [URLQueryItem]
+    ) throws -> URLRequest {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/")
         guard let encodedProject = projectPath.addingPercentEncoding(withAllowedCharacters: allowed) else {
@@ -454,7 +494,7 @@ struct GitLabService: GitLabServicing, DevRoomServicing, @unchecked Sendable {
             throw GitLabServiceError.invalidURL
         }
 
-        components.percentEncodedPath += "/\(encodedProject)/issues"
+        components.percentEncodedPath += "/\(encodedProject)/\(suffix)"
         components.queryItems = queryItems
         guard let url = components.url else {
             throw GitLabServiceError.invalidURL
@@ -725,6 +765,20 @@ struct GitLabService: GitLabServicing, DevRoomServicing, @unchecked Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
+    }
+}
+
+private struct GitLabProjectMember: Decodable {
+    let id: Int
+    let username: String
+    let name: String
+    let avatarUrl: URL?
+    let accessLevel: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, username, name
+        case avatarUrl = "avatar_url"
+        case accessLevel = "access_level"
     }
 }
 

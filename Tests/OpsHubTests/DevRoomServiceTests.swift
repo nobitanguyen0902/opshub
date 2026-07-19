@@ -3,6 +3,35 @@ import XCTest
 @testable import OpsHub
 
 final class DevRoomServiceTests: XCTestCase {
+    func testProjectMembersLoadsAllPagesAndMapsIdentity() async throws {
+        let httpClient = DevRoomStubGitLabHTTPClient(responses: [
+            "/api/v4/projects/social%2Fsocom-issues/members/all": DevRoomStubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":19,"username":"alice","name":"Alice","avatar_url":"https://gitlab.example.com/alice.png","access_level":30}]"#,
+                headers: ["X-Next-Page": "2"]
+            ),
+            "/api/v4/projects/social%2Fsocom-issues/members/all?page=2": DevRoomStubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":20,"username":"bob","name":"Bob","avatar_url":null,"access_level":40}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: DevRoomStaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let members = try await service.projectMembers(projectPath: GitLabWorkflowProject.path)
+
+        XCTAssertEqual(members.map(\.id), [19, 20])
+        XCTAssertEqual(members.map(\.username), ["alice", "bob"])
+        XCTAssertEqual(members.map(\.accessLevel), [30, 40])
+        XCTAssertEqual(httpClient.requests.count, 2)
+        let first = try XCTUnwrap(httpClient.requests.first?.url)
+        let components = try XCTUnwrap(URLComponents(url: first, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.percentEncodedPath, "/api/v4/projects/social%2Fsocom-issues/members/all")
+        XCTAssertTrue(components.queryItems?.contains(URLQueryItem(name: "per_page", value: "100")) == true)
+    }
+
     func testOpenIssuesUsesProjectOpenedQueryWithoutRecencyOrAssignedScope() async throws {
         let httpClient = DevRoomStubGitLabHTTPClient(responses: [
             "/api/v4/projects/social%2Fsocom-issues/issues": DevRoomStubHTTPResponse(
