@@ -4,6 +4,8 @@ import SwiftUI
 struct SettingsView: View {
     private let settingsStore: any GitLabSettingsStoring
     private let gitLabService: any GitLabServicing
+    private let visibilityStore: any DevRoomVisibilitySettingsStoring
+    private let onDevRoomVisibilitySaved: (Set<Int>) -> Void
 
     @State private var gitLabURL = ""
     @State private var personalAccessToken = ""
@@ -11,19 +13,31 @@ struct SettingsView: View {
     @State private var connectionStatus: ConnectionStatus = .notTested
     @State private var isTestingConnection = false
     @State private var lastSavedAt: Date?
+    @StateObject private var memberSelectionViewModel: DevRoomMemberSelectionViewModel
 
     init(
         settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
-        gitLabService: any GitLabServicing = GitLabService()
+        gitLabService: any GitLabServicing = GitLabService(),
+        visibilityStore: any DevRoomVisibilitySettingsStoring = DevRoomVisibilitySettingsStore(),
+        memberService: any DevRoomMemberServicing = GitLabService(),
+        onDevRoomVisibilitySaved: @escaping (Set<Int>) -> Void = { _ in }
     ) {
         self.settingsStore = settingsStore
         self.gitLabService = gitLabService
+        self.visibilityStore = visibilityStore
+        self.onDevRoomVisibilitySaved = onDevRoomVisibilitySaved
 
         let settings = settingsStore.load()
         _gitLabURL = State(initialValue: settings.gitLabURL)
         _personalAccessToken = State(initialValue: settings.personalAccessToken)
         _connectionStatus = State(initialValue: Self.initialConnectionStatus(from: settings))
         _lastSavedAt = State(initialValue: settings.lastConnectionTestedAt)
+        _memberSelectionViewModel = StateObject(
+            wrappedValue: DevRoomMemberSelectionViewModel(
+                service: memberService,
+                initialSelectedUserIDs: visibilityStore.load().selectedUserIDs
+            )
+        )
     }
 
     private var canTestConnection: Bool {
@@ -45,6 +59,8 @@ struct SettingsView: View {
 
                     tokenField
                 }
+
+                DevRoomMemberSelectionSection(viewModel: memberSelectionViewModel)
 
                 HStack {
                     Button {
@@ -83,6 +99,9 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .animation(.smooth(duration: 0.2), value: isTestingConnection)
         .animation(.smooth(duration: 0.2), value: connectionStatus)
+        .task {
+            await memberSelectionViewModel.loadMembers()
+        }
     }
 
     private var tokenField: some View {
@@ -128,16 +147,24 @@ struct SettingsView: View {
 
     private func saveSettings() {
         do {
-            try settingsStore.save(
-                GitLabSettings(
-                    gitLabURL: normalizedGitLabURL,
-                    personalAccessToken: personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines),
-                    lastConnectionTestResult: nil,
-                    lastConnectionTestedAt: nil
-                )
+            let settings = GitLabSettings(
+                gitLabURL: normalizedGitLabURL,
+                personalAccessToken: personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines),
+                lastConnectionTestResult: nil,
+                lastConnectionTestedAt: nil
+            )
+            let outcome = try SettingsSaveIntegration.save(
+                gitLabSettings: settings,
+                settingsStore: settingsStore,
+                visibilityStore: visibilityStore,
+                memberSelectionViewModel: memberSelectionViewModel,
+                onDevRoomVisibilitySaved: onDevRoomVisibilitySaved
             )
             lastSavedAt = .now
-            connectionStatus = .savedLocally
+            connectionStatus = outcome == .allSettingsSaved
+                ? .savedLocally
+                : .gitLabSavedMemberSelectionUnchanged
+            Task { await memberSelectionViewModel.loadMembers() }
         } catch {
             connectionStatus = .saveFailed(error.localizedDescription)
         }
@@ -176,6 +203,35 @@ struct SettingsView: View {
         } catch {
             connectionStatus = .timeout
         }
+    }
+}
+
+@MainActor
+enum SettingsSaveIntegration {
+    enum Outcome: Equatable {
+        case allSettingsSaved
+        case gitLabSettingsSavedOnly
+    }
+
+    @discardableResult
+    static func save(
+        gitLabSettings: GitLabSettings,
+        settingsStore: any GitLabSettingsStoring,
+        visibilityStore: any DevRoomVisibilitySettingsStoring,
+        memberSelectionViewModel: DevRoomMemberSelectionViewModel,
+        onDevRoomVisibilitySaved: (Set<Int>) -> Void
+    ) throws -> Outcome {
+        try settingsStore.save(gitLabSettings)
+
+        guard memberSelectionViewModel.hasLoadedMembers else {
+            return .gitLabSettingsSavedOnly
+        }
+
+        let ids = memberSelectionViewModel.draftSelectedUserIDs
+        visibilityStore.save(DevRoomVisibilitySettings(selectedUserIDs: ids))
+        onDevRoomVisibilitySaved(ids)
+        memberSelectionViewModel.markSaved(ids)
+        return .allSettingsSaved
     }
 }
 
@@ -265,6 +321,7 @@ private struct ConnectionStatusCard: View {
 private enum ConnectionStatus: Equatable {
     case notTested
     case savedLocally
+    case gitLabSavedMemberSelectionUnchanged
     case invalidURL
     case testing
     case testResult(GitLabConnectionTestResult)
@@ -277,6 +334,8 @@ private enum ConnectionStatus: Equatable {
             "Not tested"
         case .savedLocally:
             "Saved"
+        case .gitLabSavedMemberSelectionUnchanged:
+            "GitLab settings saved"
         case .invalidURL:
             "Invalid GitLab URL"
         case .testing:
@@ -298,6 +357,8 @@ private enum ConnectionStatus: Equatable {
             "circle.dashed"
         case .savedLocally:
             "checkmark.circle"
+        case .gitLabSavedMemberSelectionUnchanged:
+            "exclamationmark.triangle"
         case .invalidURL:
             "exclamationmark.triangle"
         case .testing:
@@ -321,7 +382,12 @@ private enum ConnectionStatus: Equatable {
             .green
         case .testing:
             .blue
-        case .invalidURL, .testResult(.unauthorized), .testResult(.timeout), .timeout, .saveFailed:
+        case .gitLabSavedMemberSelectionUnchanged,
+             .invalidURL,
+             .testResult(.unauthorized),
+             .testResult(.timeout),
+             .timeout,
+             .saveFailed:
             .orange
         }
     }
@@ -336,6 +402,8 @@ private enum ConnectionStatus: Equatable {
             }
 
             return "Settings saved at \(lastSavedAt.formatted(date: .omitted, time: .shortened)). Token is stored in Keychain."
+        case .gitLabSavedMemberSelectionUnchanged:
+            return "GitLab settings were saved, but Dev Room members stayed unchanged because the member list is not available yet."
         case .invalidURL:
             return "Use a full URL such as https://gitlab.com or your self-managed GitLab host."
         case .testing:

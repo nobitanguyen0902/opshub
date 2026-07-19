@@ -1,0 +1,55 @@
+<style>
+  .approaches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:24px}
+  .approach{border:1px solid var(--border);border-radius:20px;overflow:hidden;background:var(--surface);cursor:pointer;transition:.2s ease}
+  .approach:hover{transform:translateY(-3px);box-shadow:0 18px 38px rgba(15,23,42,.13)}
+  .approach.selected{outline:3px solid #557cff;outline-offset:2px}
+  .demo{height:355px;position:relative;overflow:hidden;background:linear-gradient(180deg,#f6faff 0%,#edf3f7 72%,#dfe8e5 72%)}
+  .profile{position:absolute;left:18px;top:18px;right:18px;padding:10px;border-radius:13px;background:rgba(255,255,255,.9);display:flex;gap:9px;align-items:center;box-shadow:0 7px 20px rgba(50,68,91,.1)}
+  .profile-photo{width:38px;height:38px;border-radius:50%;position:relative;overflow:hidden;background:linear-gradient(145deg,#f1ba9c,#8a5b49)}
+  .profile-photo:before{content:"";position:absolute;left:9px;top:8px;width:20px;height:23px;border-radius:50%;background:#e9b394}
+  .profile-photo:after{content:"";position:absolute;left:5px;top:4px;width:29px;height:14px;border-radius:50% 50% 25% 25%;background:#322d31}
+  .profile b{display:block;font-size:11px}.profile span{font-size:8px;color:#758196}
+  .arrow{position:absolute;left:50%;top:84px;transform:translateX(-50%);font-size:19px;color:#79879a}
+  .chibi{position:absolute;left:50%;bottom:57px;transform:translateX(-50%);width:150px;height:185px}
+  .head{position:absolute;left:28px;top:0;width:94px;height:94px;border-radius:46% 46% 43% 43%;background:#ffd8c3;box-shadow:0 10px 18px rgba(93,67,66,.12)}
+  .hair{position:absolute;left:23px;top:-6px;width:104px;height:59px;border-radius:48px 48px 22px 22px;background:#332f35;clip-path:polygon(0 0,100% 0,100% 67%,83% 52%,70% 79%,53% 48%,38% 72%,23% 49%,0 70%)}
+  .eye{position:absolute;top:47px;width:10px;height:14px;border-radius:50%;background:#332d35}.eye.l{left:26px}.eye.r{right:26px}.eye:after{content:"";position:absolute;left:2px;top:2px;width:4px;height:4px;border-radius:50%;background:white}.mouth{position:absolute;left:42px;top:72px;width:11px;height:6px;border-bottom:3px solid #a35f67;border-radius:50%}
+  .body{position:absolute;left:36px;top:88px;width:78px;height:80px;border-radius:34px 34px 14px 14px;background:#5d83dc}.arm{position:absolute;top:117px;width:55px;height:22px;border-radius:18px;background:#ffd8c3}.arm.l{left:6px;transform:rotate(16deg)}.arm.r{right:6px;transform:rotate(-16deg)}
+  .laptop{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);width:80px;height:50px;border-radius:8px;background:#596779;border:4px solid #748398}.laptop:after{content:"";position:absolute;left:-13px;right:-13px;bottom:-9px;height:8px;border-radius:7px;background:#3e4b5e}
+  .tag{position:absolute;right:16px;bottom:15px;padding:6px 9px;border-radius:9px;background:#fff;color:#536176;font-size:8px;font-weight:700;box-shadow:0 5px 14px rgba(36,55,78,.1)}
+  .copy{padding:15px 16px 18px}.copy h3{margin:0 0 5px;font-size:17px}.copy p{margin:0;color:var(--muted);font-size:12px;line-height:1.5}.note{margin-top:10px;font-size:10px;font-weight:700;color:#68768a}
+
+  .photo-head .head{overflow:hidden;background:linear-gradient(145deg,#b78369,#704a3e);border:5px solid #fff}.photo-head .head:before{content:"";position:absolute;left:21px;top:18px;width:45px;height:54px;border-radius:50%;background:#e9b394}.photo-head .head:after{content:"";position:absolute;left:11px;top:7px;width:70px;height:34px;border-radius:50% 50% 30% 30%;background:#332d31}.photo-head .hair,.photo-head .eye,.photo-head .mouth{display:none}
+  .profile-map .head{background:#e7bd9d}.profile-map .hair{background:#2b292e;clip-path:polygon(0 0,100% 0,100% 57%,90% 45%,80% 74%,63% 42%,52% 68%,38% 43%,23% 71%,13% 44%,0 63%)}.profile-map .body{background:#2f9b73}.profile-map .head:after{content:"⌁";position:absolute;right:12px;top:65px;font-size:17px;color:#9f6d55}
+  .generated .demo{background:radial-gradient(circle at 50% 35%,#fff9fd,#f1e4f1 68%,#dfd0df 68%)}.generated .head{background:linear-gradient(145deg,#ffe3d1,#f6c5bd);box-shadow:0 14px 27px rgba(81,52,78,.18)}.generated .hair{background:linear-gradient(145deg,#675064,#2f2935)}.generated .body{background:linear-gradient(145deg,#d577bd,#8c5db0)}.generated .laptop{background:linear-gradient(145deg,#e5cae2,#927c9c)}
+  @media(max-width:1000px){.approaches{grid-template-columns:1fr}}
+</style>
+
+<h2>Mức độ mô phỏng avatar GitLab</h2>
+<p class="subtitle">Điểm khác nhau quan trọng là nhân viên mới có tự xuất hiện ngay hay cần tạo asset chibi trước.</p>
+
+<div class="approaches">
+  <div class="approach photo-head" data-choice="photo-chibi" onclick="toggleSelect(this)">
+    <div class="demo">
+      <div class="profile"><div class="profile-photo"></div><div><b>Avatar GitLab</b><span>Ảnh được đưa trực tiếp vào nhân vật</span></div></div><div class="arrow">↓</div>
+      <div class="chibi"><div class="body"></div><div class="head"></div><div class="arm l"></div><div class="arm r"></div></div><div class="laptop"></div><div class="tag">Tự động 100%</div>
+    </div>
+    <div class="copy"><h3>A — Avatar thật + thân chibi</h3><p>Dùng khuôn mặt từ avatar GitLab, gắn vào thân chibi. Nhận đúng người ngay và nhân viên mới không cần cấu hình.</p><div class="note">Nhanh nhất · nhưng cảm giác “ghép ảnh”</div></div>
+  </div>
+
+  <div class="approach profile-map" data-choice="profile-mapped-chibi" onclick="toggleSelect(this)">
+    <div class="demo">
+      <div class="profile"><div class="profile-photo"></div><div><b>Avatar GitLab</b><span>Chọn hồ sơ tóc, da, áo, phụ kiện</span></div></div><div class="arrow">↓</div>
+      <div class="chibi"><div class="body"></div><div class="head"><div class="eye l"></div><div class="eye r"></div><div class="mouth"></div></div><div class="hair"></div><div class="arm l"></div><div class="arm r"></div></div><div class="laptop"></div><div class="tag">Cần profile mapping</div>
+    </div>
+    <div class="copy"><h3>B — Chibi profile thủ công</h3><p>Mỗi nhân viên được map tóc, màu da, áo và phụ kiện theo avatar. Nhìn đồng bộ, đẹp và vẫn dựng native SwiftUI.</p><div class="note">Đề xuất nếu đội ít thay đổi</div></div>
+  </div>
+
+  <div class="approach generated" data-choice="generated-chibi-assets" onclick="toggleSelect(this)">
+    <div class="demo">
+      <div class="profile"><div class="profile-photo"></div><div><b>Avatar GitLab</b><span>Tạo tranh chibi riêng trước khi đóng app</span></div></div><div class="arrow">↓</div>
+      <div class="chibi"><div class="body"></div><div class="head"><div class="eye l"></div><div class="eye r"></div><div class="mouth"></div></div><div class="hair"></div><div class="arm l"></div><div class="arm r"></div></div><div class="laptop"></div><div class="tag">Asset riêng từng người</div>
+    </div>
+    <div class="copy"><h3>C — Chibi sinh từ avatar</h3><p>Tạo ảnh chibi giống từng người nhất rồi lưu asset. Đẹp nhất, nhưng nhân viên mới cần tạo và cập nhật asset mới.</p><div class="note">Đẹp nhất · bảo trì nhiều nhất</div></div>
+  </div>
+</div>

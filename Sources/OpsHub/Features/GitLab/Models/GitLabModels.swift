@@ -397,7 +397,7 @@ enum GitLabIssuePriority: String, Hashable, Sendable {
 enum GitLabIssueTab: String, CaseIterable, Identifiable, Sendable {
     case assignedToMe = "Assign me"
     case doing = "Doing"
-    case testing = "Test"
+    case testing = "Testing"
     case passed = "Passed"
     case build = "Build"
     case productionBug = "Bug Pro"

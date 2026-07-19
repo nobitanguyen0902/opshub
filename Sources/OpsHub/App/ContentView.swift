@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable, Hashable {
     case dashboard
+    case devRoom
     case brew
     case gitLab
     case settings
@@ -10,12 +11,14 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
+        case .dashboard:
+            return "Dashboard"
+        case .devRoom:
+            return "Dev Room"
         case .brew:
             return "Brew"
         case .gitLab:
             return "GitLab"
-        case .dashboard:
-            return "Dashboard"
         case .settings:
             return "Settings"
         }
@@ -23,12 +26,14 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
+        case .dashboard:
+            return "rectangle.grid.2x2"
+        case .devRoom:
+            return "person.3.fill"
         case .brew:
             return "cup.and.saucer"
         case .gitLab:
             return "arrow.triangle.branch"
-        case .dashboard:
-            return "rectangle.grid.2x2"
         case .settings:
             return "gearshape"
         }
@@ -41,19 +46,31 @@ final class AppNavigationState: ObservableObject {
 
 struct ContentView: View {
     @ObservedObject var navigationState: AppNavigationState
+    private let devRoomViewModel: DevRoomViewModel
     @StateObject private var gitLabViewModel: GitLabDashboardViewModel
     let settingsStore: any GitLabSettingsStoring
+    private let visibilityStore: any DevRoomVisibilitySettingsStoring
+    private let memberService: any DevRoomMemberServicing
 
     init(
         navigationState: AppNavigationState,
-        settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()
+        settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
+        visibilityStore: any DevRoomVisibilitySettingsStoring = DevRoomVisibilitySettingsStore(),
+        gitLabService: GitLabService? = nil,
+        devRoomViewModel: DevRoomViewModel? = nil,
+        memberService: (any DevRoomMemberServicing)? = nil
     ) {
         self.navigationState = navigationState
         self.settingsStore = settingsStore
+        self.visibilityStore = visibilityStore
+        let resolvedGitLabService = gitLabService ?? GitLabService(settingsStore: settingsStore)
+        self.memberService = memberService ?? resolvedGitLabService
+        self.devRoomViewModel = devRoomViewModel ?? DevRoomViewModel(
+            service: resolvedGitLabService,
+            selectedUserIDs: visibilityStore.load().selectedUserIDs
+        )
         _gitLabViewModel = StateObject(
-            wrappedValue: GitLabDashboardViewModel(
-                service: GitLabService(settingsStore: settingsStore)
-            )
+            wrappedValue: GitLabDashboardViewModel(service: resolvedGitLabService)
         )
     }
 
@@ -70,6 +87,8 @@ struct ContentView: View {
             .listStyle(.sidebar)
         } detail: {
             switch navigationState.selection {
+            case .devRoom:
+                DevRoomView(viewModel: devRoomViewModel)
             case .brew:
                 BrewListView()
             case .gitLab:
@@ -77,7 +96,14 @@ struct ContentView: View {
             case .dashboard:
                 DashboardView()
             case .settings:
-                SettingsView(settingsStore: settingsStore)
+                SettingsView(
+                    settingsStore: settingsStore,
+                    visibilityStore: visibilityStore,
+                    memberService: memberService,
+                    onDevRoomVisibilitySaved: { ids in
+                        devRoomViewModel.applySelectedUserIDs(ids)
+                    }
+                )
             case nil:
                 ContentUnavailableView("Select a page", systemImage: "sidebar.left")
             }

@@ -5,20 +5,38 @@ import SwiftUI
 struct OpsHubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var navigationState = AppNavigationState()
+    @StateObject private var devRoomViewModel: DevRoomViewModel
 
     private let updateManager: UpdateManager
     private let gitLabSettingsStore: GitLabSettingsStore
+    private let devRoomVisibilityStore: DevRoomVisibilitySettingsStore
+    private let gitLabService: GitLabService
 
     init() {
+        let settingsStore = GitLabSettingsStore()
+        let visibilityStore = DevRoomVisibilitySettingsStore()
+        let service = GitLabService(settingsStore: settingsStore)
+
         updateManager = UpdateManager()
-        gitLabSettingsStore = GitLabSettingsStore()
+        gitLabSettingsStore = settingsStore
+        devRoomVisibilityStore = visibilityStore
+        gitLabService = service
+        _devRoomViewModel = StateObject(
+            wrappedValue: DevRoomViewModel(
+                service: service,
+                selectedUserIDs: visibilityStore.load().selectedUserIDs
+            )
+        )
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView(
                 navigationState: navigationState,
-                settingsStore: gitLabSettingsStore
+                settingsStore: gitLabSettingsStore,
+                visibilityStore: devRoomVisibilityStore,
+                gitLabService: gitLabService,
+                devRoomViewModel: devRoomViewModel
             )
         }
         .defaultSize(width: 960, height: 620)
@@ -29,7 +47,15 @@ struct OpsHubApp: App {
         }
 
         Settings {
-            SettingsView(settingsStore: gitLabSettingsStore)
+            SettingsView(
+                settingsStore: gitLabSettingsStore,
+                gitLabService: gitLabService,
+                visibilityStore: devRoomVisibilityStore,
+                memberService: gitLabService,
+                onDevRoomVisibilitySaved: { ids in
+                    devRoomViewModel.applySelectedUserIDs(ids)
+                }
+            )
                 .frame(width: 520, height: 420)
         }
     }

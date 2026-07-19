@@ -1,0 +1,36 @@
+<style>
+  .settings{max-width:850px;margin:22px auto;border:1px solid #dfe5ec;border-radius:22px;background:#fff;box-shadow:0 18px 46px rgba(31,49,69,.11);overflow:hidden}
+  .top{padding:20px 22px;border-bottom:1px solid #e7ebf0;display:flex;align-items:center;justify-content:space-between}.top h3{margin:0;font-size:22px}.save{padding:9px 14px;border-radius:9px;background:#3478f6;color:#fff;font-size:11px;font-weight:750;box-shadow:0 5px 13px rgba(52,120,246,.25)}
+  .content{padding:20px 22px 26px;background:#f8fafc}.section{background:#fff;border:1px solid #e1e6ed;border-radius:15px;padding:16px;margin-bottom:16px}.section-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:13px}.section h4{margin:0 0 4px;font-size:15px}.hint{font-size:10px;color:#7a8797}.status{padding:5px 8px;border-radius:7px;background:#e9f7ee;color:#2c8c4e;font-size:8px;font-weight:750}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field{height:35px;border:1px solid #d8dfe8;border-radius:8px;padding:0 10px;display:flex;align-items:center;font-size:10px;color:#657286;background:#fbfcfd}.token{justify-content:space-between}.dots{letter-spacing:2px;color:#445065}.eye{font-size:12px}
+  .member-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}.search{height:34px;flex:1;border:1px solid #d7dfe8;border-radius:8px;padding:0 10px;display:flex;align-items:center;color:#8490a0;font-size:10px}.action{padding:7px 9px;border-radius:8px;background:#f0f3f7;color:#586678;font-size:9px;font-weight:650}.selected-count{font-size:9px;color:#6d7a8d;margin-left:auto}
+  .member-list{border:1px solid #e0e5ec;border-radius:11px;overflow:hidden}.member{height:52px;padding:0 12px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #edf0f4}.member:last-child{border-bottom:0}.check{width:16px;height:16px;border:1.5px solid #b4beca;border-radius:4px;display:grid;place-items:center;color:white;font-size:10px}.check.on{background:#3478f6;border-color:#3478f6}.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(145deg,#aad0fb,#e0c3eb)}.person{min-width:0;flex:1}.person b{display:block;font-size:10px}.person span{font-size:8px;color:#7e8a99}.access{font-size:8px;color:#8691a0}.member.off{background:#fafbfc}.member.off .avatar,.member.off .person{opacity:.58}
+  .rule{margin-top:12px;padding:10px 11px;border-radius:9px;background:#f1f6ff;color:#50647e;font-size:9px;line-height:1.45}.empty-preview{margin-top:10px;display:flex;gap:8px;align-items:center;color:#7a8797;font-size:9px}.warning-dot{width:7px;height:7px;border-radius:50%;background:#f3a42d}
+</style>
+
+<h2>Settings — Thành viên Dev Room</h2>
+<p class="subtitle">Danh sách lấy từ toàn bộ thành viên Project. Mặc định không ai được hiển thị; thay đổi chỉ có hiệu lực khi bấm Save.</p>
+
+<div class="settings">
+  <div class="top"><h3>Settings</h3><div class="save">Save Changes</div></div>
+  <div class="content">
+    <div class="section">
+      <div class="section-head"><div><h4>GitLab</h4><div class="hint">Kết nối dùng chung cho Dashboard và Dev Room</div></div><span class="status">Connected</span></div>
+      <div class="fields"><div class="field">https://gitlab.example.com</div><div class="field token"><span class="dots">••••••••••••</span><span class="eye">◉</span></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><div><h4>Dev Room Members</h4><div class="hint">Project: social/socom-issues · Chọn người được xuất hiện trong phòng</div></div><span class="status" style="background:#eef3ff;color:#4e6fc9">3 selected</span></div>
+      <div class="member-toolbar"><div class="search">⌕&nbsp;&nbsp;Tìm theo tên hoặc username</div><div class="action">Select All</div><div class="action">Clear</div></div>
+      <div class="member-list">
+        <div class="member"><div class="check on">✓</div><div class="avatar"></div><div class="person"><b>Anh Thái Nguyễn</b><span>@thai.nguyen · GitLab ID 124</span></div><div class="access">Developer</div></div>
+        <div class="member"><div class="check on">✓</div><div class="avatar" style="background:linear-gradient(145deg,#f5caa8,#9fd6bd)"></div><div class="person"><b>Bùi Thông Ngọc Thanh</b><span>@thanh.bui · GitLab ID 181</span></div><div class="access">Developer</div></div>
+        <div class="member off"><div class="check"></div><div class="avatar" style="background:linear-gradient(145deg,#c1b6e7,#9a9da8)"></div><div class="person"><b>Cao Tiến Quang</b><span>@quang.cao · GitLab ID 206</span></div><div class="access">Developer</div></div>
+        <div class="member"><div class="check on">✓</div><div class="avatar" style="background:linear-gradient(145deg,#f7c2d5,#bddbf6)"></div><div class="person"><b>Gia Hân Trác</b><span>@han.trac · GitLab ID 231</span></div><div class="access">Reporter</div></div>
+        <div class="member off"><div class="check"></div><div class="avatar" style="background:linear-gradient(145deg,#f0b99e,#d0a7d8)"></div><div class="person"><b>Kim Thanh</b><span>@kim.thanh · GitLab ID 257</span></div><div class="access">Developer</div></div>
+      </div>
+      <div class="rule"><strong>Quy tắc:</strong> chỉ issue của các user được chọn mới xuất hiện và được tính vào Todo/Doing/ToTest/Test/Passed. Thành viên mới mặc định không được chọn.</div>
+      <div class="empty-preview"><span class="warning-dot"></span>Nếu chưa chọn ai, Dev Room hiển thị hướng dẫn “Chọn thành viên trong Settings”.</div>
+    </div>
+  </div>
+</div>

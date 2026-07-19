@@ -1,0 +1,59 @@
+<style>
+  .chibi-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:24px}
+  .chibi-option{border:1px solid var(--border);border-radius:20px;overflow:hidden;background:var(--surface);cursor:pointer;transition:.2s ease}
+  .chibi-option:hover{transform:translateY(-3px);box-shadow:0 18px 38px rgba(15,23,42,.13)}
+  .chibi-option.selected{outline:3px solid #557cff;outline-offset:2px}
+  .scene{height:390px;position:relative;overflow:hidden;background:linear-gradient(180deg,#f7fbff 0%,#eef4f7 72%,#dde7e4 72%)}
+  .window{position:absolute;left:25px;top:26px;width:110px;height:85px;border:8px solid #fff;border-radius:14px;background:linear-gradient(160deg,#bfe4ff,#e7f5ff);box-shadow:0 8px 22px rgba(63,98,130,.12)}
+  .plant{position:absolute;right:24px;bottom:76px;width:35px;height:62px}.plant:before,.plant:after{content:"";position:absolute;width:17px;height:31px;border-radius:100% 0;background:#69ad80}.plant:before{left:4px;top:0;transform:rotate(-25deg)}.plant:after{right:1px;top:13px;transform:scaleX(-1) rotate(-25deg)}.pot{position:absolute;bottom:0;left:5px;width:27px;height:25px;background:#d99d76;border-radius:4px 4px 10px 10px}
+  .desk-top{position:absolute;left:30px;right:30px;bottom:76px;height:20px;border-radius:10px;background:#b88058;box-shadow:0 10px 0 #8e6245}.leg{position:absolute;bottom:0;width:12px;height:75px;background:#76503d}.leg.l{left:47px}.leg.r{right:47px}
+  .laptop{position:absolute;left:50%;bottom:93px;transform:translateX(-50%);width:84px;height:57px;border-radius:8px;background:#495566;box-shadow:inset 0 0 0 4px #69778a}.laptop:after{content:"";position:absolute;left:-12px;right:-12px;bottom:-8px;height:8px;border-radius:8px;background:#334052}
+  .chibi{position:absolute;left:50%;bottom:116px;transform:translateX(-50%);width:150px;height:205px}
+  .head{position:absolute;left:25px;top:0;width:100px;height:100px;border-radius:46% 46% 43% 43%;background:#ffd9c7;box-shadow:inset 0 -6px 0 rgba(206,132,107,.08)}
+  .hair{position:absolute;left:21px;top:-5px;width:108px;height:62px;border-radius:48px 48px 28px 28px;background:#3d3540;clip-path:polygon(0 0,100% 0,100% 68%,82% 53%,69% 78%,53% 47%,38% 72%,25% 47%,0 70%)}
+  .eye{position:absolute;top:49px;width:11px;height:15px;border-radius:50%;background:#332e37}.eye.l{left:27px}.eye.r{right:27px}.shine{position:absolute;left:2px;top:2px;width:4px;height:4px;border-radius:50%;background:white}.blush{position:absolute;top:70px;width:17px;height:7px;border-radius:50%;background:#f3a9aa;opacity:.55}.blush.l{left:14px}.blush.r{right:14px}.mouth{position:absolute;left:45px;top:75px;width:11px;height:7px;border-bottom:3px solid #a76169;border-radius:50%}
+  .body{position:absolute;left:35px;top:91px;width:80px;height:92px;border-radius:36px 36px 18px 18px;background:#668ce8}.hood{position:absolute;left:17px;top:5px;width:46px;height:30px;border:3px solid rgba(255,255,255,.35);border-top:0;border-radius:0 0 28px 28px}.arm{position:absolute;top:118px;width:58px;height:24px;border-radius:18px;background:#ffd9c7;z-index:3}.arm.l{left:5px;transform:rotate(18deg)}.arm.r{right:5px;transform:rotate(-18deg)}
+  .badge{position:absolute;left:14px;top:12px;padding:5px 8px;border-radius:9px;background:#fff;color:#51647b;font-size:8px;font-weight:700;box-shadow:0 4px 14px rgba(28,48,73,.12)}
+  .copy{padding:15px 16px 18px}.copy h3{margin:0 0 5px;font-size:17px}.copy p{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+
+  .soft .scene{background:radial-gradient(circle at 50% 22%,#fff7fc,#f7eaf5 64%,#eadbe9 64%)}
+  .soft .head{background:linear-gradient(145deg,#ffe3d3,#f8c9c6);box-shadow:0 16px 30px rgba(95,47,79,.18),inset 5px 6px 12px rgba(255,255,255,.55)}
+  .soft .hair{background:linear-gradient(145deg,#754f72,#3f3348)}
+  .soft .body{background:linear-gradient(145deg,#d279bf,#9a5fb6);box-shadow:0 12px 20px rgba(93,48,114,.2)}
+  .soft .desk-top{background:#d6a5bd;box-shadow:0 10px 0 #a87c96}.soft .leg{background:#8d687e}.soft .laptop{background:linear-gradient(145deg,#f7dcf0,#a985b0);box-shadow:0 10px 20px rgba(75,45,74,.15)}
+
+  .pixel .scene{background:#d8f0e4;image-rendering:pixelated}.pixel .window{border-radius:0;border-width:7px;box-shadow:7px 7px 0 #8bb5a2}.pixel .desk-top,.pixel .leg,.pixel .laptop{border-radius:0;box-shadow:none}.pixel .chibi{width:144px;height:198px;image-rendering:pixelated}.pixel .head{left:28px;width:88px;height:88px;border-radius:0;background:#ffd3b5;box-shadow:8px 8px 0 rgba(89,67,59,.16)}.pixel .hair{left:20px;top:-8px;width:104px;height:57px;border-radius:0;clip-path:polygon(0 0,100% 0,100% 62%,81% 62%,81% 79%,62% 79%,62% 57%,42% 57%,42% 76%,22% 76%,22% 60%,0 60%)}.pixel .eye{top:43px;width:8px;height:12px;border-radius:0}.pixel .body{left:35px;top:82px;border-radius:0;background:#4f9d78;box-shadow:8px 8px 0 rgba(33,91,66,.17)}.pixel .arm{border-radius:0}.pixel .badge{border-radius:0;box-shadow:4px 4px 0 #86aa9a}
+  @media(max-width:1000px){.chibi-grid{grid-template-columns:1fr}}
+</style>
+
+<h2>Chọn phong cách nhân vật chibi</h2>
+<p class="subtitle">Cả ba đều giữ animation gõ phím, chớp mắt và pulse khi task đổi. Khác nhau chủ yếu ở độ chi tiết và mức phù hợp với SwiftUI.</p>
+
+<div class="chibi-grid">
+  <div class="chibi-option" data-choice="chibi-flat" onclick="toggleSelect(this)">
+    <div class="scene">
+      <div class="badge">Doing · 2 tasks</div><div class="window"></div><div class="plant"><div class="pot"></div></div>
+      <div class="chibi"><div class="body"><div class="hood"></div></div><div class="head"><div class="eye l"><i class="shine"></i></div><div class="eye r"><i class="shine"></i></div><div class="blush l"></div><div class="blush r"></div><div class="mouth"></div></div><div class="hair"></div><div class="arm l"></div><div class="arm r"></div></div>
+      <div class="laptop"></div><div class="desk-top"></div><div class="leg l"></div><div class="leg r"></div>
+    </div>
+    <div class="copy"><h3>A — Flat Chibi <span style="color:#557cff">(đề xuất)</span></h3><p>Đầu lớn, biểu cảm rõ, màu phẳng hiện đại. Dễ tạo biến thể tóc/áo theo từng người và animate mượt bằng SwiftUI.</p></div>
+  </div>
+
+  <div class="chibi-option soft" data-choice="chibi-soft" onclick="toggleSelect(this)">
+    <div class="scene">
+      <div class="badge">ToTest · 5 tasks</div><div class="window"></div><div class="plant"><div class="pot"></div></div>
+      <div class="chibi"><div class="body"><div class="hood"></div></div><div class="head"><div class="eye l"><i class="shine"></i></div><div class="eye r"><i class="shine"></i></div><div class="blush l"></div><div class="blush r"></div><div class="mouth"></div></div><div class="hair"></div><div class="arm l"></div><div class="arm r"></div></div>
+      <div class="laptop"></div><div class="desk-top"></div><div class="leg l"></div><div class="leg r"></div>
+    </div>
+    <div class="copy"><h3>B — Soft Kawaii</h3><p>Mềm, pastel, có bóng đổ kiểu sticker. Đẹp hơn nhưng nhiều hiệu ứng hơn và dễ lệch phong cách native macOS.</p></div>
+  </div>
+
+  <div class="chibi-option pixel" data-choice="chibi-pixel" onclick="toggleSelect(this)">
+    <div class="scene">
+      <div class="badge">Passed · 3 tasks</div><div class="window"></div><div class="plant"><div class="pot"></div></div>
+      <div class="chibi"><div class="body"></div><div class="head"><div class="eye l"></div><div class="eye r"></div><div class="blush l"></div><div class="blush r"></div><div class="mouth"></div></div><div class="hair"></div><div class="arm l"></div><div class="arm r"></div></div>
+      <div class="laptop"></div><div class="desk-top"></div><div class="leg l"></div><div class="leg r"></div>
+    </div>
+    <div class="copy"><h3>C — Pixel Chibi</h3><p>Có chất game/retro và cá tính mạnh. Dễ nhận diện nhưng sẽ thay đổi đáng kể ngôn ngữ thiết kế của OpsHub.</p></div>
+  </div>
+</div>
