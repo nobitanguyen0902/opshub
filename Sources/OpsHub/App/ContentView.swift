@@ -49,16 +49,25 @@ struct ContentView: View {
     @StateObject private var devRoomViewModel: DevRoomViewModel
     @StateObject private var gitLabViewModel: GitLabDashboardViewModel
     let settingsStore: any GitLabSettingsStoring
+    private let visibilityStore: any DevRoomVisibilitySettingsStoring
+    private let memberService: any DevRoomMemberServicing
 
     init(
         navigationState: AppNavigationState,
-        settingsStore: any GitLabSettingsStoring = GitLabSettingsStore()
+        settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
+        visibilityStore: any DevRoomVisibilitySettingsStoring = DevRoomVisibilitySettingsStore(),
+        memberService: (any DevRoomMemberServicing)? = nil
     ) {
         self.navigationState = navigationState
         self.settingsStore = settingsStore
+        self.visibilityStore = visibilityStore
         let gitLabService = GitLabService(settingsStore: settingsStore)
+        self.memberService = memberService ?? gitLabService
         _devRoomViewModel = StateObject(
-            wrappedValue: DevRoomViewModel(service: gitLabService)
+            wrappedValue: DevRoomViewModel(
+                service: gitLabService,
+                selectedUserIDs: visibilityStore.load().selectedUserIDs
+            )
         )
         _gitLabViewModel = StateObject(
             wrappedValue: GitLabDashboardViewModel(service: gitLabService)
@@ -87,7 +96,14 @@ struct ContentView: View {
             case .dashboard:
                 DashboardView()
             case .settings:
-                SettingsView(settingsStore: settingsStore)
+                SettingsView(
+                    settingsStore: settingsStore,
+                    visibilityStore: visibilityStore,
+                    memberService: memberService,
+                    onDevRoomVisibilitySaved: { ids in
+                        devRoomViewModel.applySelectedUserIDs(ids)
+                    }
+                )
             case nil:
                 ContentUnavailableView("Select a page", systemImage: "sidebar.left")
             }

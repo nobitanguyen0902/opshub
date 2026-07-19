@@ -10,4 +10,43 @@ final class AppSectionTests: XCTestCase {
         XCTAssertEqual(AppSection.devRoom.title, "Dev Room")
         XCTAssertEqual(AppSection.devRoom.systemImage, "person.3.fill")
     }
+
+    @MainActor
+    func testContentViewAcceptsSharedDevRoomVisibilityDependencies() {
+        let visibilityStore = AppSectionVisibilityStore(selectedUserIDs: [10])
+        let memberService = AppSectionMemberService()
+
+        XCTAssertNoThrow(
+            ContentView(
+                navigationState: AppNavigationState(),
+                settingsStore: AppSectionGitLabSettingsStore(),
+                visibilityStore: visibilityStore,
+                memberService: memberService
+            )
+        )
+    }
+}
+
+private struct AppSectionGitLabSettingsStore: GitLabSettingsStoring {
+    func load() -> GitLabSettings {
+        GitLabSettings(gitLabURL: "", personalAccessToken: "")
+    }
+
+    func save(_ settings: GitLabSettings) throws {}
+}
+
+private struct AppSectionVisibilityStore: DevRoomVisibilitySettingsStoring {
+    let selectedUserIDs: Set<Int>
+
+    func load() -> DevRoomVisibilitySettings {
+        DevRoomVisibilitySettings(selectedUserIDs: selectedUserIDs)
+    }
+
+    func save(_ settings: DevRoomVisibilitySettings) {}
+}
+
+private actor AppSectionMemberService: DevRoomMemberServicing {
+    func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
+        []
+    }
 }

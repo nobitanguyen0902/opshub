@@ -182,6 +182,86 @@ final class GitLabSettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(tokenStore.baseQuery[kSecUseDataProtectionKeychain as String] as? Bool, true)
     }
+
+    @MainActor
+    func testFailedGitLabSaveDoesNotPersistOrApplyDevRoomDraft() async {
+        let memberSelectionViewModel = DevRoomMemberSelectionViewModel(
+            service: SettingsMemberService(members: [settingsMember(id: 20)]),
+            initialSelectedUserIDs: [20]
+        )
+        await memberSelectionViewModel.loadMembers()
+        let visibilityStore = RecordingDevRoomVisibilityStore()
+        var appliedIDs: Set<Int>?
+
+        XCTAssertThrowsError(
+            try SettingsSaveIntegration.save(
+                gitLabSettings: GitLabSettings(gitLabURL: "https://gitlab.example.com", personalAccessToken: "token"),
+                settingsStore: ThrowingGitLabSettingsStore(),
+                visibilityStore: visibilityStore,
+                memberSelectionViewModel: memberSelectionViewModel,
+                onDevRoomVisibilitySaved: { appliedIDs = $0 }
+            )
+        )
+
+        XCTAssertTrue(visibilityStore.savedSettings.isEmpty)
+        XCTAssertNil(appliedIDs)
+        XCTAssertEqual(memberSelectionViewModel.draftSelectedUserIDs, [20])
+    }
+
+    @MainActor
+    func testSuccessfulSavePersistsAndAppliesLoadedDevRoomDraftAfterGitLabSettings() async throws {
+        let memberSelectionViewModel = DevRoomMemberSelectionViewModel(
+            service: SettingsMemberService(members: [settingsMember(id: 10), settingsMember(id: 20)]),
+            initialSelectedUserIDs: [20]
+        )
+        await memberSelectionViewModel.loadMembers()
+        memberSelectionViewModel.toggle(10)
+
+        let visibilityStore = RecordingDevRoomVisibilityStore()
+        let settingsStore = RecordingGitLabSettingsStore()
+        var callbackWasCalledAfterGitLabSave = false
+        var appliedIDs: Set<Int>?
+
+        try SettingsSaveIntegration.save(
+            gitLabSettings: GitLabSettings(gitLabURL: "https://gitlab.example.com", personalAccessToken: "token"),
+            settingsStore: settingsStore,
+            visibilityStore: visibilityStore,
+            memberSelectionViewModel: memberSelectionViewModel,
+            onDevRoomVisibilitySaved: { ids in
+                callbackWasCalledAfterGitLabSave = settingsStore.savedSettings.count == 1
+                appliedIDs = ids
+            }
+        )
+
+        XCTAssertEqual(visibilityStore.savedSettings.map(\.selectedUserIDs), [[10, 20]])
+        XCTAssertEqual(appliedIDs, [10, 20])
+        XCTAssertTrue(callbackWasCalledAfterGitLabSave)
+    }
+
+    @MainActor
+    func testFailedMemberLoadDoesNotOverwriteSavedDevRoomAllowlist() async throws {
+        let memberSelectionViewModel = DevRoomMemberSelectionViewModel(
+            service: FailingSettingsMemberService(),
+            initialSelectedUserIDs: [20]
+        )
+        await memberSelectionViewModel.loadMembers()
+        let visibilityStore = RecordingDevRoomVisibilityStore()
+        let settingsStore = RecordingGitLabSettingsStore()
+        var appliedIDs: Set<Int>?
+
+        try SettingsSaveIntegration.save(
+            gitLabSettings: GitLabSettings(gitLabURL: "https://gitlab.example.com", personalAccessToken: "token"),
+            settingsStore: settingsStore,
+            visibilityStore: visibilityStore,
+            memberSelectionViewModel: memberSelectionViewModel,
+            onDevRoomVisibilitySaved: { appliedIDs = $0 }
+        )
+
+        XCTAssertEqual(settingsStore.savedSettings.count, 1)
+        XCTAssertTrue(visibilityStore.savedSettings.isEmpty)
+        XCTAssertNil(appliedIDs)
+        XCTAssertEqual(memberSelectionViewModel.draftSelectedUserIDs, [20])
+    }
 }
 
 private final class InMemoryGitLabTokenStore: GitLabTokenStoring {
@@ -208,4 +288,74 @@ private struct FailingGitLabTokenStore: GitLabTokenStoring {
     func saveToken(_ token: String) throws {
         throw GitLabSettingsStoreError.invalidTokenData
     }
+}
+
+private final class RecordingDevRoomVisibilityStore: DevRoomVisibilitySettingsStoring {
+    private(set) var savedSettings: [DevRoomVisibilitySettings] = []
+
+    func load() -> DevRoomVisibilitySettings {
+        DevRoomVisibilitySettings(selectedUserIDs: [])
+    }
+
+    func save(_ settings: DevRoomVisibilitySettings) {
+        savedSettings.append(settings)
+    }
+}
+
+private final class RecordingGitLabSettingsStore: GitLabSettingsStoring {
+    private(set) var savedSettings: [GitLabSettings] = []
+
+    func load() -> GitLabSettings {
+        GitLabSettings(gitLabURL: "", personalAccessToken: "")
+    }
+
+    func save(_ settings: GitLabSettings) throws {
+        savedSettings.append(settings)
+    }
+}
+
+private struct ThrowingGitLabSettingsStore: GitLabSettingsStoring {
+    func load() -> GitLabSettings {
+        GitLabSettings(gitLabURL: "", personalAccessToken: "")
+    }
+
+    func save(_ settings: GitLabSettings) throws {
+        throw GitLabSettingsStoreError.invalidTokenData
+    }
+}
+
+private actor SettingsMemberService: DevRoomMemberServicing {
+    let members: [DevRoomProjectMember]
+
+    init(members: [DevRoomProjectMember]) {
+        self.members = members
+    }
+
+    func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
+        members
+    }
+}
+
+private actor FailingSettingsMemberService: DevRoomMemberServicing {
+    func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
+        throw SettingsMemberServiceError.unavailable
+    }
+}
+
+private enum SettingsMemberServiceError: LocalizedError {
+    case unavailable
+
+    var errorDescription: String? {
+        "GitLab members are unavailable."
+    }
+}
+
+private func settingsMember(id: Int) -> DevRoomProjectMember {
+    DevRoomProjectMember(
+        id: id,
+        username: "member\(id)",
+        name: "Member \(id)",
+        avatarURL: nil,
+        accessLevel: 30
+    )
 }
