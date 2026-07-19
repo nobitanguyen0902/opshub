@@ -17,7 +17,7 @@ Màn hình dùng GitLab làm nguồn dữ liệu duy nhất và chỉ đọc d�
 - Project của Dev Room phiên bản đầu là workflow Project hiện tại: `social/socom-issues`.
 - Header chỉ hiển thị tên Project cố định; không có Project picker.
 - Chỉ lấy GitLab issue có trạng thái `opened`.
-- Chỉ lấy issue có đúng ngữ nghĩa của ít nhất một label: `Todo`, `Doing`, `ToTest`, `Test`, `Passed`.
+- Chỉ lấy issue có đúng ngữ nghĩa của ít nhất một label: `Todo`, `Doing`, `ToTest`, `Testing`, `Passed`.
 - So khớp label không phân biệt hoa thường và bỏ khoảng trắng đầu/cuối.
 - Issue không có assignee bị loại khỏi cả Room và các ô tổng quan.
 - Quy trình của team bảo đảm mỗi issue chỉ có một assignee. Ứng dụng dùng assignee đầu tiên trong payload GitLab làm người xử lý hiện tại.
@@ -196,7 +196,7 @@ Không có search box hoặc Project picker trong phiên bản đầu.
 
 ### 8.2 Workflow summary
 
-Hiển thị năm card bằng nhau theo thứ tự `Todo`, `Doing`, `ToTest`, `Test`, `Passed`.
+Hiển thị năm card bằng nhau theo thứ tự `Todo`, `Doing`, `ToTest`, `Testing`, `Passed`.
 
 Bấm một card sẽ lọc Room theo stage đó. Bấm lại card đang chọn sẽ bỏ lọc. Khi lọc:
 
