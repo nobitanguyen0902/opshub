@@ -1,0 +1,97 @@
+import XCTest
+@testable import OpsHub
+
+final class DevRoomChibiProfileTests: XCTestCase {
+    func testCuratedProfileByUserIDTakesPrecedenceOverUsername() {
+        let byID = profile(
+            skinTone: .warm,
+            hairStyle: .cropped,
+            hairColor: .charcoal,
+            shirtColor: .blue,
+            accessory: .glasses
+        )
+        let byUsername = profile(
+            skinTone: .deep,
+            hairStyle: .bun,
+            hairColor: .auburn,
+            shirtColor: .rose,
+            accessory: .headphones
+        )
+        let store = DevRoomChibiProfileStore(
+            curatedByUserID: [11: byID],
+            curatedByUsername: ["thai.nguyen": byUsername]
+        )
+        let employee = DevRoomEmployee(
+            id: 11,
+            name: "Anh Thái Nguyễn",
+            username: "THAI.NGUYEN",
+            avatarURL: nil
+        )
+
+        XCTAssertEqual(store.profile(for: employee), byID)
+    }
+
+    func testCuratedProfileFallsBackToCaseInsensitiveUsername() {
+        let expected = profile(
+            skinTone: .tan,
+            hairStyle: .wavy,
+            hairColor: .brown,
+            shirtColor: .teal,
+            accessory: .headphones
+        )
+        let store = DevRoomChibiProfileStore(curatedByUsername: ["alice": expected])
+        let employee = DevRoomEmployee(id: 11, name: "Alice Nguyen", username: "ALICE", avatarURL: nil)
+
+        XCTAssertEqual(store.profile(for: employee), expected)
+    }
+
+    func testDisplayNameNeverResolvesCuratedProfile() {
+        let usernameProfile = profile(
+            skinTone: .deep,
+            hairStyle: .flatTop,
+            hairColor: .black,
+            shirtColor: .purple,
+            accessory: .none
+        )
+        let store = DevRoomChibiProfileStore(curatedByUsername: ["alice.nguyen": usernameProfile])
+        let employee = DevRoomEmployee(id: 999, name: "alice.nguyen", username: nil, avatarURL: nil)
+
+        XCTAssertNotEqual(store.profile(for: employee), usernameProfile)
+    }
+
+    func testFallbackIsStableForSameEmployeeIDWhenIdentityFieldsChange() {
+        let first = DevRoomEmployee(id: 999, name: "New User", username: nil, avatarURL: nil)
+        let renamed = DevRoomEmployee(id: 999, name: "Renamed User", username: "renamed", avatarURL: nil)
+
+        XCTAssertEqual(
+            DevRoomChibiProfileStore.production.profile(for: first),
+            DevRoomChibiProfileStore.production.profile(for: renamed)
+        )
+    }
+
+    func testFallbackVariesAcrossEmployeeIDs() {
+        let first = DevRoomEmployee(id: 999, name: "A", username: nil, avatarURL: nil)
+        let second = DevRoomEmployee(id: 1_000, name: "B", username: nil, avatarURL: nil)
+
+        XCTAssertNotEqual(
+            DevRoomChibiProfileStore.production.profile(for: first),
+            DevRoomChibiProfileStore.production.profile(for: second)
+        )
+    }
+
+    private func profile(
+        skinTone: DevRoomChibiSkinTone,
+        hairStyle: DevRoomChibiHairStyle,
+        hairColor: DevRoomChibiHairColor,
+        shirtColor: DevRoomChibiShirtColor,
+        accessory: DevRoomChibiAccessory
+    ) -> DevRoomChibiProfile {
+        DevRoomChibiProfile(
+            skinTone: skinTone,
+            hairStyle: hairStyle,
+            hairColor: hairColor,
+            shirtColor: shirtColor,
+            accessory: accessory
+        )
+    }
+}
