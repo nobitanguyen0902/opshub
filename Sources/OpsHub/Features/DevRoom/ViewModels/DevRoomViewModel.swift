@@ -22,6 +22,7 @@ final class DevRoomViewModel: ObservableObject {
     @Published private(set) var loadState: DevRoomLoadState = .idle
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var animationEvent: DevRoomAnimationEvent?
+    @Published private(set) var selectedUserIDs: Set<Int>
     @Published var selectedStage: DevRoomWorkflowStage?
     @Published var selectedEmployeeID: Int?
 
@@ -31,18 +32,22 @@ final class DevRoomViewModel: ObservableObject {
     private var animationGeneration = 0
     private var hasLoaded = false
 
-    init(service: any DevRoomServicing) {
+    init(service: any DevRoomServicing, selectedUserIDs: Set<Int> = []) {
         self.service = service
+        self.selectedUserIDs = selectedUserIDs
     }
 
+    var visibleData: DevRoomData { data.filtered(userIDs: selectedUserIDs) }
+    var hasConfiguredMembers: Bool { selectedUserIDs.isEmpty == false }
+
     var displayedEmployees: [DevRoomEmployeeSummary] {
-        guard let selectedStage else { return data.employees }
-        return data.employees.filter { $0.count(for: selectedStage) > 0 }
+        guard let selectedStage else { return visibleData.employees }
+        return visibleData.employees.filter { $0.count(for: selectedStage) > 0 }
     }
 
     var selectedEmployee: DevRoomEmployeeSummary? {
         guard let selectedEmployeeID else { return nil }
-        return data.employees.first { $0.id == selectedEmployeeID }
+        return visibleData.employees.first { $0.id == selectedEmployeeID }
     }
 
     func toggleStage(_ stage: DevRoomWorkflowStage) {
@@ -51,6 +56,11 @@ final class DevRoomViewModel: ObservableObject {
 
     func selectEmployee(_ id: Int?) {
         selectedEmployeeID = id
+    }
+
+    func applySelectedUserIDs(_ ids: Set<Int>) {
+        selectedUserIDs = ids
+        clearSelectionIfHidden()
     }
 
     func loadIfNeeded() async {
@@ -105,15 +115,19 @@ final class DevRoomViewModel: ObservableObject {
             hasLoaded = true
             loadState = .loaded
 
-            if let selectedEmployeeID,
-               data.employees.contains(where: { $0.id == selectedEmployeeID }) == false {
-                self.selectedEmployeeID = nil
-            }
+            clearSelectionIfHidden()
         } catch where Task.isCancelled {
             loadState = previousLoadState
         } catch {
             let message = error.localizedDescription
             loadState = hasLoaded ? .stale(message) : .failed(message)
+        }
+    }
+
+    private func clearSelectionIfHidden() {
+        guard let selectedEmployeeID else { return }
+        if displayedEmployees.contains(where: { $0.id == selectedEmployeeID }) == false {
+            self.selectedEmployeeID = nil
         }
     }
 }

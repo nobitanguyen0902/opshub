@@ -134,7 +134,7 @@ final class DevRoomViewModelTests: XCTestCase {
             source(id: 1, employeeID: 10, labels: ["Doing"]),
             source(id: 2, employeeID: 20, labels: ["Test"])
         ]])
-        let viewModel = DevRoomViewModel(service: service)
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10, 20])
         await viewModel.refresh()
 
         viewModel.toggleStage(.test)
@@ -144,12 +144,44 @@ final class DevRoomViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testAllowlistFiltersEmployeesIssuesAndWorkflowCounts() async {
+        let service = SequencedDevRoomService(results: [[
+            source(id: 1, employeeID: 10, labels: ["Todo"]),
+            source(id: 2, employeeID: 20, labels: ["Passed"])
+        ]])
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [20])
+
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.data.total, 2)
+        XCTAssertEqual(viewModel.visibleData.total, 1)
+        XCTAssertEqual(viewModel.visibleData.employees.map(\.employee.id), [20])
+        XCTAssertEqual(viewModel.visibleData.count(for: .todo), 0)
+        XCTAssertEqual(viewModel.visibleData.count(for: .passed), 1)
+    }
+
+    @MainActor
+    func testApplyingEmptyAllowlistClosesDrawerAndShowsNoEmployees() async {
+        let service = SequencedDevRoomService(results: [[
+            source(id: 1, employeeID: 10, labels: ["Doing"])
+        ]])
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10])
+        await viewModel.refresh()
+        viewModel.selectEmployee(10)
+
+        viewModel.applySelectedUserIDs([])
+
+        XCTAssertTrue(viewModel.visibleData.employees.isEmpty)
+        XCTAssertNil(viewModel.selectedEmployeeID)
+    }
+
+    @MainActor
     func testRefreshClearsSelectedEmployeeWhenTheyAreRemoved() async {
         let service = SequencedDevRoomService(results: [
             [source(id: 1, employeeID: 10, labels: ["Doing"])],
             [source(id: 1, employeeID: 20, labels: ["Doing"])]
         ])
-        let viewModel = DevRoomViewModel(service: service)
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10, 20])
         await viewModel.refresh()
         viewModel.selectEmployee(10)
 

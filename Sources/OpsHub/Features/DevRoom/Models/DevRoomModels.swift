@@ -90,6 +90,12 @@ struct DevRoomData: Equatable, Sendable {
     func count(for stage: DevRoomWorkflowStage) -> Int {
         issues.count { $0.stage == stage }
     }
+
+    func filtered(userIDs: Set<Int>) -> DevRoomData {
+        let visibleIssues = issues.filter { userIDs.contains($0.assignee.id) }
+        let visibleEmployees = employees.filter { userIDs.contains($0.employee.id) }
+        return DevRoomData(issues: visibleIssues, employees: visibleEmployees)
+    }
 }
 
 enum DevRoomAggregator {
