@@ -60,7 +60,7 @@ struct DevRoomView: View {
             ScrollView {
                 VStack(spacing: DevRoomDesignTokens.sectionSpacing) {
                     DevRoomWorkflowSummary(
-                        data: viewModel.data,
+                        data: workflowSummaryData,
                         selectedStage: viewModel.selectedStage,
                         onSelect: viewModel.toggleStage
                     )
@@ -106,6 +106,10 @@ struct DevRoomView: View {
                 .frame(width: 340)
             }
         }
+    }
+
+    var workflowSummaryData: DevRoomData {
+        viewModel.visibleData
     }
 
     private var emptyRoomTitle: String {
