@@ -45,6 +45,32 @@ final class DevRoomChibiProfileTests: XCTestCase {
         XCTAssertEqual(store.profile(for: employee), expected)
     }
 
+    func testCaseInsensitiveUsernameCollisionUsesLexicographicallyFirstOriginalKey() {
+        let uppercaseProfile = profile(
+            skinTone: .warm,
+            hairStyle: .sidePart,
+            hairColor: .brown,
+            shirtColor: .blue,
+            accessory: .glasses
+        )
+        let lowercaseProfile = profile(
+            skinTone: .deep,
+            hairStyle: .bun,
+            hairColor: .auburn,
+            shirtColor: .rose,
+            accessory: .headphones
+        )
+        let store = DevRoomChibiProfileStore(
+            curatedByUsername: [
+                "alice": lowercaseProfile,
+                "ALICE": uppercaseProfile
+            ]
+        )
+        let employee = DevRoomEmployee(id: 11, name: "Alice Nguyen", username: "Alice", avatarURL: nil)
+
+        XCTAssertEqual(store.profile(for: employee), uppercaseProfile)
+    }
+
     func testDisplayNameNeverResolvesCuratedProfile() {
         let usernameProfile = profile(
             skinTone: .deep,

@@ -7,14 +7,18 @@ final class DevRoomAggregationTests: XCTestCase {
         XCTAssertEqual(DevRoomWorkflowStage.stage(for: [" TODO "]), .todo)
         XCTAssertEqual(DevRoomWorkflowStage.stage(for: ["doing"]), .doing)
         XCTAssertEqual(DevRoomWorkflowStage.stage(for: ["toTEST"]), .toTest)
-        XCTAssertEqual(DevRoomWorkflowStage.stage(for: [" test "]), .test)
+        XCTAssertEqual(DevRoomWorkflowStage.stage(for: [" testing "]), .testing)
         XCTAssertEqual(DevRoomWorkflowStage.stage(for: ["PASSED"]), .passed)
+    }
+
+    func testLegacyTestLabelIsNotAWorkflowStage() {
+        XCTAssertNil(DevRoomWorkflowStage.stage(for: ["Test"]))
     }
 
     func testMultipleWorkflowLabelsUseFurthestStage() {
         XCTAssertEqual(
-            DevRoomWorkflowStage.stage(for: ["Doing", "Todo", "Test"]),
-            .test
+            DevRoomWorkflowStage.stage(for: ["Doing", "Todo", "Testing"]),
+            .testing
         )
     }
 
@@ -23,7 +27,7 @@ final class DevRoomAggregationTests: XCTestCase {
         let sources = [
             source(id: 1, labels: ["Doing"], assignee: alice),
             source(id: 2, labels: ["Backend"], assignee: alice),
-            source(id: 3, labels: ["Test"], assignee: nil)
+            source(id: 3, labels: ["Testing"], assignee: nil)
         ]
 
         let data = DevRoomAggregator.makeData(from: sources)
@@ -54,17 +58,18 @@ final class DevRoomAggregationTests: XCTestCase {
         XCTAssertEqual(data.total, 3)
     }
 
-    func testPreviewUsesTwoMostRecentlyUpdatedIssues() {
+    func testRepresentativeStageUsesFurthestWorkflowStageInsteadOfLargestCount() {
         let alice = employee(id: 1, name: "Alice")
         let sources = [
-            source(id: 1, title: "Old", labels: ["Todo"], assignee: alice, updatedAt: Date(timeIntervalSince1970: 1)),
-            source(id: 2, title: "Newest", labels: ["Doing"], assignee: alice, updatedAt: Date(timeIntervalSince1970: 3)),
-            source(id: 3, title: "Middle", labels: ["Test"], assignee: alice, updatedAt: Date(timeIntervalSince1970: 2))
+            source(id: 1, labels: ["Todo"], assignee: alice),
+            source(id: 2, labels: ["Todo"], assignee: alice),
+            source(id: 3, labels: ["Todo"], assignee: alice),
+            source(id: 4, labels: ["Testing"], assignee: alice)
         ]
 
         let data = DevRoomAggregator.makeData(from: sources)
 
-        XCTAssertEqual(data.employees[0].previewIssues.map(\.title), ["Newest", "Middle"])
+        XCTAssertEqual(data.employees.first?.representativeStage, .testing)
     }
 
     func testAggregationCountsDuplicateIssueIDOnceUsingMostRecentlyUpdatedSource() {
@@ -81,7 +86,7 @@ final class DevRoomAggregationTests: XCTestCase {
             source(
                 id: 1,
                 title: "Current",
-                labels: ["Test"],
+                labels: ["Testing"],
                 assignee: bob,
                 updatedAt: Date(timeIntervalSince1970: 2)
             )
@@ -92,7 +97,7 @@ final class DevRoomAggregationTests: XCTestCase {
         XCTAssertEqual(data.total, 1)
         XCTAssertEqual(data.issues.map(\.title), ["Current"])
         XCTAssertEqual(data.employees.map(\.employee.id), [2])
-        XCTAssertEqual(data.count(for: .test), 1)
+        XCTAssertEqual(data.count(for: .testing), 1)
         XCTAssertEqual(data.count(for: .doing), 0)
     }
 
@@ -111,7 +116,7 @@ final class DevRoomAggregationTests: XCTestCase {
             source(
                 id: 1,
                 title: "Later duplicate",
-                labels: ["Test"],
+                labels: ["Testing"],
                 assignee: bob,
                 updatedAt: timestamp
             )

@@ -4,27 +4,21 @@ struct DevRoomCharacterView: View {
     let employee: DevRoomEmployee
     let isActive: Bool
     let reduceMotion: Bool
+    private let profileStore: DevRoomChibiProfileStore
 
     @State private var isTyping = false
     @State private var isBlinking = false
 
-    init(employee: DevRoomEmployee, isActive: Bool, reduceMotion: Bool) {
+    init(
+        employee: DevRoomEmployee,
+        isActive: Bool,
+        reduceMotion: Bool,
+        profileStore: DevRoomChibiProfileStore = .production
+    ) {
         self.employee = employee
         self.isActive = isActive
         self.reduceMotion = reduceMotion
-    }
-
-    init(employeeID: Int, isActive: Bool, reduceMotion: Bool) {
-        self.init(
-            employee: DevRoomEmployee(
-                id: employeeID,
-                name: "",
-                username: nil,
-                avatarURL: nil
-            ),
-            isActive: isActive,
-            reduceMotion: reduceMotion
-        )
+        self.profileStore = profileStore
     }
 
     var body: some View {
@@ -80,8 +74,8 @@ struct DevRoomCharacterView: View {
         .milliseconds(700 + Int(employee.id.magnitude % 500))
     }
 
-    private var profile: DevRoomChibiProfile {
-        DevRoomChibiProfileStore.production.profile(for: employee)
+    var profile: DevRoomChibiProfile {
+        profileStore.profile(for: employee)
     }
 
     private var torso: some View {

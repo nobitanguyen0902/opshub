@@ -153,7 +153,7 @@ struct SettingsView: View {
                 lastConnectionTestResult: nil,
                 lastConnectionTestedAt: nil
             )
-            try SettingsSaveIntegration.save(
+            let outcome = try SettingsSaveIntegration.save(
                 gitLabSettings: settings,
                 settingsStore: settingsStore,
                 visibilityStore: visibilityStore,
@@ -161,7 +161,9 @@ struct SettingsView: View {
                 onDevRoomVisibilitySaved: onDevRoomVisibilitySaved
             )
             lastSavedAt = .now
-            connectionStatus = .savedLocally
+            connectionStatus = outcome == .allSettingsSaved
+                ? .savedLocally
+                : .gitLabSavedMemberSelectionUnchanged
             Task { await memberSelectionViewModel.loadMembers() }
         } catch {
             connectionStatus = .saveFailed(error.localizedDescription)
@@ -206,23 +208,30 @@ struct SettingsView: View {
 
 @MainActor
 enum SettingsSaveIntegration {
+    enum Outcome: Equatable {
+        case allSettingsSaved
+        case gitLabSettingsSavedOnly
+    }
+
+    @discardableResult
     static func save(
         gitLabSettings: GitLabSettings,
         settingsStore: any GitLabSettingsStoring,
         visibilityStore: any DevRoomVisibilitySettingsStoring,
         memberSelectionViewModel: DevRoomMemberSelectionViewModel,
         onDevRoomVisibilitySaved: (Set<Int>) -> Void
-    ) throws {
+    ) throws -> Outcome {
         try settingsStore.save(gitLabSettings)
 
         guard memberSelectionViewModel.hasLoadedMembers else {
-            return
+            return .gitLabSettingsSavedOnly
         }
 
         let ids = memberSelectionViewModel.draftSelectedUserIDs
         visibilityStore.save(DevRoomVisibilitySettings(selectedUserIDs: ids))
         onDevRoomVisibilitySaved(ids)
         memberSelectionViewModel.markSaved(ids)
+        return .allSettingsSaved
     }
 }
 
@@ -312,6 +321,7 @@ private struct ConnectionStatusCard: View {
 private enum ConnectionStatus: Equatable {
     case notTested
     case savedLocally
+    case gitLabSavedMemberSelectionUnchanged
     case invalidURL
     case testing
     case testResult(GitLabConnectionTestResult)
@@ -324,6 +334,8 @@ private enum ConnectionStatus: Equatable {
             "Not tested"
         case .savedLocally:
             "Saved"
+        case .gitLabSavedMemberSelectionUnchanged:
+            "GitLab settings saved"
         case .invalidURL:
             "Invalid GitLab URL"
         case .testing:
@@ -345,6 +357,8 @@ private enum ConnectionStatus: Equatable {
             "circle.dashed"
         case .savedLocally:
             "checkmark.circle"
+        case .gitLabSavedMemberSelectionUnchanged:
+            "exclamationmark.triangle"
         case .invalidURL:
             "exclamationmark.triangle"
         case .testing:
@@ -368,7 +382,12 @@ private enum ConnectionStatus: Equatable {
             .green
         case .testing:
             .blue
-        case .invalidURL, .testResult(.unauthorized), .testResult(.timeout), .timeout, .saveFailed:
+        case .gitLabSavedMemberSelectionUnchanged,
+             .invalidURL,
+             .testResult(.unauthorized),
+             .testResult(.timeout),
+             .timeout,
+             .saveFailed:
             .orange
         }
     }
@@ -383,6 +402,8 @@ private enum ConnectionStatus: Equatable {
             }
 
             return "Settings saved at \(lastSavedAt.formatted(date: .omitted, time: .shortened)). Token is stored in Keychain."
+        case .gitLabSavedMemberSelectionUnchanged:
+            return "GitLab settings were saved, but Dev Room members stayed unchanged because the member list is not available yet."
         case .invalidURL:
             return "Use a full URL such as https://gitlab.com or your self-managed GitLab host."
         case .testing:

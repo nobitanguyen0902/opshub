@@ -23,17 +23,18 @@ struct DevRoomMemberSelectionSection: View {
 
             TextField("Search members", text: $viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
+                .disabled(viewModel.canEditDraft == false)
 
             HStack {
                 Button("Select All") {
                     viewModel.selectAll()
                 }
-                .disabled(viewModel.members.isEmpty)
+                .disabled(viewModel.canEditDraft == false || viewModel.members.isEmpty)
 
                 Button("Clear") {
                     viewModel.clear()
                 }
-                .disabled(viewModel.draftSelectedUserIDs.isEmpty)
+                .disabled(viewModel.canEditDraft == false || viewModel.draftSelectedUserIDs.isEmpty)
             }
 
             memberContent

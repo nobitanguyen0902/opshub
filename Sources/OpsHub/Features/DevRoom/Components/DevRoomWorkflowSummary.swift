@@ -9,18 +9,21 @@ struct DevRoomWorkflowSummary: View {
 
     var body: some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 5),
-            spacing: 12
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5),
+            spacing: 8
         ) {
             ForEach(DevRoomWorkflowStage.allCases) { stage in
                 Button {
                     onSelect(stage)
                 } label: {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Label(stage.title, systemImage: "circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .foregroundStyle(DevRoomDesignTokens.color(for: stage))
                         Text("\(data.count(for: stage))")
-                            .font(.title.bold())
+                            .font(.title2.bold())
                             .monospacedDigit()
                             .contentTransition(.numericText())
                             .animation(
@@ -29,8 +32,9 @@ struct DevRoomWorkflowSummary: View {
                             )
                             .foregroundStyle(.primary)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                    .padding()
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .background(
                         selectedStage == stage
                             ? DevRoomDesignTokens.color(for: stage).opacity(0.12)

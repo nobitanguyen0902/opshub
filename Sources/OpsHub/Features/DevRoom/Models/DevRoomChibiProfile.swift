@@ -57,8 +57,14 @@ struct DevRoomChibiProfileStore: Sendable {
         curatedByUsername: [String: DevRoomChibiProfile] = [:]
     ) {
         self.curatedByUserID = curatedByUserID
+        // Normalize case-insensitively. If source keys collide after normalization,
+        // the lexicographically first original key wins so precedence is deterministic.
+        let normalizedProfiles = curatedByUsername
+            .sorted { $0.key < $1.key }
+            .map { ($0.key.lowercased(), $0.value) }
         self.curatedByUsername = Dictionary(
-            uniqueKeysWithValues: curatedByUsername.map { ($0.key.lowercased(), $0.value) }
+            normalizedProfiles,
+            uniquingKeysWith: { first, _ in first }
         )
     }
 

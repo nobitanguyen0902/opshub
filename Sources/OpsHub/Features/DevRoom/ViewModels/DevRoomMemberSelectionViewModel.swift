@@ -18,9 +18,14 @@ final class DevRoomMemberSelectionViewModel: ObservableObject {
     private let service: any DevRoomMemberServicing
     private var latestLoadRequestID = 0
     private var lastSettledLoadState: DevRoomMemberLoadState = .idle
+    private var hasSuccessfulMemberCatalog = false
 
     var hasLoadedMembers: Bool {
-        loadState == .loaded || loadState == .empty
+        hasSuccessfulMemberCatalog
+    }
+
+    var canEditDraft: Bool {
+        hasSuccessfulMemberCatalog
     }
 
     var filteredMembers: [DevRoomProjectMember] {
@@ -61,6 +66,7 @@ final class DevRoomMemberSelectionViewModel: ObservableObject {
 
             members = loadedMembers
             let settledState: DevRoomMemberLoadState = loadedMembers.isEmpty ? .empty : .loaded
+            hasSuccessfulMemberCatalog = true
             loadState = settledState
             lastSettledLoadState = settledState
         } catch is CancellationError {
@@ -79,6 +85,8 @@ final class DevRoomMemberSelectionViewModel: ObservableObject {
     }
 
     func toggle(_ id: Int) {
+        guard canEditDraft else { return }
+
         if draftSelectedUserIDs.contains(id) {
             draftSelectedUserIDs.remove(id)
         } else {
@@ -87,10 +95,12 @@ final class DevRoomMemberSelectionViewModel: ObservableObject {
     }
 
     func selectAll() {
+        guard canEditDraft else { return }
         draftSelectedUserIDs.formUnion(members.map(\.id))
     }
 
     func clear() {
+        guard canEditDraft else { return }
         draftSelectedUserIDs.removeAll()
     }
 

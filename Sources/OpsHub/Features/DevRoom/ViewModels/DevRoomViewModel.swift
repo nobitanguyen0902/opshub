@@ -52,6 +52,7 @@ final class DevRoomViewModel: ObservableObject {
 
     func toggleStage(_ stage: DevRoomWorkflowStage) {
         selectedStage = selectedStage == stage ? nil : stage
+        clearSelectionIfHidden()
     }
 
     func selectEmployee(_ id: Int?) {

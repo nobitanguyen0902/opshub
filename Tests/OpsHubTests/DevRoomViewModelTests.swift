@@ -19,7 +19,7 @@ final class DevRoomViewModelTests: XCTestCase {
     func testLoadIfNeededUsesSuccessfulCachedDataUntilManualRefresh() async {
         let service = SequencedDevRoomService(results: [
             [source(id: 1, employeeID: 10, labels: ["Doing"])],
-            [source(id: 2, employeeID: 20, labels: ["Test"])]
+            [source(id: 2, employeeID: 20, labels: ["Testing"])]
         ])
         let viewModel = DevRoomViewModel(service: service)
 
@@ -65,7 +65,7 @@ final class DevRoomViewModelTests: XCTestCase {
                 source(
                     id: 1,
                     employeeID: 20,
-                    labels: ["Test"],
+                    labels: ["Testing"],
                     updatedAt: Date(timeIntervalSince1970: 2)
                 )
             ],
@@ -73,7 +73,7 @@ final class DevRoomViewModelTests: XCTestCase {
                 source(
                     id: 1,
                     employeeID: 20,
-                    labels: ["Test"],
+                    labels: ["Testing"],
                     updatedAt: Date(timeIntervalSince1970: 2)
                 ),
                 source(
@@ -132,15 +132,61 @@ final class DevRoomViewModelTests: XCTestCase {
     func testStageFilterKeepsOnlyMatchingEmployees() async {
         let service = SequencedDevRoomService(results: [[
             source(id: 1, employeeID: 10, labels: ["Doing"]),
-            source(id: 2, employeeID: 20, labels: ["Test"])
+            source(id: 2, employeeID: 20, labels: ["Testing"])
         ]])
         let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10, 20])
         await viewModel.refresh()
 
-        viewModel.toggleStage(.test)
+        viewModel.toggleStage(.testing)
 
         XCTAssertEqual(viewModel.displayedEmployees.map(\.employee.id), [20])
         XCTAssertEqual(viewModel.data.employees.first(where: { $0.id == 20 })?.total, 1)
+    }
+
+    @MainActor
+    func testSelectingFilterClosesEmployeeOutsideFilteredRoom() async {
+        let service = SequencedDevRoomService(results: [[
+            source(id: 1, employeeID: 10, labels: ["Doing"]),
+            source(id: 2, employeeID: 20, labels: ["Testing"])
+        ]])
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10, 20])
+        await viewModel.refresh()
+        viewModel.selectEmployee(10)
+
+        viewModel.toggleStage(.testing)
+
+        XCTAssertNil(viewModel.selectedEmployeeID)
+        XCTAssertNil(viewModel.selectedEmployee)
+    }
+
+    @MainActor
+    func testSelectingFilterKeepsEmployeeInsideFilteredRoom() async {
+        let service = SequencedDevRoomService(results: [[
+            source(id: 1, employeeID: 10, labels: ["Doing"])
+        ]])
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10])
+        await viewModel.refresh()
+        viewModel.selectEmployee(10)
+
+        viewModel.toggleStage(.doing)
+
+        XCTAssertEqual(viewModel.selectedEmployeeID, 10)
+        XCTAssertEqual(viewModel.selectedEmployee?.employee.id, 10)
+    }
+
+    @MainActor
+    func testClearingSelectionClosesEmployeeDetailState() async {
+        let service = SequencedDevRoomService(results: [[
+            source(id: 1, employeeID: 10, labels: ["Doing"])
+        ]])
+        let viewModel = DevRoomViewModel(service: service, selectedUserIDs: [10])
+        await viewModel.refresh()
+        viewModel.selectEmployee(10)
+
+        viewModel.selectEmployee(nil)
+
+        XCTAssertNil(viewModel.selectedEmployeeID)
+        XCTAssertNil(viewModel.selectedEmployee)
     }
 
     @MainActor

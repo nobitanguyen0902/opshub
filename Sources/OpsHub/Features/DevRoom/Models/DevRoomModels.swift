@@ -4,7 +4,7 @@ enum DevRoomWorkflowStage: Int, CaseIterable, Identifiable, Hashable, Sendable {
     case todo
     case doing
     case toTest
-    case test
+    case testing
     case passed
 
     var id: Self { self }
@@ -14,7 +14,7 @@ enum DevRoomWorkflowStage: Int, CaseIterable, Identifiable, Hashable, Sendable {
         case .todo: "Todo"
         case .doing: "Doing"
         case .toTest: "ToTest"
-        case .test: "Test"
+        case .testing: "Testing"
         case .passed: "Passed"
         }
     }
@@ -25,7 +25,7 @@ enum DevRoomWorkflowStage: Int, CaseIterable, Identifiable, Hashable, Sendable {
             case "todo": .todo
             case "doing": .doing
             case "totest": .toTest
-            case "test": .test
+            case "testing": .testing
             case "passed": .passed
             default: nil
             }
@@ -67,15 +67,13 @@ struct DevRoomEmployeeSummary: Identifiable, Hashable, Sendable {
 
     var id: Int { employee.id }
     var total: Int { issues.count }
-    var previewIssues: [DevRoomIssue] { Array(issues.prefix(2)) }
+
+    var representativeStage: DevRoomWorkflowStage? {
+        DevRoomWorkflowStage.allCases.reversed().first { count(for: $0) > 0 }
+    }
 
     func count(for stage: DevRoomWorkflowStage) -> Int {
         issues.count { $0.stage == stage }
-    }
-
-    func previewIssues(for selectedStage: DevRoomWorkflowStage?) -> [DevRoomIssue] {
-        guard let selectedStage else { return previewIssues }
-        return Array(issues.filter { $0.stage == selectedStage }.prefix(2))
     }
 }
 

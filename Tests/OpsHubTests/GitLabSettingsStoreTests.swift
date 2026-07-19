@@ -245,6 +245,52 @@ final class GitLabSettingsStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSaveDuringMemberRefreshPersistsVisibleDraftAndReportsCompleteSuccess() async throws {
+        let memberService = DeferredSettingsMemberService()
+        let memberSelectionViewModel = DevRoomMemberSelectionViewModel(
+            service: memberService,
+            initialSelectedUserIDs: [20]
+        )
+        let initialLoad = Task { await memberSelectionViewModel.loadMembers() }
+        await memberService.waitForCallCount(1)
+        await memberService.complete(
+            request: 0,
+            with: [settingsMember(id: 10), settingsMember(id: 20)]
+        )
+        await initialLoad.value
+
+        let refresh = Task { await memberSelectionViewModel.loadMembers() }
+        await memberService.waitForCallCount(2)
+        memberSelectionViewModel.clear()
+
+        let visibilityStore = RecordingDevRoomVisibilityStore()
+        let settingsStore = RecordingGitLabSettingsStore()
+        var appliedIDs: Set<Int>?
+        let outcome = try SettingsSaveIntegration.save(
+            gitLabSettings: GitLabSettings(
+                gitLabURL: "https://gitlab.example.com",
+                personalAccessToken: "token"
+            ),
+            settingsStore: settingsStore,
+            visibilityStore: visibilityStore,
+            memberSelectionViewModel: memberSelectionViewModel,
+            onDevRoomVisibilitySaved: { appliedIDs = $0 }
+        )
+
+        XCTAssertEqual(outcome, .allSettingsSaved)
+        XCTAssertEqual(visibilityStore.savedSettings.map(\.selectedUserIDs), [[]])
+        XCTAssertEqual(appliedIDs, [])
+        XCTAssertEqual(settingsStore.savedSettings.count, 1)
+
+        await memberService.complete(
+            request: 1,
+            with: [settingsMember(id: 10), settingsMember(id: 20), settingsMember(id: 30)]
+        )
+        await refresh.value
+        XCTAssertFalse(memberSelectionViewModel.draftSelectedUserIDs.contains(30))
+    }
+
+    @MainActor
     func testFailedMemberLoadDoesNotOverwriteSavedDevRoomAllowlist() async throws {
         let memberSelectionViewModel = DevRoomMemberSelectionViewModel(
             service: FailingSettingsMemberService(),
@@ -255,7 +301,7 @@ final class GitLabSettingsStoreTests: XCTestCase {
         let settingsStore = RecordingGitLabSettingsStore()
         var appliedIDs: Set<Int>?
 
-        try SettingsSaveIntegration.save(
+        let outcome = try SettingsSaveIntegration.save(
             gitLabSettings: GitLabSettings(gitLabURL: "https://gitlab.example.com", personalAccessToken: "token"),
             settingsStore: settingsStore,
             visibilityStore: visibilityStore,
@@ -263,6 +309,7 @@ final class GitLabSettingsStoreTests: XCTestCase {
             onDevRoomVisibilitySaved: { appliedIDs = $0 }
         )
 
+        XCTAssertEqual(outcome, .gitLabSettingsSavedOnly)
         XCTAssertEqual(settingsStore.savedSettings.count, 1)
         XCTAssertTrue(visibilityStore.savedSettings.isEmpty)
         XCTAssertNil(appliedIDs)
@@ -345,6 +392,26 @@ private actor SettingsMemberService: DevRoomMemberServicing {
 private actor FailingSettingsMemberService: DevRoomMemberServicing {
     func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
         throw SettingsMemberServiceError.unavailable
+    }
+}
+
+private actor DeferredSettingsMemberService: DevRoomMemberServicing {
+    private var continuations: [CheckedContinuation<[DevRoomProjectMember], Never>] = []
+
+    func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func waitForCallCount(_ expectedCount: Int) async {
+        while continuations.count < expectedCount {
+            await Task.yield()
+        }
+    }
+
+    func complete(request: Int, with members: [DevRoomProjectMember]) {
+        continuations[request].resume(returning: members)
     }
 }
 

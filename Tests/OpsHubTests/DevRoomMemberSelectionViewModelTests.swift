@@ -103,6 +103,51 @@ final class DevRoomMemberSelectionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.members.map(\.id), [20])
         XCTAssertEqual(viewModel.loadState, .loaded)
     }
+
+    @MainActor
+    func testSuccessfulCatalogRemainsSaveableDuringRefresh() async {
+        let service = DeferredDevRoomMemberService()
+        let viewModel = DevRoomMemberSelectionViewModel(
+            service: service,
+            initialSelectedUserIDs: [20]
+        )
+
+        let initialLoad = Task { await viewModel.loadMembers() }
+        await service.waitForCallCount(1)
+        await service.complete(
+            request: 0,
+            with: [member(id: 10, username: "alice", name: "Alice Nguyen")]
+        )
+        await initialLoad.value
+
+        let refresh = Task { await viewModel.loadMembers() }
+        await service.waitForCallCount(2)
+
+        XCTAssertEqual(viewModel.loadState, .loading)
+        XCTAssertTrue(viewModel.hasLoadedMembers)
+        XCTAssertTrue(viewModel.canEditDraft)
+
+        await service.complete(
+            request: 1,
+            with: [member(id: 10, username: "alice", name: "Alice Nguyen")]
+        )
+        await refresh.value
+    }
+
+    @MainActor
+    func testDraftCannotChangeBeforeFirstSuccessfulCatalogLoad() {
+        let viewModel = DevRoomMemberSelectionViewModel(
+            service: FailingDevRoomMemberService(),
+            initialSelectedUserIDs: [20]
+        )
+
+        viewModel.clear()
+        viewModel.toggle(10)
+        viewModel.selectAll()
+
+        XCTAssertFalse(viewModel.canEditDraft)
+        XCTAssertEqual(viewModel.draftSelectedUserIDs, [20])
+    }
 }
 
 private func member(id: Int, username: String, name: String) -> DevRoomProjectMember {
