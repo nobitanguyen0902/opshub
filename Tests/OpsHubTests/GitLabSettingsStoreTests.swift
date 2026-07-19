@@ -219,6 +219,10 @@ final class GitLabSettingsStoreTests: XCTestCase {
 
         let visibilityStore = RecordingDevRoomVisibilityStore()
         let settingsStore = RecordingGitLabSettingsStore()
+        let liveDevRoomViewModel = DevRoomViewModel(
+            service: SettingsDevRoomService(),
+            selectedUserIDs: []
+        )
         var callbackWasCalledAfterGitLabSave = false
         var appliedIDs: Set<Int>?
 
@@ -229,6 +233,7 @@ final class GitLabSettingsStoreTests: XCTestCase {
             memberSelectionViewModel: memberSelectionViewModel,
             onDevRoomVisibilitySaved: { ids in
                 callbackWasCalledAfterGitLabSave = settingsStore.savedSettings.count == 1
+                liveDevRoomViewModel.applySelectedUserIDs(ids)
                 appliedIDs = ids
             }
         )
@@ -236,6 +241,7 @@ final class GitLabSettingsStoreTests: XCTestCase {
         XCTAssertEqual(visibilityStore.savedSettings.map(\.selectedUserIDs), [[10, 20]])
         XCTAssertEqual(appliedIDs, [10, 20])
         XCTAssertTrue(callbackWasCalledAfterGitLabSave)
+        XCTAssertEqual(liveDevRoomViewModel.selectedUserIDs, [10, 20])
     }
 
     @MainActor
@@ -339,6 +345,12 @@ private actor SettingsMemberService: DevRoomMemberServicing {
 private actor FailingSettingsMemberService: DevRoomMemberServicing {
     func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
         throw SettingsMemberServiceError.unavailable
+    }
+}
+
+private actor SettingsDevRoomService: DevRoomServicing {
+    func openIssues(projectPath: String) async throws -> [DevRoomSourceIssue] {
+        []
     }
 }
 

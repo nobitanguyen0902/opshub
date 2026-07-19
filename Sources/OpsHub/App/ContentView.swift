@@ -46,7 +46,7 @@ final class AppNavigationState: ObservableObject {
 
 struct ContentView: View {
     @ObservedObject var navigationState: AppNavigationState
-    @StateObject private var devRoomViewModel: DevRoomViewModel
+    private let devRoomViewModel: DevRoomViewModel
     @StateObject private var gitLabViewModel: GitLabDashboardViewModel
     let settingsStore: any GitLabSettingsStoring
     private let visibilityStore: any DevRoomVisibilitySettingsStoring
@@ -56,21 +56,21 @@ struct ContentView: View {
         navigationState: AppNavigationState,
         settingsStore: any GitLabSettingsStoring = GitLabSettingsStore(),
         visibilityStore: any DevRoomVisibilitySettingsStoring = DevRoomVisibilitySettingsStore(),
+        gitLabService: GitLabService? = nil,
+        devRoomViewModel: DevRoomViewModel? = nil,
         memberService: (any DevRoomMemberServicing)? = nil
     ) {
         self.navigationState = navigationState
         self.settingsStore = settingsStore
         self.visibilityStore = visibilityStore
-        let gitLabService = GitLabService(settingsStore: settingsStore)
-        self.memberService = memberService ?? gitLabService
-        _devRoomViewModel = StateObject(
-            wrappedValue: DevRoomViewModel(
-                service: gitLabService,
-                selectedUserIDs: visibilityStore.load().selectedUserIDs
-            )
+        let resolvedGitLabService = gitLabService ?? GitLabService(settingsStore: settingsStore)
+        self.memberService = memberService ?? resolvedGitLabService
+        self.devRoomViewModel = devRoomViewModel ?? DevRoomViewModel(
+            service: resolvedGitLabService,
+            selectedUserIDs: visibilityStore.load().selectedUserIDs
         )
         _gitLabViewModel = StateObject(
-            wrappedValue: GitLabDashboardViewModel(service: gitLabService)
+            wrappedValue: GitLabDashboardViewModel(service: resolvedGitLabService)
         )
     }
 

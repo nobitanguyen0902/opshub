@@ -15,15 +15,22 @@ final class AppSectionTests: XCTestCase {
     func testContentViewAcceptsSharedDevRoomVisibilityDependencies() {
         let visibilityStore = AppSectionVisibilityStore(selectedUserIDs: [10])
         let memberService = AppSectionMemberService()
+        let devRoomViewModel = DevRoomViewModel(
+            service: AppSectionDevRoomService(),
+            selectedUserIDs: visibilityStore.load().selectedUserIDs
+        )
 
         XCTAssertNoThrow(
             ContentView(
                 navigationState: AppNavigationState(),
                 settingsStore: AppSectionGitLabSettingsStore(),
                 visibilityStore: visibilityStore,
+                devRoomViewModel: devRoomViewModel,
                 memberService: memberService
             )
         )
+
+        XCTAssertEqual(devRoomViewModel.selectedUserIDs, [10])
     }
 }
 
@@ -47,6 +54,12 @@ private struct AppSectionVisibilityStore: DevRoomVisibilitySettingsStoring {
 
 private actor AppSectionMemberService: DevRoomMemberServicing {
     func projectMembers(projectPath: String) async throws -> [DevRoomProjectMember] {
+        []
+    }
+}
+
+private actor AppSectionDevRoomService: DevRoomServicing {
+    func openIssues(projectPath: String) async throws -> [DevRoomSourceIssue] {
         []
     }
 }

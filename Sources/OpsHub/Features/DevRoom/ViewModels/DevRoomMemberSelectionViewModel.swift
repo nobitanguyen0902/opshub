@@ -16,6 +16,8 @@ final class DevRoomMemberSelectionViewModel: ObservableObject {
     @Published private(set) var draftSelectedUserIDs: Set<Int>
 
     private let service: any DevRoomMemberServicing
+    private var latestLoadRequestID = 0
+    private var lastSettledLoadState: DevRoomMemberLoadState = .idle
 
     var hasLoadedMembers: Bool {
         loadState == .loaded || loadState == .empty
@@ -42,26 +44,37 @@ final class DevRoomMemberSelectionViewModel: ObservableObject {
     }
 
     func loadMembers() async {
-        guard loadState != .loading else {
-            return
-        }
-
-        let previousState = loadState
+        let previousState = loadState == .loading ? lastSettledLoadState : loadState
+        latestLoadRequestID += 1
+        let requestID = latestLoadRequestID
         loadState = .loading
 
         do {
             let loadedMembers = try await service.projectMembers(projectPath: GitLabWorkflowProject.path)
+            guard requestID == latestLoadRequestID else {
+                return
+            }
             guard Task.isCancelled == false else {
                 loadState = previousState
                 return
             }
 
             members = loadedMembers
-            loadState = loadedMembers.isEmpty ? .empty : .loaded
+            let settledState: DevRoomMemberLoadState = loadedMembers.isEmpty ? .empty : .loaded
+            loadState = settledState
+            lastSettledLoadState = settledState
         } catch is CancellationError {
+            guard requestID == latestLoadRequestID else {
+                return
+            }
             loadState = previousState
         } catch {
-            loadState = .failed(error.localizedDescription)
+            guard requestID == latestLoadRequestID else {
+                return
+            }
+            let settledState = DevRoomMemberLoadState.failed(error.localizedDescription)
+            loadState = settledState
+            lastSettledLoadState = settledState
         }
     }
 
