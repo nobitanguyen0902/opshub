@@ -415,7 +415,7 @@ enum GitLabIssueTab: String, CaseIterable, Identifiable, Sendable {
         case .testing:
             issue.isWorkflowProject && (labels.contains("testing") || labels.contains("totest"))
         case .passed:
-            issue.isWorkflowProject && labels.isSuperset(of: ["passed", "toproduction"])
+            issue.isWorkflowProject && (labels.contains("passed") || labels.contains("toproduction"))
         case .build:
             issue.isWorkflowProject && labels.isSuperset(of: ["passed", "toproduction", "merged"])
         case .productionBug:

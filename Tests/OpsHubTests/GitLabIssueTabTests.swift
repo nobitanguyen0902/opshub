@@ -40,9 +40,11 @@ final class GitLabIssueTabTests: XCTestCase {
         XCTAssertEqual(GitLabIssueTab.testing.rawValue, "Testing")
     }
 
-    func testPassedTabRequiresPassedAndToProductionLabels() {
+    func testPassedTabIncludesPassedOrToProductionLabels() {
         XCTAssertTrue(GitLabIssueTab.passed.includes(makeIssue(labels: ["Passed", "ToProduction"])))
-        XCTAssertFalse(GitLabIssueTab.passed.includes(makeIssue(labels: ["Passed"])))
+        XCTAssertTrue(GitLabIssueTab.passed.includes(makeIssue(labels: ["Passed"])))
+        XCTAssertTrue(GitLabIssueTab.passed.includes(makeIssue(labels: ["ToProduction"])))
+        XCTAssertFalse(GitLabIssueTab.passed.includes(makeIssue(labels: ["Testing"])))
     }
 
     func testBuildTabRequiresPassedToProductionAndMergedLabels() {
