@@ -45,6 +45,7 @@ struct DevRoomView: View {
             content
         }
         .frame(minWidth: DevRoomOfficeLayout.minimumRootWidth)
+        .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Dev Room")
         .task { await viewModel.loadIfNeeded() }
         .task { await viewModel.autoRefresh() }
@@ -107,7 +108,11 @@ struct DevRoomView: View {
                     .onChange(of: proxy.size.width) { updateOfficeWidth(proxy.size.width) }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
+                .strokeBorder(DevRoomDesignTokens.borderStrong)
+        }
     }
 
     @ViewBuilder
@@ -182,8 +187,12 @@ struct DevRoomView: View {
                 )
                 .frame(width: min(placement.width, DevRoomDesignTokens.drawerWidth))
                 .frame(maxHeight: .infinity)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.22), radius: 14, x: -4)
+                .background(OpsHubTerminalTheme.surfacePrimary)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(OpsHubTerminalTheme.accent)
+                        .frame(width: 2)
+                }
                 .padding(.trailing, placement.trailingInset)
                 .transition(drawerTransitionPolicy.animatedTransition)
             }

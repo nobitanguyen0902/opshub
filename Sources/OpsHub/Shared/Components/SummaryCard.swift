@@ -13,17 +13,26 @@ struct SummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            HStack {
+                Label(title.uppercased(), systemImage: systemImage)
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text("::")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(OpsHubTerminalTheme.accent)
+            }
 
             Text(value)
-                .font(.title2.bold())
+                .font(.system(.title2, design: .monospaced).bold())
                 .monospacedDigit()
+                .foregroundStyle(OpsHubTerminalTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .opsHubTerminalSurface()
     }
 }
 

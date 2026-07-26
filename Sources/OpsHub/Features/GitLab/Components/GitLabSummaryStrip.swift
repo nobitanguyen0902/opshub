@@ -48,22 +48,26 @@ private struct GitLabSummaryMetricView: View {
         } label: {
             HStack(spacing: GitLabDesignTokens.Spacing.medium) {
                 Image(systemName: metric.systemImage)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(.body, design: .monospaced).weight(.semibold))
                     .foregroundStyle(color)
                     .frame(width: 32, height: 32)
-                    .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+                    .background(color.opacity(0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.control)
+                            .strokeBorder(color.opacity(0.55))
+                    }
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xSmall) {
-                    Text(metric.title)
-                        .font(.subheadline)
+                    Text(metric.title.uppercased())
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     Text("\(metric.value)")
-                        .font(.title2.bold())
+                        .font(.system(.title2, design: .monospaced).bold())
                         .monospacedDigit()
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(GitLabDesignTokens.terminalAccent)
                 }
 
                 Spacer(minLength: 0)

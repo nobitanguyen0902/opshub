@@ -47,12 +47,17 @@ struct GitLabStatusBadge: View {
 
             Text(title)
                 .lineLimit(1)
+                .textCase(.uppercase)
         }
-        .font(.subheadline.weight(.semibold))
+        .font(.system(.caption, design: .monospaced).weight(.semibold))
         .foregroundStyle(severity.color)
         .padding(.horizontal, GitLabDesignTokens.Spacing.small)
         .padding(.vertical, GitLabDesignTokens.Spacing.xSmall)
-        .background(severity.color.opacity(0.14), in: Capsule())
+        .background(severity.color.opacity(0.08))
+        .overlay {
+            RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.control)
+                .strokeBorder(severity.color.opacity(0.55))
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
     }

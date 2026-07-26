@@ -28,18 +28,21 @@ struct CommandLogPanel: View {
                         .padding(12)
                 }
                 .frame(minHeight: 100, maxHeight: 240)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .opsHubTerminalSurface(cornerRadius: OpsHubTerminalTheme.controlRadius)
 
                 HStack {
                     Spacer()
                     Button("Clear", role: .destructive, action: onClear)
+                        .buttonStyle(.plain)
+                        .opsHubTerminalControl()
                         .disabled(logs.isEmpty)
                 }
             }
             .padding(.top, 8)
         } label: {
-            Label("Command Log", systemImage: "terminal")
-                .font(.headline)
+            Label("COMMAND LOG", systemImage: "terminal")
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .foregroundStyle(OpsHubTerminalTheme.accent)
         }
     }
 }

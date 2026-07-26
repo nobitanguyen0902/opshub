@@ -14,6 +14,7 @@ struct BrewListView: View {
             commandLog
         }
         .padding(20)
+        .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Brew Manager")
         .task {
             await viewModel.loadPackages()
@@ -23,8 +24,9 @@ struct BrewListView: View {
                 ZStack {
                     Color.black.opacity(0.08)
                     ProgressView("Running Homebrew command…")
+                        .font(.system(.callout, design: .monospaced))
                         .padding(20)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .opsHubTerminalSurface(isEmphasized: true)
                 }
                 .ignoresSafeArea()
             }
@@ -53,10 +55,16 @@ struct BrewListView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Brew Manager")
-                    .font(.largeTitle.bold())
-                Text("Manage installed Homebrew formulae and casks.")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(">")
+                        .foregroundStyle(OpsHubTerminalTheme.accent)
+                    Text("BREW / PACKAGE MANAGER")
+                }
+                .font(.system(size: 26, weight: .bold, design: .monospaced))
+
+                Text("source=homebrew · mode=local")
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
@@ -66,16 +74,23 @@ struct BrewListView: View {
                 Button("Refresh", systemImage: "arrow.clockwise") {
                     Task { await viewModel.loadPackages() }
                 }
+                .buttonStyle(.plain)
+                .opsHubTerminalControl()
                 .keyboardShortcut("r", modifiers: .command)
+
                 Button("Check Outdated", systemImage: "checkmark.circle") {
                     Task { await viewModel.checkOutdated() }
                 }
+                .buttonStyle(.plain)
+                .opsHubTerminalControl()
+
                 Button("Update All", systemImage: "arrow.up.circle") {
                     isShowingUpdateAllConfirmation = true
                 }
+                .buttonStyle(.plain)
+                .opsHubTerminalControl()
                 .disabled(viewModel.outdatedCount == 0 || viewModel.isLoading || viewModel.isUpdatingAll)
             }
-            .buttonStyle(.bordered)
             .disabled(viewModel.isLoading)
         }
     }
@@ -92,15 +107,41 @@ struct BrewListView: View {
     private var searchAndFilter: some View {
         HStack(spacing: 16) {
             TextField("Search packages", text: $viewModel.searchText)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .focusEffectDisabled()
+                .opsHubTerminalInput()
 
-            Picker("Package type", selection: $viewModel.selectedFilter) {
-                Text("All").tag(BrewListViewModel.Filter.all)
-                Text("Formulae").tag(BrewListViewModel.Filter.formulae)
-                Text("Casks").tag(BrewListViewModel.Filter.casks)
-                Text("Outdated").tag(BrewListViewModel.Filter.outdated)
+            HStack(spacing: 4) {
+                ForEach(BrewListViewModel.Filter.allCases) { filter in
+                    Button {
+                        viewModel.selectedFilter = filter
+                    } label: {
+                        Text(filter.rawValue.uppercased())
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                            .foregroundStyle(
+                                viewModel.selectedFilter == filter
+                                    ? OpsHubTerminalTheme.accent
+                                    : Color.primary.opacity(0.68)
+                            )
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 34)
+                            .background(
+                                viewModel.selectedFilter == filter
+                                    ? OpsHubTerminalTheme.selected
+                                    : Color.clear
+                            )
+                            .overlay(alignment: .bottom) {
+                                Rectangle()
+                                    .fill(OpsHubTerminalTheme.accent)
+                                    .frame(height: 2)
+                                    .opacity(viewModel.selectedFilter == filter ? 1 : 0)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .pickerStyle(.segmented)
+            .padding(4)
+            .opsHubTerminalSurface(cornerRadius: OpsHubTerminalTheme.controlRadius)
             .frame(maxWidth: 360)
         }
     }
@@ -142,7 +183,8 @@ struct BrewListView: View {
                         Button("Update") {
                             update(package)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.plain)
+                        .opsHubTerminalControl()
                         .disabled(viewModel.isLoading || viewModel.isUpdatingAll)
                     } else {
                         Text("—")
@@ -150,6 +192,7 @@ struct BrewListView: View {
                     }
                 }
             }
+            .font(.system(.callout, design: .monospaced))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -177,14 +220,16 @@ struct BrewListView: View {
             status.title,
             systemImage: status.systemImage
         )
-        .font(.caption.weight(.semibold))
+        .font(.system(.caption, design: .monospaced).weight(.semibold))
+        .textCase(.uppercase)
         .foregroundStyle(status.color)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(
-            status.color.opacity(0.14),
-            in: Capsule()
-        )
+        .background(status.color.opacity(0.08))
+        .overlay {
+            RoundedRectangle(cornerRadius: OpsHubTerminalTheme.controlRadius)
+                .strokeBorder(status.color.opacity(0.55))
+        }
     }
 
     private func update(_ package: BrewPackage) {

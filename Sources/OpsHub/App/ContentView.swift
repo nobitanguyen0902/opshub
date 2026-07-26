@@ -80,11 +80,13 @@ struct ContentView: View {
                 ForEach(AppSection.allCases) { section in
                     NavigationLink(value: section) {
                         Label(section.title, systemImage: section.systemImage)
+                            .font(.system(.callout, design: .monospaced))
                     }
                 }
             }
             .navigationTitle("OpsHub")
             .listStyle(.sidebar)
+            .tint(OpsHubTerminalTheme.accent)
         } detail: {
             switch navigationState.selection {
             case .devRoom:

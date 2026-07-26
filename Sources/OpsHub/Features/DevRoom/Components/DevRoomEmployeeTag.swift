@@ -9,10 +9,10 @@ struct DevRoomEmployeeTag: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary.employee.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                 Text("\(summary.total) task")
-                    .font(.caption)
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
@@ -28,12 +28,12 @@ struct DevRoomEmployeeTag: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            Color(nsColor: .controlBackgroundColor).opacity(0.94),
-            in: Capsule()
+            DevRoomDesignTokens.surfacePrimary.opacity(0.96),
+            in: RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
         )
         .overlay {
-            Capsule()
-                .stroke(Color(nsColor: .separatorColor).opacity(0.7))
+            RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
+                .stroke(DevRoomDesignTokens.borderStrong)
         }
     }
 

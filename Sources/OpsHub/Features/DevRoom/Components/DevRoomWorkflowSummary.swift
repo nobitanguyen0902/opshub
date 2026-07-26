@@ -18,12 +18,13 @@ struct DevRoomWorkflowSummary: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Label(stage.title, systemImage: "circle.fill")
-                            .font(.caption.weight(.semibold))
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                            .textCase(.uppercase)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             .foregroundStyle(DevRoomDesignTokens.color(for: stage))
                         Text("\(data.count(for: stage))")
-                            .font(.title2.bold())
+                            .font(.system(.title2, design: .monospaced).bold())
                             .monospacedDigit()
                             .contentTransition(.numericText())
                             .animation(
@@ -38,7 +39,7 @@ struct DevRoomWorkflowSummary: View {
                     .background(
                         selectedStage == stage
                             ? DevRoomDesignTokens.color(for: stage).opacity(0.12)
-                            : Color(nsColor: .controlBackgroundColor),
+                            : DevRoomDesignTokens.surfacePrimary,
                         in: RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
                     )
                     .overlay {
@@ -46,7 +47,7 @@ struct DevRoomWorkflowSummary: View {
                             .stroke(
                                 selectedStage == stage
                                     ? DevRoomDesignTokens.color(for: stage)
-                                    : Color(nsColor: .separatorColor)
+                                    : DevRoomDesignTokens.borderSubtle
                             )
                     }
                 }

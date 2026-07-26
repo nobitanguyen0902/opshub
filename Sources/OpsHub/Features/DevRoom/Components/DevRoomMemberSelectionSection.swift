@@ -8,32 +8,39 @@ struct DevRoomMemberSelectionSection: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Dev Room Members")
-                        .font(.headline)
+                        .font(.system(.callout, design: .monospaced).weight(.semibold))
+                        .textCase(.uppercase)
                     Text(GitLabWorkflowProject.path)
-                        .font(.subheadline)
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 Text("\(viewModel.draftSelectedUserIDs.count) selected")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(OpsHubTerminalTheme.accent)
             }
 
             TextField("Search members", text: $viewModel.searchText)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .focusEffectDisabled()
+                .opsHubTerminalInput()
                 .disabled(viewModel.canEditDraft == false)
 
             HStack {
                 Button("Select All") {
                     viewModel.selectAll()
                 }
+                .buttonStyle(.plain)
+                .opsHubTerminalControl()
                 .disabled(viewModel.canEditDraft == false || viewModel.members.isEmpty)
 
                 Button("Clear") {
                     viewModel.clear()
                 }
+                .buttonStyle(.plain)
+                .opsHubTerminalControl()
                 .disabled(viewModel.canEditDraft == false || viewModel.draftSelectedUserIDs.isEmpty)
             }
 
@@ -98,7 +105,7 @@ struct DevRoomMemberSelectionSection: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .opsHubTerminalSurface(cornerRadius: OpsHubTerminalTheme.controlRadius)
             }
         }
     }
@@ -113,7 +120,11 @@ private struct DevRoomMemberSelectionRow: View {
         Button(action: onToggle) {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .foregroundStyle(
+                        isSelected
+                            ? OpsHubTerminalTheme.accent
+                            : Color.primary.opacity(0.55)
+                    )
                     .font(.title3)
 
                 AsyncImage(url: member.avatarURL) { image in
@@ -129,9 +140,9 @@ private struct DevRoomMemberSelectionRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(member.name)
-                        .font(.subheadline.weight(.medium))
+                        .font(.system(.subheadline, design: .monospaced).weight(.medium))
                     Text("@\(member.username) · ID \(member.id) · \(member.accessLevelTitle)")
-                        .font(.caption)
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
 

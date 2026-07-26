@@ -11,35 +11,38 @@ enum GitLabDesignTokens {
     }
 
     enum Radius {
-        static let control: CGFloat = 8
-        static let row: CGFloat = 10
-        static let container: CGFloat = 12
+        static let control = OpsHubTerminalTheme.controlRadius
+        static let row: CGFloat = 2
+        static let container = OpsHubTerminalTheme.containerRadius
     }
 
-    static let borderWidth: CGFloat = 1
+    static let borderWidth = OpsHubTerminalTheme.borderWidth
+
+    static var terminalAccent: Color {
+        OpsHubTerminalTheme.accent
+    }
 
     static var surfacePrimary: Color {
-        Color(nsColor: .controlBackgroundColor)
+        OpsHubTerminalTheme.surfacePrimary
     }
 
     static var surfaceSecondary: Color {
-        Color(nsColor: .windowBackgroundColor)
+        OpsHubTerminalTheme.surfaceSecondary
     }
 
     static var surfaceHover: Color {
-        Color.primary.opacity(0.06)
+        terminalAccent.opacity(0.08)
     }
 
     static var surfaceSelected: Color {
-        Color.accentColor.opacity(0.14)
+        OpsHubTerminalTheme.selected
     }
 
     static var borderSubtle: Color {
-        Color.primary.opacity(0.10)
+        OpsHubTerminalTheme.borderSubtle
     }
 
     static var borderStrong: Color {
-        Color.primary.opacity(0.22)
+        OpsHubTerminalTheme.borderStrong
     }
 }
-

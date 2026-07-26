@@ -13,6 +13,37 @@ struct GitLabWorkItemList: View {
     let onQuickAction: ((GitLabWorkspaceItemID) -> Void)?
     let onClearFilters: (() -> Void)?
     let onRetry: (() -> Void)?
+    let onViewAll: (() -> Void)?
+
+    init(
+        title: String,
+        items: [GitLabWorkItemPresentation],
+        mode: GitLabWorkspaceLayoutMode,
+        loadState: GitLabSectionLoadState,
+        isFiltered: Bool,
+        selectedItemID: GitLabWorkspaceItemID?,
+        emptyTitle: String,
+        emptyMessage: String,
+        onSelect: @escaping (GitLabWorkspaceItemID) -> Void,
+        onQuickAction: ((GitLabWorkspaceItemID) -> Void)?,
+        onClearFilters: (() -> Void)?,
+        onRetry: (() -> Void)?,
+        onViewAll: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.items = items
+        self.mode = mode
+        self.loadState = loadState
+        self.isFiltered = isFiltered
+        self.selectedItemID = selectedItemID
+        self.emptyTitle = emptyTitle
+        self.emptyMessage = emptyMessage
+        self.onSelect = onSelect
+        self.onQuickAction = onQuickAction
+        self.onClearFilters = onClearFilters
+        self.onRetry = onRetry
+        self.onViewAll = onViewAll
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -33,16 +64,15 @@ struct GitLabWorkItemList: View {
 
     private var header: some View {
         HStack(spacing: GitLabDesignTokens.Spacing.small) {
-            Text(title)
-                .font(.title3.weight(.semibold))
+            Text("::")
+                .foregroundStyle(GitLabDesignTokens.terminalAccent)
 
-            Text("\(items.count)")
-                .font(.subheadline.weight(.semibold))
+            Text(title.uppercased())
+                .foregroundStyle(.primary)
+
+            Text("[\(items.count)]")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, GitLabDesignTokens.Spacing.small)
-                .padding(.vertical, GitLabDesignTokens.Spacing.xSmall)
-                .background(.tertiary, in: Capsule())
 
             Spacer()
 
@@ -50,14 +80,29 @@ struct GitLabWorkItemList: View {
                 LoadingSpinnerView()
                     .accessibilityLabel("Refreshing \(title)")
             }
+
+            if let onViewAll {
+                Button("VIEW ALL →", action: onViewAll)
+                    .buttonStyle(.plain)
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(GitLabDesignTokens.terminalAccent)
+                    .accessibilityLabel("View all \(title.lowercased())")
+            }
         }
+        .font(.system(.callout, design: .monospaced).weight(.semibold))
         .padding(GitLabDesignTokens.Spacing.large)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(GitLabDesignTokens.borderSubtle)
+                .frame(height: GitLabDesignTokens.borderWidth)
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         if loadState == .initialLoading && items.isEmpty {
             ProgressView("Loading \(title)...")
+                .font(.system(.callout, design: .monospaced))
                 .frame(maxWidth: .infinity, minHeight: 180)
         } else if case let .failed(message) = loadState, items.isEmpty {
             VStack(spacing: GitLabDesignTokens.Spacing.medium) {

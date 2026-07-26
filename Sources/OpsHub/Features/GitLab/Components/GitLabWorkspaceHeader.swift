@@ -29,24 +29,27 @@ struct GitLabWorkspaceHeader: View {
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xSmall) {
-            Text("GitLab")
-                .font(.largeTitle.bold())
-
+        VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.small) {
             HStack(spacing: GitLabDesignTokens.Spacing.small) {
-                Text(selectedScope.title)
+                Text(">")
+                    .foregroundStyle(GitLabDesignTokens.terminalAccent)
 
-                Text("•")
-                    .accessibilityHidden(true)
+                Text("GITLAB / WORKSPACE")
+                    .foregroundStyle(.primary)
+            }
+            .font(.system(size: 26, weight: .bold, design: .monospaced))
 
-                Label(lastUpdatedText, systemImage: "clock")
+            HStack(spacing: GitLabDesignTokens.Spacing.medium) {
+                Text("scope=\(selectedScope.title)")
+
+                Text("updated=\(lastUpdatedText)")
 
                 if hasStaleData {
-                    Label("Some data is stale", systemImage: "exclamationmark.triangle")
+                    Text("status=stale")
                         .foregroundStyle(.orange)
                 }
             }
-            .font(.subheadline)
+            .font(.system(.caption, design: .monospaced))
             .foregroundStyle(.secondary)
         }
     }
@@ -54,22 +57,67 @@ struct GitLabWorkspaceHeader: View {
     private var controls: some View {
         HStack(spacing: GitLabDesignTokens.Spacing.small) {
             TextField("Search GitLab", text: $searchText)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .focusEffectDisabled()
+                .opsHubTerminalInput()
                 .frame(minWidth: mode == .narrow ? 180 : 220, maxWidth: 300)
                 .accessibilityLabel("Search GitLab work items")
 
-            Picker("Project scope", selection: $selectedScope) {
-                Text("All projects")
-                    .tag(GitLabProjectScope.allProjects)
-
-                ForEach(projects) { project in
-                    Text(project.nameWithNamespace)
-                        .tag(GitLabProjectScope.project(project))
+            Menu {
+                Button {
+                    selectedScope = .allProjects
+                } label: {
+                    if selectedScope == .allProjects {
+                        Label("All projects", systemImage: "checkmark")
+                    } else {
+                        Text("All projects")
+                    }
                 }
+
+                Divider()
+                ForEach(projects) { project in
+                    let scope = GitLabProjectScope.project(project)
+                    Button {
+                        selectedScope = scope
+                    } label: {
+                        if selectedScope == scope {
+                            Label(project.nameWithNamespace, systemImage: "checkmark")
+                        } else {
+                            Text(project.nameWithNamespace)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: GitLabDesignTokens.Spacing.medium) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(GitLabDesignTokens.terminalAccent)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SELECTED PROJECT")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+
+                        Text(selectedScope.title)
+                            .font(.system(.callout, design: .monospaced).weight(.semibold))
+                            .foregroundStyle(GitLabDesignTokens.terminalAccent)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: GitLabDesignTokens.Spacing.small)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 240, maxWidth: 240, minHeight: 42, alignment: .leading)
+                .contentShape(Rectangle())
+                .gitLabTerminalControl()
             }
-            .labelsHidden()
-            .frame(maxWidth: 240)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .accessibilityLabel("Project scope")
+            .accessibilityValue(selectedScope.title)
 
             Button(action: onRefresh) {
                 if isRefreshing {
@@ -78,7 +126,8 @@ struct GitLabWorkspaceHeader: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .gitLabTerminalControl()
             .disabled(isRefreshing)
             .accessibilityLabel(isRefreshing ? "Refreshing GitLab" : "Refresh GitLab")
         }
@@ -87,9 +136,9 @@ struct GitLabWorkspaceHeader: View {
 
     private var lastUpdatedText: String {
         guard let lastUpdated else {
-            return "Never updated"
+            return "never"
         }
-        return "Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))"
+        return lastUpdated.formatted(date: .omitted, time: .shortened)
     }
 }
 

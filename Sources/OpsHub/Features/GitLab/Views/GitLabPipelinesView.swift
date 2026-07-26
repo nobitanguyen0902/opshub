@@ -16,8 +16,10 @@ struct GitLabPipelinesView: View {
         VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.medium) {
             if let warning {
                 Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
+                    .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.orange)
+                    .padding(GitLabDesignTokens.Spacing.medium)
+                    .gitLabSurface(cornerRadius: GitLabDesignTokens.Radius.control, isEmphasized: true)
                     .accessibilityLabel("Partial pipeline results. \(warning)")
             }
 
@@ -30,7 +32,8 @@ struct GitLabPipelinesView: View {
             } label: {
                 Label(filter.statuses.first ?? "All statuses", systemImage: "line.3.horizontal.decrease.circle")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .gitLabTerminalControl()
 
             GitLabWorkItemList(
                 title: "Pipelines",

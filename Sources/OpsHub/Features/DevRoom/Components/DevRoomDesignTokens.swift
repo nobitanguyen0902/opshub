@@ -4,7 +4,11 @@ enum DevRoomDesignTokens {
     static let pagePadding: CGFloat = 24
     static let sectionSpacing: CGFloat = 20
     static let cardSpacing: CGFloat = 12
-    static let cornerRadius: CGFloat = 12
+    static let cornerRadius = OpsHubTerminalTheme.containerRadius
+    static var terminalAccent: Color { OpsHubTerminalTheme.accent }
+    static var surfacePrimary: Color { OpsHubTerminalTheme.surfacePrimary }
+    static var borderSubtle: Color { OpsHubTerminalTheme.borderSubtle }
+    static var borderStrong: Color { OpsHubTerminalTheme.borderStrong }
     static let officeWallColor = Color(red: 0.95, green: 0.93, blue: 0.88)
     static let officeFloorColor = Color(red: 0.84, green: 0.76, blue: 0.66)
     static let officeFurnitureColor = Color(red: 0.38, green: 0.25, blue: 0.16)

@@ -26,7 +26,8 @@ struct GitLabMergeRequestSection: View {
             } label: {
                 Label(filter.statuses.first ?? "All statuses", systemImage: "line.3.horizontal.decrease.circle")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .gitLabTerminalControl()
             .accessibilityLabel(filterAccessibilityLabel)
 
             GitLabWorkItemList(

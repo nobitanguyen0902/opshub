@@ -15,13 +15,15 @@ struct DashboardView: View {
                 title: "Dashboard",
                 message: "Choose a module from the sidebar to manage your workspace."
             )
+            .font(.system(.body, design: .monospaced))
             .frame(maxWidth: .infinity, minHeight: 280)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .opsHubTerminalSurface()
 
             Spacer()
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Dashboard")
     }
 
@@ -32,10 +34,16 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Dashboard")
-                .font(.largeTitle.bold())
-            Text("Runtime overview for OpsHub.")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(">")
+                    .foregroundStyle(OpsHubTerminalTheme.accent)
+                Text("OPSHUB / DASHBOARD")
+            }
+            .font(.system(size: 26, weight: .bold, design: .monospaced))
+
+            Text("runtime=ready · modules=available")
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
     }

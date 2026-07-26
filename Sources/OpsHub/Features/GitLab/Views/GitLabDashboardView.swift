@@ -37,6 +37,7 @@ struct GitLabDashboardView: View {
                     .padding(.bottom, mode.pagePadding)
                 }
             }
+            .background(GitLabDesignTokens.surfaceSecondary)
         }
         .navigationTitle("GitLab")
         .task(id: viewModel.selectedScope) {
@@ -69,11 +70,11 @@ struct GitLabDashboardView: View {
     private var warning: some View {
         if let loadWarning = viewModel.loadWarning {
             Label(loadWarning, systemImage: "exclamationmark.triangle")
-                .font(.callout)
+                .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(.orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .gitLabSurface(cornerRadius: GitLabDesignTokens.Radius.control, isEmphasized: true)
         }
     }
 

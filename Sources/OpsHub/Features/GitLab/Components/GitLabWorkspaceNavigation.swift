@@ -49,16 +49,14 @@ struct GitLabWorkspaceNavigation: View {
             selection = section
         } label: {
             HStack(spacing: GitLabDesignTokens.Spacing.small) {
-                Text(section.title)
-                    .fontWeight(isSelected ? .semibold : .regular)
+                Text(isSelected ? "> \(section.title)" : section.title)
+                    .font(.system(.callout, design: .monospaced).weight(isSelected ? .semibold : .regular))
 
                 if let badge {
-                    Text(badge)
-                        .font(.caption.weight(.semibold))
+                    Text("[\(badge)]")
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
                         .monospacedDigit()
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.tertiary, in: Capsule())
+                        .foregroundStyle(isSelected ? GitLabDesignTokens.terminalAccent : .secondary)
                         .accessibilityLabel("\(badgeCount(section)) items")
                 }
             }
@@ -66,8 +64,14 @@ struct GitLabWorkspaceNavigation: View {
             .frame(minHeight: 36)
             .background(
                 isSelected ? GitLabDesignTokens.surfaceSelected : Color.clear,
-                in: RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.control, style: .continuous)
+                in: RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.control)
             )
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(GitLabDesignTokens.terminalAccent)
+                    .frame(height: 2)
+                    .opacity(isSelected ? 1 : 0)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

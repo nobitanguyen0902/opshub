@@ -1,8 +1,6 @@
 import SwiftUI
 
 private struct GitLabSurfaceModifier: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
     let cornerRadius: CGFloat
     let isEmphasized: Bool
 
@@ -10,11 +8,7 @@ private struct GitLabSurfaceModifier: ViewModifier {
         content
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        reduceTransparency
-                            ? GitLabDesignTokens.surfacePrimary
-                            : GitLabDesignTokens.surfacePrimary.opacity(0.96)
-                    )
+                    .fill(GitLabDesignTokens.surfacePrimary)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -42,3 +36,22 @@ extension View {
     }
 }
 
+private struct GitLabTerminalControlModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(.callout, design: .monospaced))
+            .padding(.horizontal, GitLabDesignTokens.Spacing.medium)
+            .frame(minHeight: 34)
+            .background(GitLabDesignTokens.surfacePrimary)
+            .overlay {
+                RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.control)
+                    .strokeBorder(GitLabDesignTokens.borderStrong)
+            }
+    }
+}
+
+extension View {
+    func gitLabTerminalControl() -> some View {
+        modifier(GitLabTerminalControlModifier())
+    }
+}

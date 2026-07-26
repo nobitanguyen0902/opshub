@@ -14,14 +14,41 @@ struct GitLabIssuesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.medium) {
             ScrollView(.horizontal, showsIndicators: false) {
-                Picker("Issue workflow", selection: $selectedTab) {
+                HStack(spacing: GitLabDesignTokens.Spacing.xSmall) {
                     ForEach(GitLabIssueTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            Text(tab.rawValue.uppercased())
+                                .font(.system(.caption, design: .monospaced).weight(.semibold))
+                                .foregroundStyle(
+                                    selectedTab == tab
+                                        ? GitLabDesignTokens.terminalAccent
+                                        : Color.primary.opacity(0.68)
+                                )
+                                .padding(.horizontal, GitLabDesignTokens.Spacing.medium)
+                                .frame(minHeight: 34)
+                                .background(
+                                    selectedTab == tab
+                                        ? GitLabDesignTokens.surfaceSelected
+                                        : GitLabDesignTokens.surfacePrimary
+                                )
+                                .overlay(alignment: .bottom) {
+                                    Rectangle()
+                                        .fill(GitLabDesignTokens.terminalAccent)
+                                        .frame(height: 2)
+                                        .opacity(selectedTab == tab ? 1 : 0)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
                     }
                 }
-                .pickerStyle(.segmented)
+                .padding(GitLabDesignTokens.Spacing.xSmall)
+                .gitLabSurface(cornerRadius: GitLabDesignTokens.Radius.control)
                 .frame(minWidth: 560)
             }
+            .accessibilityLabel("Issue workflow")
 
             GitLabWorkItemList(
                 title: "Issues",

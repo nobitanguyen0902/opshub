@@ -91,15 +91,15 @@ struct DevRoomEmployeeDetailDrawer: View {
             avatar
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary.employee.name)
-                    .font(.title2.bold())
+                    .font(.system(.title2, design: .monospaced).bold())
                     .accessibilityFocused($isHeadingFocused)
                 if let username = summary.employee.username, username.isEmpty == false {
                     Text("@\(username)")
-                        .font(.subheadline)
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
                 Text("\(summary.total) task")
-                    .font(.subheadline)
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -118,17 +118,21 @@ struct DevRoomEmployeeDetailDrawer: View {
             ForEach(DevRoomWorkflowStage.allCases) { stage in
                 VStack(spacing: 3) {
                     Text("\(summary.count(for: stage))")
-                        .font(.headline.monospacedDigit())
+                        .font(.system(.headline, design: .monospaced).monospacedDigit())
                     Text(stage.title)
-                        .font(.caption2)
+                        .font(.system(.caption2, design: .monospaced))
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .foregroundStyle(DevRoomDesignTokens.color(for: stage))
                 .background(
                     DevRoomDesignTokens.color(for: stage).opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 8)
+                    in: RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
+                        .strokeBorder(DevRoomDesignTokens.color(for: stage).opacity(0.45))
+                }
                 .accessibilityLabel("\(stage.title), \(summary.count(for: stage)) task")
             }
         }
@@ -162,7 +166,8 @@ struct DevRoomEmployeeDetailDrawer: View {
         let issues = summary.issues.filter { $0.stage == stage }
         return VStack(alignment: .leading, spacing: 8) {
             Label(stage.title, systemImage: "circle.fill")
-                .font(.headline)
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .textCase(.uppercase)
                 .foregroundStyle(DevRoomDesignTokens.color(for: stage))
 
             ForEach(issues) { issue in
@@ -180,8 +185,8 @@ struct DevRoomEmployeeDetailDrawer: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("#\(issue.iid)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(DevRoomDesignTokens.terminalAccent)
                     Text(issue.title)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .lineLimit(2)
@@ -189,17 +194,18 @@ struct DevRoomEmployeeDetailDrawer: View {
                 HStack {
                     if let updatedAt = issue.updatedAt {
                         Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
+                            .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
                     Text(issue.stage.title)
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                        .textCase(.uppercase)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(
                             DevRoomDesignTokens.color(for: issue.stage).opacity(0.14),
-                            in: Capsule()
+                            in: RoundedRectangle(cornerRadius: OpsHubTerminalTheme.controlRadius)
                         )
                         .foregroundStyle(DevRoomDesignTokens.color(for: issue.stage))
                 }
@@ -207,9 +213,13 @@ struct DevRoomEmployeeDetailDrawer: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                Color(nsColor: .controlBackgroundColor),
-                in: RoundedRectangle(cornerRadius: 8)
+                DevRoomDesignTokens.surfacePrimary,
+                in: RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
             )
+            .overlay {
+                RoundedRectangle(cornerRadius: DevRoomDesignTokens.cornerRadius)
+                    .strokeBorder(DevRoomDesignTokens.borderSubtle)
+            }
         }
         .buttonStyle(.plain)
         .disabled(DevRoomDetailDrawerIssuePresentation.canOpen(issue) == false)

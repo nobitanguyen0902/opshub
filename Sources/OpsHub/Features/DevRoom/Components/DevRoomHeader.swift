@@ -8,11 +8,16 @@ struct DevRoomHeader: View {
 
     var body: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Dev Room")
-                    .font(.largeTitle.bold())
-                Text("\(GitLabWorkflowProject.path) • Open issues có assignee")
-                    .font(.subheadline)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(">")
+                        .foregroundStyle(DevRoomDesignTokens.terminalAccent)
+                    Text("OPSHUB / DEV ROOM")
+                }
+                .font(.system(size: 26, weight: .bold, design: .monospaced))
+
+                Text("project=\(GitLabWorkflowProject.path) · source=assigned-open-issues")
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
@@ -20,6 +25,7 @@ struct DevRoomHeader: View {
 
             if isStale {
                 Label("Dữ liệu có thể đã cũ", systemImage: "exclamationmark.triangle")
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.orange)
             }
 
@@ -28,6 +34,7 @@ struct DevRoomHeader: View {
                     lastUpdated.formatted(date: .omitted, time: .shortened),
                     systemImage: "clock"
                 )
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
             }
 
@@ -37,6 +44,8 @@ struct DevRoomHeader: View {
                     systemImage: "arrow.clockwise"
                 )
             }
+            .buttonStyle(.plain)
+            .opsHubTerminalControl()
             .disabled(isRefreshing)
         }
     }

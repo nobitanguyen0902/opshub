@@ -48,19 +48,28 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                settingsHeader
+
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("GitLab")
-                        .font(.headline)
+                    Text(":: GITLAB CONNECTION")
+                        .font(.system(.callout, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(OpsHubTerminalTheme.accent)
 
                     EditableSettingsTextField(
                         placeholder: "https://gitlab.com",
                         text: $gitLabURL
                     )
+                    .frame(height: 34)
+                    .opsHubTerminalInput()
 
                     tokenField
                 }
+                .padding(16)
+                .opsHubTerminalSurface()
 
                 DevRoomMemberSelectionSection(viewModel: memberSelectionViewModel)
+                    .padding(16)
+                    .opsHubTerminalSurface()
 
                 HStack {
                     Button {
@@ -68,7 +77,8 @@ struct SettingsView: View {
                     } label: {
                         Label("Save", systemImage: "square.and.arrow.down")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
+                    .opsHubTerminalControl()
 
                     Button {
                         Task { await testConnection() }
@@ -79,12 +89,15 @@ struct SettingsView: View {
                             Label("Test Connection", systemImage: "network")
                         }
                     }
+                    .buttonStyle(.plain)
+                    .opsHubTerminalControl()
                     .disabled(!canTestConnection || isTestingConnection)
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Connection Status")
-                        .font(.headline)
+                    Text(":: CONNECTION STATUS")
+                        .font(.system(.callout, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(OpsHubTerminalTheme.accent)
 
                     ConnectionStatusCard(
                         status: connectionStatus,
@@ -96,11 +109,27 @@ struct SettingsView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Settings")
         .animation(.smooth(duration: 0.2), value: isTestingConnection)
         .animation(.smooth(duration: 0.2), value: connectionStatus)
         .task {
             await memberSelectionViewModel.loadMembers()
+        }
+    }
+
+    private var settingsHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(">")
+                    .foregroundStyle(OpsHubTerminalTheme.accent)
+                Text("OPSHUB / SETTINGS")
+            }
+            .font(.system(size: 26, weight: .bold, design: .monospaced))
+
+            Text("configuration=local · secrets=keychain")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -121,6 +150,8 @@ struct SettingsView: View {
                 }
             }
             .id(isTokenVisible)
+            .frame(height: 34)
+            .opsHubTerminalInput()
 
             Button {
                 isTokenVisible.toggle()
@@ -128,7 +159,8 @@ struct SettingsView: View {
                 Label(isTokenVisible ? "Hide" : "Show", systemImage: isTokenVisible ? "eye.slash" : "eye")
                     .labelStyle(.iconOnly)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .opsHubTerminalControl()
             .help(isTokenVisible ? "Hide token" : "Show token")
         }
     }
@@ -251,9 +283,11 @@ private struct EditableSettingsTextField: NSViewRepresentable {
         textField.isEditable = true
         textField.isSelectable = true
         textField.isEnabled = true
-        textField.isBezeled = true
-        textField.bezelStyle = .roundedBezel
+        textField.isBezeled = false
         textField.drawsBackground = true
+        textField.backgroundColor = .textBackgroundColor
+        textField.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        textField.focusRingType = .none
         textField.controlSize = .regular
         textField.delegate = context.coordinator
         textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -270,6 +304,7 @@ private struct EditableSettingsTextField: NSViewRepresentable {
         textField.isEditable = true
         textField.isSelectable = true
         textField.isEnabled = true
+        textField.focusRingType = .none
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -304,17 +339,17 @@ private struct ConnectionStatusCard: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(status.title)
-                        .font(.headline)
+                        .font(.system(.callout, design: .monospaced).weight(.semibold))
 
                     Text(status.message(gitLabURL: gitLabURL, lastSavedAt: lastSavedAt))
-                        .font(.subheadline)
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .opsHubTerminalSurface(isEmphasized: true)
     }
 }
 

@@ -37,10 +37,10 @@ struct GitLabWorkItemRow: View {
         }
         .padding(.horizontal, GitLabDesignTokens.Spacing.large)
         .padding(.vertical, GitLabDesignTokens.Spacing.medium)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.row))
+        .background(rowBackground)
         .overlay {
             RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.row)
-                .strokeBorder(isSelected ? Color.accentColor.opacity(0.45) : Color.clear)
+                .strokeBorder(isSelected ? GitLabDesignTokens.borderStrong : Color.clear)
         }
         .onHover { isHovering = $0 }
         .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: isHovering)
@@ -71,9 +71,9 @@ struct GitLabWorkItemRow: View {
     private var identityAndTitle: some View {
         HStack(alignment: .top, spacing: GitLabDesignTokens.Spacing.medium) {
             Text(item.reference)
-                .font(.body.weight(.semibold))
+                .font(.system(.body, design: .monospaced).weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(GitLabDesignTokens.terminalAccent)
                 .fixedSize(horizontal: true, vertical: false)
 
             VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.xSmall) {
@@ -83,7 +83,7 @@ struct GitLabWorkItemRow: View {
                     .lineLimit(mode == .narrow ? 2 : 1)
 
                 Text(item.project)
-                    .font(.subheadline)
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
@@ -92,12 +92,15 @@ struct GitLabWorkItemRow: View {
                         ForEach(item.labels, id: \.self) { label in
                             let colors = labelColors(label)
                             Text(label.name)
-                                .font(.caption.weight(.medium))
+                                .font(.system(.caption2, design: .monospaced).weight(.medium))
                                 .lineLimit(1)
                                 .foregroundStyle(colors.foreground)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(colors.background, in: Capsule())
+                                .background(
+                                    colors.background,
+                                    in: RoundedRectangle(cornerRadius: GitLabDesignTokens.Radius.row)
+                                )
                         }
                     }
                 }
@@ -122,7 +125,7 @@ struct GitLabWorkItemRow: View {
             }
 
             Text(item.updatedTime)
-                .font(.subheadline)
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 76, alignment: .trailing)
                 .help(fullTimestamp)
