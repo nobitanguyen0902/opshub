@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GitLabAvatarGroup: View {
     let participants: [GitLabWorkItemParticipant]
+    var avatarSize: CGFloat = 30
 
     private let maximumVisibleCount = 3
 
@@ -14,7 +15,7 @@ struct GitLabAvatarGroup: View {
             if participants.count > maximumVisibleCount {
                 Text("+\(participants.count - maximumVisibleCount)")
                     .font(.caption2.weight(.semibold))
-                    .frame(width: 30, height: 30)
+                    .frame(width: avatarSize, height: avatarSize)
                     .background(.tertiary, in: Circle())
                     .overlay(Circle().strokeBorder(GitLabDesignTokens.borderSubtle))
                     .accessibilityLabel("\(participants.count - maximumVisibleCount) more participants")
@@ -38,7 +39,7 @@ struct GitLabAvatarGroup: View {
                     .background(Color.accentColor.opacity(0.14))
             }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: avatarSize, height: avatarSize)
         .clipShape(Circle())
         .overlay(Circle().strokeBorder(GitLabDesignTokens.surfacePrimary, lineWidth: 2))
         .accessibilityHidden(true)
@@ -67,4 +68,3 @@ struct GitLabAvatarGroup: View {
     )
     .padding()
 }
-

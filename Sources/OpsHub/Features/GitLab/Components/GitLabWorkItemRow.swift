@@ -82,10 +82,17 @@ struct GitLabWorkItemRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(mode == .narrow ? 2 : 1)
 
-                Text(item.project)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: GitLabDesignTokens.Spacing.xSmall) {
+                    Text(item.project)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let author = item.author {
+                        GitLabAvatarGroup(participants: [author], avatarSize: 18)
+                            .help("Author: \(author.name)")
+                    }
+                }
 
                 if item.labels.isEmpty == false {
                     GitLabWorkItemFlowLayout(spacing: 6) {

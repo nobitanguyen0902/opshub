@@ -285,6 +285,8 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
     let status: GitLabMergeRequestStatus
     let authorName: String?
     let authorAvatarURL: URL?
+    let assigneeName: String?
+    let assigneeAvatarURL: URL?
     let updatedAt: Date?
     let updatedTime: String
     let webURL: URL?
@@ -297,6 +299,8 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
         status: GitLabMergeRequestStatus,
         authorName: String? = nil,
         authorAvatarURL: URL? = nil,
+        assigneeName: String? = nil,
+        assigneeAvatarURL: URL? = nil,
         updatedAt: Date? = nil,
         updatedTime: String,
         webURL: URL?
@@ -308,6 +312,8 @@ struct GitLabMergeRequest: Identifiable, Hashable, Sendable {
         self.status = status
         self.authorName = authorName
         self.authorAvatarURL = authorAvatarURL
+        self.assigneeName = assigneeName
+        self.assigneeAvatarURL = assigneeAvatarURL
         self.updatedAt = updatedAt
         self.updatedTime = updatedTime
         self.webURL = webURL

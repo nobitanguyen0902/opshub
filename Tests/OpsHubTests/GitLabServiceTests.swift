@@ -139,6 +139,20 @@ final class GitLabServiceTests: XCTestCase {
                       "name": "Octo Cat",
                       "avatar_url": "https://gitlab.example.com/uploads/avatar.png"
                     },
+                    "assignees": [
+                      {
+                        "id": 11,
+                        "username": "first-assignee",
+                        "name": "First Assignee",
+                        "avatar_url": "https://gitlab.example.com/uploads/first-assignee.png"
+                      },
+                      {
+                        "id": 12,
+                        "username": "second-assignee",
+                        "name": "Second Assignee",
+                        "avatar_url": "https://gitlab.example.com/uploads/second-assignee.png"
+                      }
+                    ],
                     "reviewers": [],
                     "references": {"full": "ops/opshub!42"},
                     "web_url": "https://gitlab.example.com/ops/opshub/-/merge_requests/42",
@@ -163,8 +177,17 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertEqual(mergeRequests.first?.status, .reviewing)
         XCTAssertEqual(mergeRequests.first?.authorName, "Octo Cat")
         XCTAssertEqual(mergeRequests.first?.authorAvatarURL?.absoluteString, "https://gitlab.example.com/uploads/avatar.png")
+        XCTAssertEqual(mergeRequests.first?.assigneeName, "First Assignee")
+        XCTAssertEqual(
+            mergeRequests.first?.assigneeAvatarURL?.absoluteString,
+            "https://gitlab.example.com/uploads/first-assignee.png"
+        )
         XCTAssertEqual(mergeRequests.first?.webURL?.absoluteString, "https://gitlab.example.com/ops/opshub/-/merge_requests/42")
-        let request = try XCTUnwrap(httpClient.requests.first)
+        let request = try XCTUnwrap(httpClient.requests.first { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .contains(URLQueryItem(name: "scope", value: "assigned_to_me")) == true
+        })
         XCTAssertEqual(request.url?.path, "/api/v4/merge_requests")
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
@@ -173,6 +196,76 @@ final class GitLabServiceTests: XCTestCase {
                 .value,
             "assigned_to_me"
         )
+    }
+
+    func testMergeRequestsCombinesAssignedAndCreatedItemsWithoutDuplicates() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/merge_requests?scope=assigned_to_me": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {"id":1001,"iid":41,"title":"Assigned","references":{"full":"ops/opshub!41"},
+                   "updated_at":"2026-07-27T01:00:00.000Z"},
+                  {"id":1002,"iid":42,"title":"Both","references":{"full":"ops/opshub!42"},
+                   "updated_at":"2026-07-27T02:00:00.000Z"}
+                ]
+                """
+            ),
+            "/api/v4/merge_requests?scope=created_by_me": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {"id":1002,"iid":42,"title":"Both","references":{"full":"ops/opshub!42"},
+                   "updated_at":"2026-07-27T02:00:00.000Z"},
+                  {"id":1003,"iid":43,"title":"Created","references":{"full":"ops/opshub!43"},
+                   "updated_at":"2026-07-27T03:00:00.000Z"}
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let mergeRequests = try await service.mergeRequests()
+
+        XCTAssertEqual(mergeRequests.map(\.id), [1003, 1002, 1001])
+        let scopes = Set(httpClient.requests.compactMap { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "scope" })?
+                .value
+        })
+        XCTAssertEqual(scopes, ["assigned_to_me", "created_by_me"])
+    }
+
+    func testMergeRequestsFailsWhenCreatedScopeFails() async {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/merge_requests?scope=assigned_to_me": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {"id":1001,"iid":41,"title":"Assigned","references":{"full":"ops/opshub!41"}}
+                ]
+                """
+            ),
+            "/api/v4/merge_requests?scope=created_by_me": StubHTTPResponse(
+                statusCode: 503,
+                body: #"{"message":"Service unavailable"}"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        do {
+            _ = try await service.mergeRequests()
+            XCTFail("Expected created_by_me failure to fail the combined load")
+        } catch {
+            XCTAssertEqual(error as? GitLabServiceError, .requestFailed(503))
+        }
     }
 
     func testMergeReviewsLoadsOpenItemsAssignedToCurrentUserForReview() async throws {

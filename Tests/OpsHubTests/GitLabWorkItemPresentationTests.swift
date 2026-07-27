@@ -12,6 +12,8 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
             status: .reviewing,
             authorName: "Octo Cat",
             authorAvatarURL: URL(string: "https://gitlab.example.com/avatar.png"),
+            assigneeName: "Merge Owner",
+            assigneeAvatarURL: URL(string: "https://gitlab.example.com/assignee.png"),
             updatedAt: date,
             updatedTime: "2 hours ago",
             webURL: URL(string: "https://gitlab.example.com/ops/opshub/-/merge_requests/42")
@@ -22,9 +24,13 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
         XCTAssertEqual(item.id, .mergeRequest(1_042))
         XCTAssertEqual(item.reference, "!42")
         XCTAssertEqual(item.status.title, "Reviewing")
-        XCTAssertEqual(item.participants.map(\.name), ["Octo Cat"])
+        XCTAssertEqual(item.author?.name, "Octo Cat")
+        XCTAssertEqual(item.author?.avatarURL?.absoluteString, "https://gitlab.example.com/avatar.png")
+        XCTAssertEqual(item.participants.map(\.name), ["Merge Owner"])
         XCTAssertEqual(item.updatedAt, date)
         XCTAssertTrue(item.accessibilitySummary.contains("Merge request !42"))
+        XCTAssertTrue(item.accessibilitySummary.contains("Author Octo Cat"))
+        XCTAssertTrue(item.accessibilitySummary.contains("Assigned to Merge Owner"))
     }
 
     func testReviewPresentationUsesSeparateIdentifierSpace() {
@@ -44,6 +50,43 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
         XCTAssertNil(item.webURL)
     }
 
+    func testReviewPresentationSeparatesAuthorAndAssignee() {
+        let mergeRequest = GitLabMergeRequest(
+            id: 1_042,
+            iid: 42,
+            title: "Review dashboard",
+            project: "ops/opshub",
+            status: .reviewing,
+            authorName: "Review Author",
+            assigneeName: "Review Assignee",
+            updatedTime: "Now",
+            webURL: nil
+        )
+
+        let item = GitLabWorkItemPresentation(mergeRequest: mergeRequest, context: .review)
+
+        XCTAssertEqual(item.author?.name, "Review Author")
+        XCTAssertEqual(item.participants.map(\.name), ["Review Assignee"])
+    }
+
+    func testMergeRequestPresentationOmitsBlankAuthor() {
+        let mergeRequest = GitLabMergeRequest(
+            id: 1_043,
+            title: "Missing author",
+            project: "ops/opshub",
+            status: .opened,
+            authorName: "   ",
+            assigneeName: "   ",
+            updatedTime: "Now",
+            webURL: nil
+        )
+
+        let item = GitLabWorkItemPresentation(mergeRequest: mergeRequest, context: .mergeRequest)
+
+        XCTAssertNil(item.author)
+        XCTAssertTrue(item.participants.isEmpty)
+    }
+
     func testIssuePresentationPreservesLabelsAndMissingURL() {
         let issue = GitLabIssue(
             id: 2_077,
@@ -59,6 +102,7 @@ final class GitLabWorkItemPresentationTests: XCTestCase {
         let item = GitLabWorkItemPresentation(issue: issue)
 
         XCTAssertEqual(item.id, .issue(2_077))
+        XCTAssertNil(item.author)
         XCTAssertEqual(item.labels.map(\.name), ["Bug Production"])
         XCTAssertEqual(item.priority, .critical)
         XCTAssertNil(item.webURL)
