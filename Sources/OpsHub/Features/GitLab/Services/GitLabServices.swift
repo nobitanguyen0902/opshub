@@ -100,6 +100,12 @@ private enum GitLabPipelineProjectResult: Sendable {
 
 /// GitLab REST-backed dashboard data source.
 struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing, @unchecked Sendable {
+    private static let pipelineTopLevelGroups: Set<String> = [
+        "social",
+        "hara ai",
+        "harasocial"
+    ]
+
     private let settingsStore: any GitLabSettingsStoring
     private let httpClient: any GitLabHTTPClient
     private let now: @Sendable () -> Date
@@ -304,7 +310,8 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
         let settings = try configuredSettings()
         let loadedProjects = try await loadProjectCatalog()
         let projects = loadedProjects.filter { project in
-            scope.includes(projectName: projectDisplayName(project))
+            isPipelineProject(project)
+                && scope.includes(projectName: projectDisplayName(project))
         }
         let results = try await withThrowingTaskGroup(of: GitLabPipelineProjectResult.self) { group in
             for project in projects.prefix(5) {
@@ -340,6 +347,22 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
         return GitLabPipelineBatch(
             pipelines: Array(pipelines.sorted { $0.id > $1.id }.prefix(20)),
             failedProjects: failedProjects.sorted()
+        )
+    }
+
+    private func isPipelineProject(_ project: GitLabProject) -> Bool {
+        guard let nameWithNamespace = project.nameWithNamespace,
+              let topLevelGroup = nameWithNamespace.split(
+                  separator: "/",
+                  maxSplits: 1
+              ).first else {
+            return false
+        }
+
+        return Self.pipelineTopLevelGroups.contains(
+            topLevelGroup
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
         )
     }
 

@@ -425,7 +425,7 @@ final class GitLabServiceTests: XCTestCase {
                   {
                     "id": 7,
                     "name": "opshub",
-                    "name_with_namespace": "ops/opshub"
+                    "name_with_namespace": "social/opshub"
                   }
                 ]
                 """
@@ -455,7 +455,7 @@ final class GitLabServiceTests: XCTestCase {
 
         XCTAssertEqual(pipelines.count, 1)
         XCTAssertEqual(pipelines.first?.id, 9001)
-        XCTAssertEqual(pipelines.first?.project, "ops/opshub")
+        XCTAssertEqual(pipelines.first?.project, "social/opshub")
         XCTAssertEqual(pipelines.first?.branch, "main")
         XCTAssertEqual(pipelines.first?.status, .failed)
         XCTAssertNotNil(pipelines.first?.updatedAt)
@@ -469,6 +469,52 @@ final class GitLabServiceTests: XCTestCase {
         ])
     }
 
+    func testPipelinesOnlyLoadFromAllowedTopLevelGroupsIncludingSubgroups() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {"id":7,"name":"direct","name_with_namespace":"social / direct"},
+                  {"id":8,"name":"nested","name_with_namespace":"Hara AI / platform / nested"},
+                  {"id":9,"name":"legacy","name_with_namespace":"harasocial / team / legacy"},
+                  {"id":10,"name":"similar","name_with_namespace":"social-tools / similar"},
+                  {"id":11,"name":"unrelated","name_with_namespace":"other / social / unrelated"}
+                ]
+                """
+            ),
+            "/api/v4/projects/7/pipelines": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":7001,"project_id":7,"ref":"main","status":"success"}]"#
+            ),
+            "/api/v4/projects/8/pipelines": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":8001,"project_id":8,"ref":"main","status":"success"}]"#
+            ),
+            "/api/v4/projects/9/pipelines": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":9001,"project_id":9,"ref":"main","status":"success"}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let pipelines = try await service.pipelines()
+
+        XCTAssertEqual(pipelines.map(\.id), [9001, 8001, 7001])
+        XCTAssertEqual(
+            httpClient.requests.compactMap { $0.url?.path }.sorted(),
+            [
+                "/api/v4/projects",
+                "/api/v4/projects/7/pipelines",
+                "/api/v4/projects/8/pipelines",
+                "/api/v4/projects/9/pipelines"
+            ]
+        )
+    }
+
     func testPipelineBatchKeepsSuccessfulProjectsAndReportsPartialFailures() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/projects": StubHTTPResponse(
@@ -478,12 +524,12 @@ final class GitLabServiceTests: XCTestCase {
                   {
                     "id": 7,
                     "name": "opshub",
-                    "name_with_namespace": "ops/opshub"
+                    "name_with_namespace": "social/opshub"
                   },
                   {
                     "id": 8,
                     "name": "private-service",
-                    "name_with_namespace": "ops/private-service"
+                    "name_with_namespace": "Hara AI/private-service"
                   }
                 ]
                 """
@@ -515,13 +561,16 @@ final class GitLabServiceTests: XCTestCase {
         let batch = try await service.pipelineBatch(scope: .allProjects)
 
         XCTAssertEqual(batch.pipelines.map(\.id), [9002])
-        XCTAssertEqual(batch.pipelines.first?.project, "ops/private-service")
-        XCTAssertEqual(batch.failedProjects, ["ops/opshub"])
-        XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
-            "/api/v4/projects",
-            "/api/v4/projects/7/pipelines",
-            "/api/v4/projects/8/pipelines"
-        ])
+        XCTAssertEqual(batch.pipelines.first?.project, "Hara AI/private-service")
+        XCTAssertEqual(batch.failedProjects, ["social/opshub"])
+        XCTAssertEqual(
+            httpClient.requests.compactMap { $0.url?.path }.sorted(),
+            [
+                "/api/v4/projects",
+                "/api/v4/projects/7/pipelines",
+                "/api/v4/projects/8/pipelines"
+            ]
+        )
     }
 }
 
