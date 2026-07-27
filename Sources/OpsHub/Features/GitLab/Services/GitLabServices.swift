@@ -126,7 +126,21 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
     }
 
     func mergeRequests() async throws -> [GitLabMergeRequest] {
-        try await mergeRequests(scope: "assigned_to_me")
+        async let assignedItems = mergeRequests(scope: "assigned_to_me")
+        async let createdItems = mergeRequests(scope: "created_by_me")
+        let (assigned, created) = try await (assignedItems, createdItems)
+
+        let unique = Dictionary(
+            (assigned + created).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return unique.values.sorted { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt {
+                return (lhs.updatedAt ?? .distantPast) > (rhs.updatedAt ?? .distantPast)
+            }
+            return lhs.id < rhs.id
+        }
     }
 
     func mergeRequests(scope: GitLabProjectScope) async throws -> [GitLabMergeRequest] {
@@ -568,6 +582,9 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
             status: mergeRequestStatus(for: mergeRequest),
             authorName: mergeRequest.author?.name ?? mergeRequest.author?.username,
             authorAvatarURL: mergeRequest.author?.avatarUrl,
+            assigneeName: mergeRequest.assignees.first?.name
+                ?? mergeRequest.assignees.first?.username,
+            assigneeAvatarURL: mergeRequest.assignees.first?.avatarUrl,
             updatedAt: date(from: mergeRequest.updatedAt),
             updatedTime: relativeTime(from: mergeRequest.updatedAt),
             webURL: mergeRequest.webUrl

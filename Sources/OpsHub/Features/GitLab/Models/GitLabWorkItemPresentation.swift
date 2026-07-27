@@ -40,6 +40,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
     let project: String
     let status: GitLabWorkItemStatus
     let priority: GitLabActionPriority
+    let author: GitLabWorkItemParticipant?
     let participants: [GitLabWorkItemParticipant]
     let labels: [GitLabLabel]
     let updatedAt: Date?
@@ -48,12 +49,22 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
     let resourceKey: GitLabResourceKey?
 
     var accessibilitySummary: String {
-        let participantText = participants.map(\.name).joined(separator: ", ")
+        let authorText = author.map { "Author \($0.name)" }
+        let participantText: String
+        switch kind {
+        case .mergeRequest, .review:
+            participantText = participants
+                .map { "Assigned to \($0.name)" }
+                .joined(separator: ", ")
+        case .issue, .pipeline, .notification:
+            participantText = participants.map(\.name).joined(separator: ", ")
+        }
         return [
             "\(kind.rawValue) \(reference)",
             title,
             project,
             status.title,
+            authorText,
             participantText.isEmpty ? nil : participantText,
             updatedTime
         ]
@@ -69,9 +80,13 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         project = mergeRequest.project
         status = Self.status(for: mergeRequest.status)
         priority = context == .review ? .high : .normal
-        participants = Self.participants(
+        author = Self.participant(
             name: mergeRequest.authorName,
             avatarURL: mergeRequest.authorAvatarURL
+        )
+        participants = Self.participants(
+            name: mergeRequest.assigneeName,
+            avatarURL: mergeRequest.assigneeAvatarURL
         )
         labels = []
         updatedAt = mergeRequest.updatedAt
@@ -88,6 +103,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         project = issue.project
         status = Self.status(for: issue.priority)
         priority = Self.actionPriority(for: issue.priority)
+        author = nil
         participants = Self.participants(
             name: issue.assigneeName,
             avatarURL: issue.assigneeAvatarURL
@@ -107,6 +123,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         project = pipeline.project
         status = Self.status(for: pipeline.status)
         priority = pipeline.status == .failed ? .critical : .low
+        author = nil
         participants = Self.participants(
             name: pipeline.userName,
             avatarURL: pipeline.userAvatarURL
@@ -126,6 +143,7 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         project = notification.project
         status = Self.status(for: notification.kind)
         priority = Self.actionPriority(for: notification.kind)
+        author = nil
         participants = Self.participants(
             name: notification.authorName,
             avatarURL: notification.authorAvatarURL
@@ -137,9 +155,21 @@ struct GitLabWorkItemPresentation: Identifiable, Hashable, Sendable {
         resourceKey = notification.targetResourceKey
     }
 
-    private static func participants(name: String?, avatarURL: URL?) -> [GitLabWorkItemParticipant] {
-        guard let name, name.isEmpty == false else { return [] }
-        return [GitLabWorkItemParticipant(name: name, avatarURL: avatarURL)]
+    private static func participants(
+        name: String?,
+        avatarURL: URL?
+    ) -> [GitLabWorkItemParticipant] {
+        [participant(name: name, avatarURL: avatarURL)].compactMap { $0 }
+    }
+
+    private static func participant(
+        name: String?,
+        avatarURL: URL?
+    ) -> GitLabWorkItemParticipant? {
+        guard let name else { return nil }
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedName.isEmpty == false else { return nil }
+        return GitLabWorkItemParticipant(name: normalizedName, avatarURL: avatarURL)
     }
 
     private static func status(for status: GitLabMergeRequestStatus) -> GitLabWorkItemStatus {
