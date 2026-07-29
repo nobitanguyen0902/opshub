@@ -15,6 +15,10 @@ protocol GitLabServicing: Sendable {
     func pipelines() async throws -> [GitLabPipeline]
     func pipelines(scope: GitLabProjectScope) async throws -> [GitLabPipeline]
     func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch
+    func pipelineJobs(projectID: Int, pipelineID: Int) async throws -> [GitLabJob]
+    func playJob(projectID: Int, jobID: Int) async throws -> GitLabJob
+    func retryJob(projectID: Int, jobID: Int) async throws -> GitLabJob
+    func cancelJob(projectID: Int, jobID: Int) async throws -> GitLabJob
     func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult
 }
 
@@ -44,6 +48,20 @@ extension GitLabServicing {
 
     func pipelineBatch(scope: GitLabProjectScope) async throws -> GitLabPipelineBatch {
         GitLabPipelineBatch(pipelines: try await pipelines(scope: scope), failedProjects: [])
+    }
+
+    func pipelineJobs(projectID: Int, pipelineID: Int) async throws -> [GitLabJob] { [] }
+
+    func playJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        throw GitLabServiceError.unsupportedAction
+    }
+
+    func retryJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        throw GitLabServiceError.unsupportedAction
+    }
+
+    func cancelJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        throw GitLabServiceError.unsupportedAction
     }
 }
 
@@ -338,7 +356,12 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
                 group.addTask {
                     do {
                         let response: [GitLabRESTPipeline] = try await send(request)
-                        return .success(response.map { mapPipeline($0, project: project) })
+                        let details = await enrichPipelineSummaries(
+                            response,
+                            projectID: project.id,
+                            settings: settings
+                        )
+                        return .success(details.map { mapPipeline($0, project: project) })
                     } catch {
                         return .failure(projectName)
                     }
@@ -364,6 +387,48 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
         )
     }
 
+    func pipelineJobs(projectID: Int, pipelineID: Int) async throws -> [GitLabJob] {
+        let settings = try configuredSettings()
+        let request = try makeRequest(
+            settings: settings,
+            path: "projects/\(projectID)/pipelines/\(pipelineID)/jobs",
+            queryItems: [
+                URLQueryItem(name: "include_retried", value: "false"),
+                URLQueryItem(name: "per_page", value: "100")
+            ]
+        )
+        let response: [GitLabRESTJob] = try await sendAllPages(request)
+        return response.map(mapJob)
+    }
+
+    func playJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        try await performJobAction(projectID: projectID, jobID: jobID, action: "play")
+    }
+
+    func retryJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        try await performJobAction(projectID: projectID, jobID: jobID, action: "retry")
+    }
+
+    func cancelJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        try await performJobAction(projectID: projectID, jobID: jobID, action: "cancel")
+    }
+
+    private func performJobAction(
+        projectID: Int,
+        jobID: Int,
+        action: String
+    ) async throws -> GitLabJob {
+        let settings = try configuredSettings()
+        let request = try makeRequest(
+            settings: settings,
+            path: "projects/\(projectID)/jobs/\(jobID)/\(action)",
+            queryItems: [],
+            method: "POST"
+        )
+        let response: GitLabRESTJob = try await send(request)
+        return mapJob(response)
+    }
+
     private func isPipelineProject(_ project: GitLabProject) -> Bool {
         guard let nameWithNamespace = project.nameWithNamespace,
               let topLevelGroup = nameWithNamespace.split(
@@ -378,6 +443,40 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
         )
+    }
+
+    private func enrichPipelineSummaries(
+        _ pipelines: [GitLabRESTPipeline],
+        projectID: Int,
+        settings: GitLabSettings
+    ) async -> [GitLabRESTPipeline] {
+        await withTaskGroup(of: GitLabRESTPipeline.self) { group in
+            for pipeline in pipelines {
+                group.addTask {
+                    guard pipeline.tag == nil || pipeline.user == nil else {
+                        return pipeline
+                    }
+                    do {
+                        let request = try makeRequest(
+                            settings: settings,
+                            path: "projects/\(projectID)/pipelines/\(pipeline.id)",
+                            queryItems: []
+                        )
+                        let detail: GitLabRESTPipeline = try await send(request)
+                        return detail
+                    } catch {
+                        // Unknown ref type stays read-only in the UI.
+                        return pipeline
+                    }
+                }
+            }
+
+            var details: [GitLabRESTPipeline] = []
+            for await pipeline in group {
+                details.append(pipeline)
+            }
+            return details
+        }
     }
 
     private func loadProjectCatalog() async throws -> [GitLabProject] {
@@ -458,7 +557,8 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
     private func makeRequest(
         settings: GitLabSettings,
         path: String,
-        queryItems: [URLQueryItem]
+        queryItems: [URLQueryItem],
+        method: String = "GET"
     ) throws -> URLRequest {
         let trimmedURL = settings.gitLabURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedToken = settings.personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -484,6 +584,7 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
         }
 
         var request = URLRequest(url: url)
+        request.httpMethod = method
         request.setValue(trimmedToken, forHTTPHeaderField: "PRIVATE-TOKEN")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
@@ -679,8 +780,11 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
     private func mapPipeline(_ pipeline: GitLabRESTPipeline, project: GitLabProject) -> GitLabPipeline {
         GitLabPipeline(
             id: pipeline.id,
+            projectID: pipeline.projectId ?? project.id,
             project: project.nameWithNamespace ?? project.name ?? "Project #\(project.id)",
             branch: pipeline.ref ?? "-",
+            isTag: pipeline.tag,
+            source: pipeline.source,
             status: pipelineStatus(for: pipeline.status),
             userName: pipeline.user?.name ?? pipeline.user?.username,
             userAvatarURL: pipeline.user?.avatarUrl,
@@ -688,6 +792,38 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
             updatedTime: relativeTime(from: pipeline.updatedAt ?? pipeline.createdAt),
             webURL: pipeline.webUrl
         )
+    }
+
+    private func mapJob(_ job: GitLabRESTJob) -> GitLabJob {
+        GitLabJob(
+            id: job.id,
+            name: job.name,
+            stage: job.stage,
+            status: jobStatus(for: job.status),
+            allowFailure: job.allowFailure == true,
+            isArchived: job.archived == true,
+            failureReason: job.failureReason,
+            duration: job.duration,
+            webURL: job.webUrl
+        )
+    }
+
+    private func jobStatus(for status: GitLabRESTJob.Status) -> GitLabJobStatus {
+        switch status {
+        case .canceled: .canceled
+        case .canceling: .canceling
+        case .created: .created
+        case .failed: .failed
+        case .manual: .manual
+        case .pending: .pending
+        case .preparing: .preparing
+        case .running: .running
+        case .scheduled: .scheduled
+        case .skipped: .skipped
+        case .success: .success
+        case .waitingForCallback: .waitingForCallback
+        case .waitingForResource: .waitingForResource
+        }
     }
 
     private func projectName(from references: GitLabReferences?, projectId: Int?) -> String {
@@ -828,6 +964,7 @@ enum GitLabServiceError: LocalizedError, Equatable {
     case invalidResponse
     case unauthorized
     case requestFailed(Int)
+    case unsupportedAction
 
     var errorDescription: String? {
         switch self {
@@ -841,6 +978,8 @@ enum GitLabServiceError: LocalizedError, Equatable {
             return "GitLab rejected the personal access token."
         case let .requestFailed(statusCode):
             return "GitLab request failed with status \(statusCode)."
+        case .unsupportedAction:
+            return "This GitLab action is not supported."
         }
     }
 }

@@ -246,6 +246,7 @@ struct GitLabRESTPipeline: Codable, Identifiable, Hashable, Sendable {
     let ref: String?
     let status: Status?
     let source: String?
+    let tag: Bool?
     let user: GitLabUser?
     let duration: Double?
     let queuedDuration: Double?
@@ -279,6 +280,7 @@ struct GitLabRESTPipeline: Codable, Identifiable, Hashable, Sendable {
         case ref
         case status
         case source
+        case tag
         case user
         case duration
         case queuedDuration = "queued_duration"
@@ -286,6 +288,61 @@ struct GitLabRESTPipeline: Codable, Identifiable, Hashable, Sendable {
         case webUrl = "web_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case startedAt = "started_at"
+        case finishedAt = "finished_at"
+    }
+}
+
+/// Raw GitLab job payload returned by the pipeline jobs and job action APIs.
+struct GitLabRESTJob: Codable, Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+    let stage: String
+    let status: Status
+    let allowFailure: Bool?
+    let archived: Bool?
+    let failureReason: String?
+    let duration: Double?
+    let queuedDuration: Double?
+    let ref: String?
+    let tag: Bool?
+    let user: GitLabUser?
+    let webUrl: URL?
+    let createdAt: String?
+    let startedAt: String?
+    let finishedAt: String?
+
+    enum Status: String, Codable, Hashable, Sendable {
+        case canceled
+        case canceling
+        case created
+        case failed
+        case manual
+        case pending
+        case preparing
+        case running
+        case scheduled
+        case skipped
+        case success
+        case waitingForCallback = "waiting_for_callback"
+        case waitingForResource = "waiting_for_resource"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case stage
+        case status
+        case allowFailure = "allow_failure"
+        case archived
+        case failureReason = "failure_reason"
+        case duration
+        case queuedDuration = "queued_duration"
+        case ref
+        case tag
+        case user
+        case webUrl = "web_url"
+        case createdAt = "created_at"
         case startedAt = "started_at"
         case finishedAt = "finished_at"
     }

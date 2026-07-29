@@ -530,12 +530,34 @@ final class GitLabServiceTests: XCTestCase {
                   {
                     "id": 9001,
                     "project_id": 7,
-                    "ref": "main",
+                    "ref": "v2.4.0",
+                    "source": "push",
                     "status": "failed",
                     "web_url": "https://gitlab.example.com/ops/opshub/-/pipelines/9001",
                     "updated_at": "2026-06-25T02:00:00.000Z"
                   }
                 ]
+                """
+            ),
+            "/api/v4/projects/7/pipelines/9001": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                {
+                    "id": 9001,
+                    "project_id": 7,
+                    "ref": "v2.4.0",
+                    "tag": true,
+                    "source": "push",
+                    "status": "failed",
+                    "user": {
+                      "id": 12,
+                      "name": "Release Owner",
+                      "username": "release-owner",
+                      "avatar_url": "https://gitlab.example.com/avatar.png"
+                    },
+                    "web_url": "https://gitlab.example.com/ops/opshub/-/pipelines/9001",
+                    "updated_at": "2026-06-25T02:00:00.000Z"
+                }
                 """
             )
         ])
@@ -548,8 +570,16 @@ final class GitLabServiceTests: XCTestCase {
 
         XCTAssertEqual(pipelines.count, 1)
         XCTAssertEqual(pipelines.first?.id, 9001)
+        XCTAssertEqual(pipelines.first?.projectID, 7)
         XCTAssertEqual(pipelines.first?.project, "social/opshub")
-        XCTAssertEqual(pipelines.first?.branch, "main")
+        XCTAssertEqual(pipelines.first?.branch, "v2.4.0")
+        XCTAssertTrue(pipelines.first?.isTag == true)
+        XCTAssertEqual(pipelines.first?.source, "push")
+        XCTAssertEqual(pipelines.first?.userName, "Release Owner")
+        XCTAssertEqual(
+            pipelines.first?.userAvatarURL?.absoluteString,
+            "https://gitlab.example.com/avatar.png"
+        )
         XCTAssertEqual(pipelines.first?.status, .failed)
         XCTAssertNotNil(pipelines.first?.updatedAt)
         XCTAssertEqual(
@@ -558,7 +588,8 @@ final class GitLabServiceTests: XCTestCase {
         )
         XCTAssertEqual(httpClient.requests.map { $0.url?.path }, [
             "/api/v4/projects",
-            "/api/v4/projects/7/pipelines"
+            "/api/v4/projects/7/pipelines",
+            "/api/v4/projects/7/pipelines/9001"
         ])
     }
 
@@ -602,8 +633,11 @@ final class GitLabServiceTests: XCTestCase {
             [
                 "/api/v4/projects",
                 "/api/v4/projects/7/pipelines",
+                "/api/v4/projects/7/pipelines/7001",
                 "/api/v4/projects/8/pipelines",
-                "/api/v4/projects/9/pipelines"
+                "/api/v4/projects/8/pipelines/8001",
+                "/api/v4/projects/9/pipelines",
+                "/api/v4/projects/9/pipelines/9001"
             ]
         )
     }
@@ -661,7 +695,85 @@ final class GitLabServiceTests: XCTestCase {
             [
                 "/api/v4/projects",
                 "/api/v4/projects/7/pipelines",
-                "/api/v4/projects/8/pipelines"
+                "/api/v4/projects/8/pipelines",
+                "/api/v4/projects/8/pipelines/9002"
+            ]
+        )
+    }
+
+    func testPipelineJobsMapStageActionFieldsAndUsePaginationContract() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects/7/pipelines/9001/jobs": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 301,
+                    "name": "deploy-production",
+                    "stage": "deploy",
+                    "status": "manual",
+                    "allow_failure": false,
+                    "archived": false,
+                    "tag": false,
+                    "web_url": "https://gitlab.example.com/social/opshub/-/jobs/301"
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let jobs = try await service.pipelineJobs(projectID: 7, pipelineID: 9001)
+
+        XCTAssertEqual(jobs.count, 1)
+        XCTAssertEqual(jobs.first?.stage, "deploy")
+        XCTAssertEqual(jobs.first?.status, .manual)
+        XCTAssertFalse(jobs.first?.isArchived == true)
+        let queryItems = URLComponents(
+            url: try XCTUnwrap(httpClient.requests.first?.url),
+            resolvingAgainstBaseURL: false
+        )?.queryItems
+        XCTAssertEqual(queryItems?.first(where: { $0.name == "include_retried" })?.value, "false")
+        XCTAssertEqual(queryItems?.first(where: { $0.name == "per_page" })?.value, "100")
+    }
+
+    func testJobActionsUsePostAndReturnUpdatedJob() async throws {
+        let response = StubHTTPResponse(
+            statusCode: 200,
+            body: """
+            {
+              "id": 301,
+              "name": "deploy-production",
+              "stage": "deploy",
+              "status": "pending",
+              "archived": false
+            }
+            """
+        )
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects/7/jobs/301/play": response,
+            "/api/v4/projects/7/jobs/301/retry": response,
+            "/api/v4/projects/7/jobs/301/cancel": response
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        _ = try await service.playJob(projectID: 7, jobID: 301)
+        _ = try await service.retryJob(projectID: 7, jobID: 301)
+        _ = try await service.cancelJob(projectID: 7, jobID: 301)
+
+        XCTAssertEqual(httpClient.requests.map(\.httpMethod), ["POST", "POST", "POST"])
+        XCTAssertEqual(
+            httpClient.requests.compactMap { $0.url?.path },
+            [
+                "/api/v4/projects/7/jobs/301/play",
+                "/api/v4/projects/7/jobs/301/retry",
+                "/api/v4/projects/7/jobs/301/cancel"
             ]
         )
     }

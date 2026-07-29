@@ -479,8 +479,11 @@ enum GitLabNotificationKind: String, Hashable, Sendable {
 /// A pipeline item formatted for future dashboard sections.
 struct GitLabPipeline: Identifiable, Hashable, Sendable {
     let id: Int
+    let projectID: Int
     let project: String
     let branch: String
+    let isTag: Bool?
+    let source: String?
     let status: GitLabPipelineStatus
     let userName: String?
     let userAvatarURL: URL?
@@ -490,8 +493,11 @@ struct GitLabPipeline: Identifiable, Hashable, Sendable {
 
     init(
         id: Int,
+        projectID: Int = 0,
         project: String,
         branch: String,
+        isTag: Bool? = false,
+        source: String? = nil,
         status: GitLabPipelineStatus,
         userName: String? = nil,
         userAvatarURL: URL? = nil,
@@ -500,14 +506,21 @@ struct GitLabPipeline: Identifiable, Hashable, Sendable {
         webURL: URL? = nil
     ) {
         self.id = id
+        self.projectID = projectID
         self.project = project
         self.branch = branch
+        self.isTag = isTag
+        self.source = source
         self.status = status
         self.userName = userName
         self.userAvatarURL = userAvatarURL
         self.updatedAt = updatedAt
         self.updatedTime = updatedTime
         self.webURL = webURL
+    }
+
+    var allowsMutationActions: Bool {
+        isTag == false
     }
 }
 
@@ -517,6 +530,219 @@ enum GitLabPipelineStatus: String, Hashable, Sendable {
     case passed = "Passed"
     case failed = "Failed"
     case canceled = "Canceled"
+}
+
+struct GitLabPipelineKey: Hashable, Sendable {
+    let projectID: Int
+    let pipelineID: Int
+}
+
+struct GitLabPipelineStageKey: Hashable, Sendable {
+    let pipeline: GitLabPipelineKey
+    let name: String
+}
+
+enum GitLabJobStatus: String, Hashable, Sendable {
+    case canceled = "Canceled"
+    case canceling = "Canceling"
+    case created = "Idle"
+    case failed = "Failed"
+    case manual = "Manual"
+    case pending = "Pending"
+    case preparing = "Preparing"
+    case running = "Running"
+    case scheduled = "Scheduled"
+    case skipped = "Skipped"
+    case success = "Success"
+    case waitingForCallback = "Waiting for callback"
+    case waitingForResource = "Waiting for resource"
+
+    var isActive: Bool {
+        switch self {
+        case .canceling, .pending, .preparing, .running, .scheduled,
+             .waitingForCallback, .waitingForResource:
+            true
+        case .canceled, .created, .failed, .manual, .skipped, .success:
+            false
+        }
+    }
+}
+
+struct GitLabJob: Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+    let stage: String
+    let status: GitLabJobStatus
+    let allowFailure: Bool
+    let isArchived: Bool
+    let failureReason: String?
+    let duration: Double?
+    let webURL: URL?
+}
+
+enum GitLabPipelineStageStatus: String, Hashable, Sendable {
+    case idle = "Idle"
+    case running = "Running"
+    case pending = "Pending"
+    case manual = "Manual"
+    case success = "Success"
+    case failed = "Failed"
+    case canceled = "Canceled"
+}
+
+enum GitLabPipelineStageAction: String, Hashable, Sendable {
+    case build = "Build"
+    case retry = "Retry"
+    case cancel = "Cancel"
+}
+
+struct GitLabPipelineStage: Identifiable, Hashable, Sendable {
+    let name: String
+    let jobs: [GitLabJob]
+
+    var id: String { name }
+
+    var status: GitLabPipelineStageStatus {
+        if jobs.contains(where: { $0.status == .running || $0.status == .preparing }) {
+            return .running
+        }
+        if jobs.contains(where: \.status.isActive) {
+            return .pending
+        }
+        if jobs.contains(where: { $0.status == .manual }) {
+            return .manual
+        }
+        if jobs.contains(where: { $0.status == .failed && !$0.allowFailure }) {
+            return .failed
+        }
+        if jobs.contains(where: { $0.status == .canceled || $0.status == .canceling }) {
+            return .canceled
+        }
+        if jobs.allSatisfy({ $0.status == .success || $0.status == .skipped || ($0.status == .failed && $0.allowFailure) }) {
+            return .success
+        }
+        return .idle
+    }
+
+    var availableAction: GitLabPipelineStageAction? {
+        if jobs.contains(where: { $0.status == .manual && !$0.isArchived }) {
+            return .build
+        }
+        if jobs.contains(where: \.status.isActive) {
+            return .cancel
+        }
+        if jobs.contains(where: {
+            ($0.status == .failed || $0.status == .canceled) && !$0.isArchived
+        }) {
+            return .retry
+        }
+        return nil
+    }
+
+    func actionableJobs(for action: GitLabPipelineStageAction) -> [GitLabJob] {
+        jobs.filter { job in
+            guard !job.isArchived else { return false }
+            switch action {
+            case .build:
+                return job.status == .manual
+            case .retry:
+                return job.status == .failed || job.status == .canceled
+            case .cancel:
+                return job.status.isActive
+            }
+        }
+    }
+
+    var unavailableReason: String {
+        if jobs.allSatisfy(\.isArchived) {
+            return "Jobs in this stage are archived."
+        }
+        switch status {
+        case .idle:
+            return "Waiting for previous stages."
+        case .pending:
+            return "Jobs are queued or waiting for a runner."
+        case .running:
+            return "This stage is currently running."
+        case .manual:
+            return "No playable manual jobs are available."
+        case .success:
+            return "This stage completed successfully."
+        case .failed:
+            return "No failed jobs can be retried."
+        case .canceled:
+            return "No canceled jobs can be retried."
+        }
+    }
+}
+
+struct GitLabPipelineDetails: Hashable, Sendable {
+    let pipeline: GitLabPipelineKey
+    let stages: [GitLabPipelineStage]
+
+    init(pipeline: GitLabPipelineKey, jobs: [GitLabJob]) {
+        self.pipeline = pipeline
+        var stageNames: [String] = []
+        var groupedJobs: [String: [GitLabJob]] = [:]
+
+        for job in jobs.reversed() {
+            if groupedJobs[job.stage] == nil {
+                stageNames.append(job.stage)
+            }
+            groupedJobs[job.stage, default: []].append(job)
+        }
+
+        stages = stageNames.map { name in
+            GitLabPipelineStage(
+                name: name,
+                jobs: (groupedJobs[name] ?? []).sorted { $0.id < $1.id }
+            )
+        }
+    }
+}
+
+enum GitLabPipelineDetailsLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded(GitLabPipelineDetails)
+    case failed(String)
+}
+
+enum GitLabPipelineStageActionState: Equatable, Sendable {
+    case idle
+    case running(GitLabPipelineStageAction)
+    case failed(String)
+
+    var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
+}
+
+enum GitLabPipelineActionNoticeSeverity: Hashable, Sendable {
+    case success
+    case error
+    case neutral
+}
+
+struct GitLabPipelineActionNotice: Identifiable, Hashable, Sendable {
+    let id = UUID()
+    let message: String
+    let severity: GitLabPipelineActionNoticeSeverity
+}
+
+enum GitLabPipelineActionError: LocalizedError, Equatable {
+    case tagPipelineReadOnly
+    case actionUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .tagPipelineReadOnly:
+            "Tag pipelines are read-only."
+        case .actionUnavailable:
+            "This stage no longer has an available action."
+        }
+    }
 }
 
 /// Result of checking whether the configured GitLab host and token are usable.

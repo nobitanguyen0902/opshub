@@ -20,10 +20,14 @@ final class GitLabDashboardViewModel: ObservableObject {
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var loadWarning: String?
     @Published private(set) var pipelineWarning: String?
+    @Published private(set) var pipelineDetails: [GitLabPipelineKey: GitLabPipelineDetailsLoadState] = [:]
+    @Published private(set) var pipelineStageActions: [GitLabPipelineStageKey: GitLabPipelineStageActionState] = [:]
+    @Published private(set) var pipelineActionNotice: GitLabPipelineActionNotice?
 
     private let service: any GitLabServicing
     private var loadingScope: GitLabProjectScope?
     private var loadedScope: GitLabProjectScope?
+    private var loadingPipelineDetails: Set<GitLabPipelineKey> = []
 
     init(
         service: any GitLabServicing = GitLabService()
@@ -245,6 +249,144 @@ final class GitLabDashboardViewModel: ObservableObject {
         selection.item = item
     }
 
+    func pipelineDetailsState(for pipeline: GitLabPipeline) -> GitLabPipelineDetailsLoadState {
+        pipelineDetails[pipelineKey(for: pipeline)] ?? .idle
+    }
+
+    func stageActionState(
+        for stage: GitLabPipelineStage,
+        pipeline: GitLabPipeline
+    ) -> GitLabPipelineStageActionState {
+        pipelineStageActions[stageKey(for: stage, pipeline: pipeline)] ?? .idle
+    }
+
+    func loadPipelineDetails(_ pipeline: GitLabPipeline, force: Bool = false) async {
+        let key = pipelineKey(for: pipeline)
+        guard pipeline.projectID > 0 else {
+            pipelineDetails[key] = .failed("This pipeline is missing its GitLab project identifier.")
+            return
+        }
+        guard loadingPipelineDetails.contains(key) == false else { return }
+        if !force, case .loaded = pipelineDetails[key] {
+            return
+        }
+
+        let previousState = pipelineDetails[key]
+        loadingPipelineDetails.insert(key)
+        if case .loaded = previousState {
+            // Keep the current stage grid visible while polling an active pipeline.
+        } else {
+            pipelineDetails[key] = .loading
+        }
+        defer { loadingPipelineDetails.remove(key) }
+
+        do {
+            let jobs = try await service.pipelineJobs(
+                projectID: pipeline.projectID,
+                pipelineID: pipeline.id
+            )
+            pipelineDetails[key] = .loaded(
+                GitLabPipelineDetails(pipeline: key, jobs: jobs)
+            )
+        } catch {
+            if case .loaded = previousState {
+                pipelineDetails[key] = previousState
+            } else {
+                pipelineDetails[key] = .failed(errorMessage(error))
+            }
+        }
+    }
+
+    func perform(
+        _ action: GitLabPipelineStageAction,
+        on stage: GitLabPipelineStage,
+        pipeline: GitLabPipeline,
+        pollIntervals: [Duration] = [
+            .seconds(2), .seconds(3), .seconds(5), .seconds(10), .seconds(10)
+        ]
+    ) async {
+        let actionKey = stageKey(for: stage, pipeline: pipeline)
+        guard pipelineStageActions[actionKey]?.isRunning != true else { return }
+        guard pipeline.allowsMutationActions else {
+            pipelineActionNotice = GitLabPipelineActionNotice(
+                message: pipeline.isTag == true
+                    ? GitLabPipelineActionError.tagPipelineReadOnly.localizedDescription
+                    : "Pipeline type is unavailable, so actions are disabled.",
+                severity: .error
+            )
+            return
+        }
+
+        pipelineStageActions[actionKey] = .running(action)
+
+        do {
+            let freshJobs = try await service.pipelineJobs(
+                projectID: pipeline.projectID,
+                pipelineID: pipeline.id
+            )
+            let refreshedDetails = GitLabPipelineDetails(
+                pipeline: pipelineKey(for: pipeline),
+                jobs: freshJobs
+            )
+            pipelineDetails[refreshedDetails.pipeline] = .loaded(refreshedDetails)
+            guard let refreshedStage = refreshedDetails.stages.first(where: { $0.name == stage.name }) else {
+                throw GitLabPipelineActionError.actionUnavailable
+            }
+
+            let jobs = refreshedStage.actionableJobs(for: action)
+            guard jobs.isEmpty == false else {
+                throw GitLabPipelineActionError.actionUnavailable
+            }
+
+            var failedCount = 0
+            var lastError: (any Error)?
+            for job in jobs {
+                do {
+                    _ = try await perform(action, on: job, projectID: pipeline.projectID)
+                } catch {
+                    failedCount += 1
+                    lastError = error
+                }
+            }
+
+            if failedCount > 0 {
+                let message = failedCount == jobs.count
+                    ? errorMessage(lastError ?? GitLabPipelineActionError.actionUnavailable)
+                    : "\(jobs.count - failedCount)/\(jobs.count) jobs accepted by GitLab."
+                pipelineStageActions[actionKey] = .failed(message)
+                pipelineActionNotice = GitLabPipelineActionNotice(
+                    message: message,
+                    severity: .error
+                )
+                await loadPipelineDetails(pipeline, force: true)
+                return
+            }
+
+            pipelineActionNotice = GitLabPipelineActionNotice(
+                message: "\(action.rawValue) requested for \(stage.name).",
+                severity: .neutral
+            )
+            await monitor(
+                stageName: stage.name,
+                pipeline: pipeline,
+                intervals: pollIntervals
+            )
+            pipelineStageActions[actionKey] = .idle
+        } catch {
+            let message = errorMessage(error)
+            pipelineStageActions[actionKey] = .failed(message)
+            pipelineActionNotice = GitLabPipelineActionNotice(
+                message: message,
+                severity: .error
+            )
+        }
+    }
+
+    func dismissPipelineActionNotice(_ id: UUID) {
+        guard pipelineActionNotice?.id == id else { return }
+        pipelineActionNotice = nil
+    }
+
     func loadDashboard() async {
         let scope = selectedScope
         guard loadedScope != scope else { return }
@@ -320,6 +462,11 @@ final class GitLabDashboardViewModel: ObservableObject {
             hadData: pipelines.isEmpty == false
         ) { batch in
             pipelines = batch.pipelines
+            let activeKeys = Set(batch.pipelines.map(pipelineKey))
+            pipelineDetails = pipelineDetails.filter { activeKeys.contains($0.key) }
+            pipelineStageActions = pipelineStageActions.filter {
+                activeKeys.contains($0.key.pipeline)
+            }
             pipelineWarning = batch.failedProjects.isEmpty
                 ? nil
                 : "Could not load pipelines for: \(batch.failedProjects.joined(separator: ", "))."
@@ -402,6 +549,78 @@ final class GitLabDashboardViewModel: ObservableObject {
 
     private func errorMessage(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private func pipelineKey(for pipeline: GitLabPipeline) -> GitLabPipelineKey {
+        GitLabPipelineKey(projectID: pipeline.projectID, pipelineID: pipeline.id)
+    }
+
+    private func stageKey(
+        for stage: GitLabPipelineStage,
+        pipeline: GitLabPipeline
+    ) -> GitLabPipelineStageKey {
+        GitLabPipelineStageKey(pipeline: pipelineKey(for: pipeline), name: stage.name)
+    }
+
+    private func perform(
+        _ action: GitLabPipelineStageAction,
+        on job: GitLabJob,
+        projectID: Int
+    ) async throws -> GitLabJob {
+        switch action {
+        case .build:
+            try await service.playJob(projectID: projectID, jobID: job.id)
+        case .retry:
+            try await service.retryJob(projectID: projectID, jobID: job.id)
+        case .cancel:
+            try await service.cancelJob(projectID: projectID, jobID: job.id)
+        }
+    }
+
+    private func monitor(
+        stageName: String,
+        pipeline: GitLabPipeline,
+        intervals: [Duration]
+    ) async {
+        for interval in [.zero] + intervals {
+            if interval != .zero {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
+            }
+
+            await loadPipelineDetails(pipeline, force: true)
+            guard case let .loaded(details) = pipelineDetailsState(for: pipeline),
+                  let stage = details.stages.first(where: { $0.name == stageName }) else {
+                continue
+            }
+
+            switch stage.status {
+            case .success:
+                pipelineActionNotice = GitLabPipelineActionNotice(
+                    message: "\(stage.name) completed successfully.",
+                    severity: .success
+                )
+                return
+            case .failed:
+                let reason = stage.jobs.compactMap(\.failureReason).first
+                pipelineActionNotice = GitLabPipelineActionNotice(
+                    message: reason.map { "\(stage.name) failed: \($0)." } ?? "\(stage.name) failed.",
+                    severity: .error
+                )
+                return
+            case .canceled:
+                pipelineActionNotice = GitLabPipelineActionNotice(
+                    message: "\(stage.name) was canceled.",
+                    severity: .neutral
+                )
+                return
+            case .idle, .manual, .pending, .running:
+                continue
+            }
+        }
     }
 
 }

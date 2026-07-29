@@ -144,12 +144,11 @@ struct GitLabDashboardView: View {
         case .pipelines:
             GitLabPipelinesView(
                 mode: mode,
-                items: viewModel.visiblePipelines.map(GitLabWorkItemPresentation.init(pipeline:)),
+                pipelines: viewModel.visiblePipelines,
                 loadState: viewModel.loadState(for: .pipelines),
                 filter: viewModel.filter(for: .pipelines),
                 warning: viewModel.pipelineWarning,
-                selectedItemID: viewModel.selection.item,
-                onSelect: viewModel.select,
+                viewModel: viewModel,
                 onStatusChange: { statuses in
                     var filter = viewModel.filter(for: .pipelines)
                     filter.statuses = statuses

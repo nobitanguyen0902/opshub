@@ -234,6 +234,140 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedScope, .project(projectB))
         XCTAssertEqual(viewModel.mergeRequests.map(\.project), ["group/b"])
     }
+
+    @MainActor
+    func testBuildStagePlaysManualJobAndRefreshesToSuccess() async {
+        let service = PipelineActionGitLabService()
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline()
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        await viewModel.perform(.build, on: stage, pipeline: pipeline, pollIntervals: [])
+
+        let calls = await service.recordedCalls()
+        XCTAssertEqual(calls.playJobIDs, [301])
+        XCTAssertGreaterThanOrEqual(calls.pipelineJobs, 2)
+        XCTAssertEqual(viewModel.stageActionState(for: stage, pipeline: pipeline), .idle)
+        XCTAssertEqual(viewModel.pipelineActionNotice?.severity, .success)
+        XCTAssertEqual(viewModel.pipelineActionNotice?.message, "deploy completed successfully.")
+    }
+
+    @MainActor
+    func testTagPipelineNeverCallsMutationService() async {
+        let service = PipelineActionGitLabService()
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline(isTag: true)
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        await viewModel.perform(.build, on: stage, pipeline: pipeline, pollIntervals: [])
+
+        let calls = await service.recordedCalls()
+        XCTAssertEqual(calls.pipelineJobs, 0)
+        XCTAssertTrue(calls.playJobIDs.isEmpty)
+        XCTAssertEqual(viewModel.pipelineActionNotice?.severity, .error)
+        XCTAssertEqual(viewModel.pipelineActionNotice?.message, "Tag pipelines are read-only.")
+    }
+
+    @MainActor
+    func testUnknownPipelineTypeNeverCallsMutationService() async {
+        let service = PipelineActionGitLabService()
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline(isTag: nil)
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        await viewModel.perform(.build, on: stage, pipeline: pipeline, pollIntervals: [])
+
+        let calls = await service.recordedCalls()
+        XCTAssertEqual(calls.pipelineJobs, 0)
+        XCTAssertTrue(calls.playJobIDs.isEmpty)
+        XCTAssertEqual(
+            viewModel.pipelineActionNotice?.message,
+            "Pipeline type is unavailable, so actions are disabled."
+        )
+    }
+
+    private func actionPipeline(isTag: Bool? = false) -> GitLabPipeline {
+        GitLabPipeline(
+            id: 9001,
+            projectID: 7,
+            project: "social/opshub",
+            branch: isTag == true ? "v2.4.0" : "main",
+            isTag: isTag,
+            status: .passed,
+            updatedTime: "Now"
+        )
+    }
+
+    private func actionJob(status: GitLabJobStatus) -> GitLabJob {
+        GitLabJob(
+            id: 301,
+            name: "deploy-production",
+            stage: "deploy",
+            status: status,
+            allowFailure: false,
+            isArchived: false,
+            failureReason: nil,
+            duration: nil,
+            webURL: nil
+        )
+    }
+}
+
+private actor PipelineActionGitLabService: GitLabServicing {
+    private var pipelineJobsCalls = 0
+    private var playJobIDs: [Int] = []
+
+    func mergeRequests() async throws -> [GitLabMergeRequest] { [] }
+    func mergeReviews() async throws -> [GitLabMergeRequest] { [] }
+    func issues() async throws -> [GitLabIssue] { [] }
+    func notifications() async throws -> [GitLabNotification] { [] }
+    func pipelines() async throws -> [GitLabPipeline] { [] }
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult { .connected }
+
+    func pipelineJobs(projectID: Int, pipelineID: Int) async throws -> [GitLabJob] {
+        pipelineJobsCalls += 1
+        return [
+            GitLabJob(
+                id: 301,
+                name: "deploy-production",
+                stage: "deploy",
+                status: playJobIDs.isEmpty ? .manual : .success,
+                allowFailure: false,
+                isArchived: false,
+                failureReason: nil,
+                duration: nil,
+                webURL: nil
+            )
+        ]
+    }
+
+    func playJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
+        playJobIDs.append(jobID)
+        return GitLabJob(
+            id: jobID,
+            name: "deploy-production",
+            stage: "deploy",
+            status: .pending,
+            allowFailure: false,
+            isArchived: false,
+            failureReason: nil,
+            duration: nil,
+            webURL: nil
+        )
+    }
+
+    func recordedCalls() -> (pipelineJobs: Int, playJobIDs: [Int]) {
+        (pipelineJobsCalls, playJobIDs)
+    }
 }
 
 private struct ScopeAwareGitLabService: GitLabServicing {
