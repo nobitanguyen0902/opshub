@@ -474,6 +474,178 @@ final class GitLabServiceTests: XCTestCase {
         XCTAssertTrue(issues.allSatisfy(\.isWorkflowProject))
     }
 
+    func testSprintMilestonesLoadsEveryPageAndSkipsIncompleteItems() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects/social%2Fsocom-issues/milestones": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 31,
+                    "title": "Sprint 2026-W31",
+                    "state": "active",
+                    "start_date": "2026-07-29",
+                    "due_date": "2026-08-04"
+                  },
+                  {
+                    "id": 30,
+                    "title": "Missing due date",
+                    "start_date": "2026-07-22"
+                  }
+                ]
+                """,
+                headers: ["X-Next-Page": "2"]
+            ),
+            "/api/v4/projects/social%2Fsocom-issues/milestones?page=2": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 29,
+                    "title": "Sprint 2026-W29",
+                    "state": "closed",
+                    "start_date": "2026-07-15",
+                    "due_date": "2026-07-21"
+                  }
+                ]
+                """
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let milestones = try await service.sprintMilestones(
+            projectPath: GitLabWorkflowProject.path
+        )
+
+        XCTAssertEqual(milestones.map(\.id), [31, 29])
+        XCTAssertEqual(milestones.map(\.title), ["Sprint 2026-W31", "Sprint 2026-W29"])
+        XCTAssertEqual(httpClient.requests.count, 2)
+        let request = try XCTUnwrap(httpClient.requests.first)
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                .percentEncodedPath,
+            "/api/v4/projects/social%2Fsocom-issues/milestones"
+        )
+        let query = Dictionary(
+            uniqueKeysWithValues: (URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
+        XCTAssertEqual(query["order_by"], "due_date")
+        XCTAssertEqual(query["sort"], "desc")
+        XCTAssertEqual(query["per_page"], "100")
+    }
+
+    func testSprintIssuesUsesMilestoneContractPaginationAndMapsCurrentAssignee() async throws {
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects/social%2Fsocom-issues/issues": StubHTTPResponse(
+                statusCode: 200,
+                body: """
+                [
+                  {
+                    "id": 4001,
+                    "iid": 81,
+                    "project_id": 7,
+                    "title": "Sprint ticket",
+                    "labels": ["Passed", "ToProduction", "Merged"],
+                    "assignees": [
+                      {
+                        "id": 19,
+                        "username": "alice",
+                        "name": "Alice",
+                        "avatar_url": "https://gitlab.example.com/alice.png"
+                      }
+                    ],
+                    "references": {"full": "social/socom-issues#81"},
+                    "created_at": "2026-07-29T02:00:00.000Z",
+                    "updated_at": "2026-07-30T02:00:00.000Z",
+                    "web_url": "https://gitlab.example.com/social/socom-issues/-/issues/81"
+                  }
+                ]
+                """,
+                headers: ["X-Next-Page": "2"]
+            ),
+            "/api/v4/projects/social%2Fsocom-issues/issues?page=2": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":4002,"iid":82,"title":"Second page","labels":[]}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let issues = try await service.sprintIssues(
+            projectPath: GitLabWorkflowProject.path,
+            milestoneTitle: "Sprint 2026-W31"
+        )
+
+        XCTAssertEqual(issues.map(\.id), [4001, 4002])
+        XCTAssertEqual(issues.first?.assignee?.id, 19)
+        XCTAssertEqual(issues.first?.assignee?.name, "Alice")
+        XCTAssertEqual(issues.first?.project, "social/socom-issues")
+        XCTAssertNotNil(issues.first?.createdAt)
+        XCTAssertNotNil(issues.first?.updatedAt)
+        let request = try XCTUnwrap(httpClient.requests.first)
+        let queryItems = URLComponents(
+            url: try XCTUnwrap(request.url),
+            resolvingAgainstBaseURL: false
+        )?.queryItems ?? []
+        let query = Dictionary(
+            uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }
+        )
+        XCTAssertEqual(query["state"], "all")
+        XCTAssertEqual(query["milestone"], "Sprint 2026-W31")
+        XCTAssertEqual(query["with_labels_details"], "true")
+        XCTAssertEqual(query["per_page"], "100")
+        XCTAssertNil(query["scope"])
+        XCTAssertNil(query["updated_after"])
+    }
+
+    func testProductionBugsUsesDateLabelContractWithoutMilestoneOrAssigneeScope() async throws {
+        let after = ISO8601DateFormatter().date(from: "2026-07-28T17:00:00Z")!
+        let before = ISO8601DateFormatter().date(from: "2026-08-04T17:00:00Z")!
+        let httpClient = StubGitLabHTTPClient(responses: [
+            "/api/v4/projects/social%2Fsocom-issues/issues": StubHTTPResponse(
+                statusCode: 200,
+                body: #"[{"id":5001,"iid":91,"title":"Production bug","labels":["Bug Production"],"created_at":"2026-07-30T02:00:00.000Z"}]"#
+            )
+        ])
+        let service = GitLabService(
+            settingsStore: StaticGitLabSettingsStore(),
+            httpClient: httpClient
+        )
+
+        let issues = try await service.productionBugs(
+            projectPath: GitLabWorkflowProject.path,
+            createdAfter: after,
+            createdBefore: before
+        )
+
+        XCTAssertEqual(issues.map(\.id), [5001])
+        let request = try XCTUnwrap(httpClient.requests.first)
+        let queryItems = URLComponents(
+            url: try XCTUnwrap(request.url),
+            resolvingAgainstBaseURL: false
+        )?.queryItems ?? []
+        let query = Dictionary(
+            uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }
+        )
+        XCTAssertEqual(query["state"], "all")
+        XCTAssertEqual(query["labels"], "Bug Production")
+        XCTAssertEqual(query["created_after"], "2026-07-28T17:00:00.000Z")
+        XCTAssertEqual(query["created_before"], "2026-08-04T17:00:00.000Z")
+        XCTAssertEqual(query["with_labels_details"], "true")
+        XCTAssertEqual(query["per_page"], "100")
+        XCTAssertNil(query["milestone"])
+        XCTAssertNil(query["scope"])
+        XCTAssertNil(query["updated_after"])
+    }
+
     func testNotificationsMapAuthorTimestampAndTargetURL() async throws {
         let httpClient = StubGitLabHTTPClient(responses: [
             "/api/v4/todos": StubHTTPResponse(

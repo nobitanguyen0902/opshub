@@ -1,56 +1,716 @@
 import SwiftUI
 
 struct DashboardView: View {
+    @ObservedObject private var viewModel: SprintDashboardViewModel
+    @Environment(\.openURL) private var openURL
+
+    init(viewModel: SprintDashboardViewModel) {
+        self.viewModel = viewModel
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
 
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                SummaryCard(title: "GitLab", value: "Ready", systemImage: "arrow.triangle.branch")
-                SummaryCard(title: "Settings", value: "Runtime", systemImage: "gearshape")
+                if viewModel.milestoneState.isLoading && viewModel.milestones.isEmpty {
+                    initialLoading
+                } else if let milestone = viewModel.selectedMilestone {
+                    dashboardContent(milestone: milestone)
+                } else {
+                    noCurrentSprint
+                }
             }
-
-            EmptyStateView(
-                systemImage: "rectangle.grid.2x2",
-                title: "Dashboard",
-                message: "Choose a module from the sidebar to manage your workspace."
-            )
-            .font(.system(.body, design: .monospaced))
-            .frame(maxWidth: .infinity, minHeight: 280)
-            .opsHubTerminalSurface()
-
-            Spacer()
+            .padding(20)
         }
-        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Dashboard")
-    }
-
-    private var columns: [GridItem] {
-        [
-            GridItem(.adaptive(minimum: 180, maximum: 260), spacing: 12, alignment: .top)
-        ]
+        .task {
+            await viewModel.loadIfNeeded()
+        }
+        .task {
+            await viewModel.autoRefresh()
+        }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(">")
-                    .foregroundStyle(OpsHubTerminalTheme.accent)
-                Text("OPSHUB / DASHBOARD")
-            }
-            .font(.system(size: 26, weight: .bold, design: .monospaced))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(">")
+                            .foregroundStyle(OpsHubTerminalTheme.accent)
+                        Text("OPSHUB / DASHBOARD")
+                    }
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
 
-            Text("runtime=ready · modules=available")
-                .font(.system(.caption, design: .monospaced))
+                    Text("Sprint health")
+                        .font(.system(size: 26, weight: .bold, design: .monospaced))
+
+                    Text(headerMetadata)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    milestonePicker
+
+                    Button {
+                        Task { await viewModel.refresh() }
+                    } label: {
+                        Label(
+                            viewModel.isLoading ? "Refreshing" : "Refresh",
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .opsHubTerminalControl()
+                    .disabled(viewModel.isLoading)
+                    .accessibilityHint("Reloads milestones and sprint metrics from GitLab")
+                }
+            }
+
+            if case let .stale(message) = viewModel.milestoneState {
+                statusBanner(
+                    message: "Milestone list is stale. \(message)",
+                    systemImage: "exclamationmark.triangle",
+                    color: .orange
+                )
+            } else if case let .failed(message) = viewModel.milestoneState {
+                statusBanner(
+                    message: message,
+                    systemImage: "xmark.octagon",
+                    color: .red
+                )
+            }
+        }
+        .padding(16)
+        .opsHubTerminalSurface(isEmphasized: true)
+    }
+
+    private var milestonePicker: some View {
+        Picker(
+            "Sprint",
+            selection: Binding<Int?>(
+                get: { viewModel.selectedMilestoneID },
+                set: { id in
+                    guard let id else { return }
+                    Task { await viewModel.selectMilestone(id: id) }
+                }
+            )
+        ) {
+            if viewModel.selectedMilestoneID == nil {
+                Text("Select sprint").tag(Optional<Int>.none)
+            }
+            ForEach(viewModel.milestones) { milestone in
+                Text(milestone.title).tag(Optional(milestone.id))
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(minWidth: 170)
+        .opsHubTerminalControl()
+        .accessibilityLabel("Selected sprint")
+    }
+
+    private var initialLoading: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Loading sprint data from GitLab…")
+                .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, minHeight: 320)
+        .opsHubTerminalSurface()
+    }
+
+    private var noCurrentSprint: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 32))
+                .foregroundStyle(OpsHubTerminalTheme.accent)
+
+            Text("No active sprint milestone")
+                .font(.system(.headline, design: .monospaced))
+
+            Text(
+                viewModel.milestones.isEmpty
+                    ? "Create a GitLab milestone with start and due dates, then refresh."
+                    : "No milestone covers today. Select another sprint from the header."
+            )
+            .font(.system(.callout, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+
+            Button("Retry") {
+                Task { await viewModel.refresh() }
+            }
+            .opsHubTerminalControl()
+        }
+        .frame(maxWidth: .infinity, minHeight: 320)
+        .padding()
+        .opsHubTerminalSurface()
+    }
+
+    @ViewBuilder
+    private func dashboardContent(milestone: SprintMilestone) -> some View {
+        metricGrid
+
+        sectionLabel("Team delivery")
+        memberProgressPanel
+
+        sectionLabel("Production bugs created this sprint")
+        productionBugPanel
+
+        if let lastUpdated = viewModel.lastUpdated {
+            Text("last_updated=\(lastUpdated.formatted(.relative(presentation: .named)))")
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private var metricGrid: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(
+                    .adaptive(minimum: 210, maximum: 420),
+                    spacing: 12,
+                    alignment: .top
+                )
+            ],
+            alignment: .leading,
+            spacing: 12
+        ) {
+            SprintMetricCard(
+                title: "Sprint tickets",
+                value: metricValue(
+                    state: viewModel.deliveryState,
+                    value: viewModel.data?.ticketCount
+                ),
+                helper: "All issues in selected milestone",
+                systemImage: "rectangle.stack",
+                accent: OpsHubTerminalTheme.accent,
+                state: viewModel.deliveryState
+            )
+
+            SprintMetricCard(
+                title: "Released",
+                value: metricValue(
+                    state: viewModel.deliveryState,
+                    value: viewModel.data?.releasedCount
+                ),
+                helper: "Passed + ToProduction + Merged",
+                systemImage: "checkmark.circle",
+                accent: .green,
+                state: viewModel.deliveryState
+            )
+
+            SprintMetricCard(
+                title: "New production bugs",
+                value: metricValue(
+                    state: viewModel.bugState,
+                    value: viewModel.data?.productionBugCount
+                ),
+                helper: "Created inside sprint dates · any assignee",
+                systemImage: "exclamationmark.triangle",
+                accent: .orange,
+                state: viewModel.bugState
+            )
+        }
+    }
+
+    private var memberProgressPanel: some View {
+        VStack(spacing: 0) {
+            panelHeader(
+                title: "Member progress",
+                metadata: memberPanelMetadata
+            )
+
+            if viewModel.data == nil,
+               viewModel.deliveryState == .idle || viewModel.deliveryState.isLoading {
+                panelLoading("Loading sprint tickets…")
+            } else {
+                switch viewModel.deliveryState {
+                case let .failed(message):
+                    panelFailure(message: message)
+                default:
+                    if viewModel.hasConfiguredMembers == false {
+                        panelEmpty(
+                            systemImage: "person.crop.circle.badge.questionmark",
+                            title: "No members configured",
+                            message: "Choose visible Dev Room members in Settings to show this breakdown."
+                        )
+                    } else if viewModel.data?.memberSummaries.isEmpty != false {
+                        panelEmpty(
+                            systemImage: "person.3",
+                            title: "No member tickets",
+                            message: "This milestone has no tickets assigned to configured members."
+                        )
+                    } else {
+                        memberTable
+                    }
+
+                    if case let .stale(message) = viewModel.deliveryState {
+                        inlineWarning(message)
+                    }
+                }
+            }
+        }
+        .opsHubTerminalSurface()
+    }
+
+    private var memberTable: some View {
+        VStack(spacing: 0) {
+            memberTableRow(
+                member: AnyView(
+                    Text("MEMBER")
+                        .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(.secondary)
+                ),
+                tickets: AnyView(tableHeader("TICKETS")),
+                released: AnyView(tableHeader("RELEASED")),
+                progress: AnyView(tableHeader("PROGRESS"))
+            )
+
+            Divider()
+
+            ForEach(viewModel.data?.memberSummaries ?? []) { summary in
+                memberTableRow(
+                    member: AnyView(memberIdentity(summary.member)),
+                    tickets: AnyView(
+                        Text(summary.ticketCount.formatted())
+                            .font(.system(.callout, design: .monospaced).weight(.semibold))
+                            .monospacedDigit()
+                    ),
+                    released: AnyView(
+                        Text(summary.releasedCount.formatted())
+                            .font(.system(.callout, design: .monospaced).weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(.green)
+                    ),
+                    progress: AnyView(memberProgress(summary))
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(summary.member?.name ?? "Unassigned"), "
+                        + "\(summary.ticketCount) tickets, "
+                        + "\(summary.releasedCount) released"
+                )
+
+                if summary.id != viewModel.data?.memberSummaries.last?.id {
+                    Divider()
+                }
+            }
+        }
+    }
+
+    private func memberTableRow(
+        member: AnyView,
+        tickets: AnyView,
+        released: AnyView,
+        progress: AnyView
+    ) -> some View {
+        HStack(spacing: 12) {
+            member
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            tickets
+                .frame(width: 76, alignment: .center)
+
+            released
+                .frame(width: 82, alignment: .center)
+
+            progress
+                .frame(width: 170, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 46)
+    }
+
+    private func tableHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(.caption2, design: .monospaced).weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func memberIdentity(_ member: SprintDashboardMember?) -> some View {
+        HStack(spacing: 10) {
+            SprintMemberAvatar(member: member)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member?.name ?? "Unassigned")
+                    .font(.system(.callout, design: .monospaced).weight(.medium))
+                    .lineLimit(1)
+
+                Text(member?.username.map { "@\($0)" } ?? "Needs an owner")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func memberProgress(
+        _ summary: SprintDashboardMemberSummary
+    ) -> some View {
+        HStack(spacing: 8) {
+            ProgressView(value: summary.progress)
+                .progressViewStyle(.linear)
+                .tint(OpsHubTerminalTheme.accent)
+
+            Text(summary.progress.formatted(.percent.precision(.fractionLength(0))))
+                .font(.system(.caption2, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .trailing)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Release progress")
+        .accessibilityValue(
+            "\(summary.releasedCount) of \(summary.ticketCount) released, "
+                + "\(Int((summary.progress * 100).rounded())) percent"
+        )
+    }
+
+    private var productionBugPanel: some View {
+        VStack(spacing: 0) {
+            panelHeader(
+                title: "New production bugs",
+                metadata: bugPanelMetadata
+            )
+
+            if viewModel.data == nil,
+               viewModel.bugState == .idle || viewModel.bugState.isLoading {
+                panelLoading("Loading production bugs…")
+            } else {
+                switch viewModel.bugState {
+                case let .failed(message):
+                    panelFailure(message: message)
+                default:
+                    if viewModel.data?.productionBugPreview.isEmpty != false {
+                        panelEmpty(
+                            systemImage: "checkmark.shield",
+                            title: "No production bugs",
+                            message: "No production bugs were created in this sprint."
+                        )
+                    } else {
+                        ForEach(viewModel.data?.productionBugPreview ?? []) { issue in
+                            productionBugRow(issue)
+                            if issue.id != viewModel.data?.productionBugPreview.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+
+                    if case let .stale(message) = viewModel.bugState {
+                        inlineWarning(message)
+                    }
+                }
+            }
+        }
+        .opsHubTerminalSurface()
+    }
+
+    private func productionBugRow(
+        _ issue: SprintDashboardIssue
+    ) -> some View {
+        Button {
+            if let webURL = issue.webURL {
+                openURL(webURL)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(issue.title)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+
+                    Text("\(issue.project) #\(issue.iid)")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if let date = issue.createdAt {
+                    Text(date.formatted(.relative(presentation: .named)))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
+                if issue.webURL != nil {
+                    Image(systemName: "arrow.up.right.square")
+                        .foregroundStyle(OpsHubTerminalTheme.accent)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(issue.webURL == nil)
+        .accessibilityHint(
+            issue.webURL == nil
+                ? "GitLab link is unavailable"
+                : "Opens this issue in GitLab"
+        )
+    }
+
+    private func panelHeader(
+        title: String,
+        metadata: String
+    ) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+
+            Spacer()
+
+            Text(metadata)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 46)
+        .background(OpsHubTerminalTheme.selected.opacity(0.35))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
+    private func panelLoading(_ message: String) -> some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(message)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 100)
+    }
+
+    private func panelFailure(message: String) -> some View {
+        VStack(spacing: 10) {
+            Label(message, systemImage: "xmark.octagon")
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
+
+            Button("Retry") {
+                Task { await viewModel.refresh() }
+            }
+            .opsHubTerminalControl()
+        }
+        .frame(maxWidth: .infinity, minHeight: 110)
+        .padding()
+    }
+
+    private func panelEmpty(
+        systemImage: String,
+        title: String,
+        message: String
+    ) -> some View {
+        VStack(spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+
+            Text(message)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, minHeight: 100)
+        .padding()
+    }
+
+    private func inlineWarning(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle")
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .overlay(alignment: .top) {
+                Divider()
+            }
+    }
+
+    private func statusBanner(
+        message: String,
+        systemImage: String,
+        color: Color
+    ) -> some View {
+        Label(message, systemImage: systemImage)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(.caption2, design: .monospaced).weight(.semibold))
+            .tracking(0.8)
+            .foregroundStyle(.secondary)
+    }
+
+    private func metricValue(
+        state: SprintDashboardSectionState,
+        value: Int?
+    ) -> String {
+        switch state {
+        case .failed:
+            "—"
+        case .idle, .loading, .loaded, .stale:
+            value?.formatted() ?? "—"
+        }
+    }
+
+    private var memberPanelMetadata: String {
+        guard let data = viewModel.data else { return "—" }
+        let assignedMembers = data.memberSummaries.count { $0.member != nil }
+        let unassignedCount = data.memberSummaries.last?.member == nil
+            ? data.memberSummaries.last?.ticketCount ?? 0
+            : 0
+        return "\(assignedMembers) members · \(unassignedCount) unassigned"
+    }
+
+    private var bugPanelMetadata: String {
+        guard let count = viewModel.data?.productionBugCount else { return "—" }
+        return "\(count) total"
+    }
+
+    private var headerMetadata: String {
+        guard let milestone = viewModel.selectedMilestone else {
+            return "milestone=none · timezone=Asia/Ho_Chi_Minh"
+        }
+        return "milestone=\(milestone.title) · "
+            + "\(milestone.startDate.formatted(date: .abbreviated, time: .omitted))"
+            + " — "
+            + "\(milestone.dueDate.formatted(date: .abbreviated, time: .omitted))"
+            + " · timezone=Asia/Ho_Chi_Minh"
+    }
+}
+
+private struct SprintMetricCard: View {
+    let title: String
+    let value: String
+    let helper: String
+    let systemImage: String
+    let accent: Color
+    let state: SprintDashboardSectionState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title.uppercased())
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if state.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(accent)
+                }
+            }
+
+            Text(value)
+                .font(.system(size: 30, weight: .bold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(accent)
+
+            Text(helper)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .padding(15)
+        .opsHubTerminalSurface(
+            isEmphasized: title == "New production bugs"
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(value)")
+    }
+}
+
+private struct SprintMemberAvatar: View {
+    let member: SprintDashboardMember?
+
+    var body: some View {
+        Group {
+            if let url = member?.avatarURL {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    fallback
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: 28, height: 28)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .strokeBorder(OpsHubTerminalTheme.borderStrong)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var fallback: some View {
+        ZStack {
+            OpsHubTerminalTheme.selected
+            Text(initials)
+                .font(.system(.caption2, design: .monospaced).weight(.bold))
+                .foregroundStyle(OpsHubTerminalTheme.accent)
+        }
+    }
+
+    private var initials: String {
+        guard let name = member?.name else { return "—" }
+        let parts = name.split(separator: " ")
+        return parts.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
     }
 }
 
 #Preview {
-    NavigationStack {
-        DashboardView()
+    DashboardView(
+        viewModel: SprintDashboardViewModel(
+            service: EmptySprintDashboardService()
+        )
+    )
+}
+
+private struct EmptySprintDashboardService: SprintDashboardServicing {
+    func sprintMilestones(projectPath: String) async throws -> [SprintMilestone] {
+        []
+    }
+
+    func sprintIssues(
+        projectPath: String,
+        milestoneTitle: String
+    ) async throws -> [SprintDashboardIssue] {
+        []
+    }
+
+    func productionBugs(
+        projectPath: String,
+        createdAfter: Date,
+        createdBefore: Date
+    ) async throws -> [SprintDashboardIssue] {
+        []
     }
 }

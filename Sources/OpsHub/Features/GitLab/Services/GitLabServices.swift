@@ -117,7 +117,13 @@ private enum GitLabPipelineProjectResult: Sendable {
 }
 
 /// GitLab REST-backed dashboard data source.
-struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing, @unchecked Sendable {
+struct GitLabService:
+    GitLabServicing,
+    DevRoomServicing,
+    DevRoomMemberServicing,
+    SprintDashboardServicing,
+    @unchecked Sendable
+{
     private static let pipelineTopLevelGroups: Set<String> = [
         "social",
         "hara ai",
@@ -303,6 +309,84 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
                 ? $0.id < $1.id
                 : comparison == .orderedAscending
         }
+    }
+
+    func sprintMilestones(projectPath: String) async throws -> [SprintMilestone] {
+        let settings = try configuredSettings()
+        let request = try makeProjectRequest(
+            settings: settings,
+            projectPath: projectPath,
+            suffix: "milestones",
+            queryItems: [
+                URLQueryItem(name: "order_by", value: "due_date"),
+                URLQueryItem(name: "sort", value: "desc"),
+                URLQueryItem(name: "per_page", value: "100")
+            ]
+        )
+        let milestones: [GitLabMilestone] = try await sendAllPages(request)
+        return milestones.compactMap { milestone in
+            guard let title = milestone.title?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                title.isEmpty == false,
+                let startDate = sprintDate(from: milestone.startDate),
+                let dueDate = sprintDate(from: milestone.dueDate)
+            else {
+                return nil
+            }
+            return SprintMilestone(
+                id: milestone.id,
+                title: title,
+                startDate: startDate,
+                dueDate: dueDate
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.dueDate != rhs.dueDate {
+                return lhs.dueDate > rhs.dueDate
+            }
+            return lhs.id > rhs.id
+        }
+    }
+
+    func sprintIssues(
+        projectPath: String,
+        milestoneTitle: String
+    ) async throws -> [SprintDashboardIssue] {
+        let settings = try configuredSettings()
+        let request = try makeProjectIssuesRequest(
+            settings: settings,
+            projectPath: projectPath,
+            queryItems: [
+                URLQueryItem(name: "state", value: "all"),
+                URLQueryItem(name: "milestone", value: milestoneTitle),
+                URLQueryItem(name: "with_labels_details", value: "true"),
+                URLQueryItem(name: "per_page", value: "100")
+            ]
+        )
+        let issues: [GitLabRESTIssue] = try await sendAllPages(request)
+        return issues.map(mapSprintDashboardIssue)
+    }
+
+    func productionBugs(
+        projectPath: String,
+        createdAfter: Date,
+        createdBefore: Date
+    ) async throws -> [SprintDashboardIssue] {
+        let settings = try configuredSettings()
+        let request = try makeProjectIssuesRequest(
+            settings: settings,
+            projectPath: projectPath,
+            queryItems: [
+                URLQueryItem(name: "state", value: "all"),
+                URLQueryItem(name: "labels", value: "Bug Production"),
+                URLQueryItem(name: "created_after", value: isoDateString(from: createdAfter)),
+                URLQueryItem(name: "created_before", value: isoDateString(from: createdBefore)),
+                URLQueryItem(name: "with_labels_details", value: "true"),
+                URLQueryItem(name: "per_page", value: "100")
+            ]
+        )
+        let issues: [GitLabRESTIssue] = try await sendAllPages(request)
+        return issues.map(mapSprintDashboardIssue)
     }
 
     private func issueUpdatedAfterDate() -> String {
@@ -740,6 +824,30 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
         )
     }
 
+    private func mapSprintDashboardIssue(
+        _ issue: GitLabRESTIssue
+    ) -> SprintDashboardIssue {
+        let assignee = issue.assignees.first
+        return SprintDashboardIssue(
+            id: issue.id,
+            iid: issue.iid ?? issue.id,
+            title: issue.title,
+            project: projectName(from: issue.references, projectId: issue.projectId),
+            labels: issue.labels.map(\.name),
+            assignee: assignee.map {
+                SprintDashboardMember(
+                    id: $0.id,
+                    name: $0.name ?? $0.username ?? "GitLab user #\($0.id)",
+                    username: $0.username,
+                    avatarURL: $0.avatarUrl
+                )
+            },
+            createdAt: date(from: issue.createdAt),
+            updatedAt: date(from: issue.updatedAt),
+            webURL: issue.webUrl
+        )
+    }
+
     private func mapNotification(_ notification: GitLabRESTNotification) -> GitLabNotification {
         let project = notification.project?.nameWithNamespace ?? notification.project?.name ?? "GitLab"
         return GitLabNotification(
@@ -935,6 +1043,16 @@ struct GitLabService: GitLabServicing, DevRoomServicing, DevRoomMemberServicing,
 
     private func isoDateString(from date: Date) -> String {
         makeISODateFormatter().string(from: date)
+    }
+
+    private func sprintDate(from dateString: String?) -> Date? {
+        guard let dateString else { return nil }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Ho_Chi_Minh")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: dateString)
     }
 
     private func makeISODateFormatter() -> ISO8601DateFormatter {

@@ -47,6 +47,7 @@ final class AppNavigationState: ObservableObject {
 struct ContentView: View {
     @ObservedObject var navigationState: AppNavigationState
     private let devRoomViewModel: DevRoomViewModel
+    @StateObject private var sprintDashboardViewModel: SprintDashboardViewModel
     @StateObject private var gitLabViewModel: GitLabDashboardViewModel
     let settingsStore: any GitLabSettingsStoring
     private let visibilityStore: any DevRoomVisibilitySettingsStoring
@@ -68,9 +69,16 @@ struct ContentView: View {
         let resolvedGitLabService = gitLabService ?? GitLabService(settingsStore: settingsStore)
         self.memberService = memberService ?? resolvedGitLabService
         self.appearanceStore = appearanceStore
+        let selectedUserIDs = visibilityStore.load().selectedUserIDs
         self.devRoomViewModel = devRoomViewModel ?? DevRoomViewModel(
             service: resolvedGitLabService,
-            selectedUserIDs: visibilityStore.load().selectedUserIDs
+            selectedUserIDs: selectedUserIDs
+        )
+        _sprintDashboardViewModel = StateObject(
+            wrappedValue: SprintDashboardViewModel(
+                service: resolvedGitLabService,
+                selectedUserIDs: selectedUserIDs
+            )
         )
         _gitLabViewModel = StateObject(
             wrappedValue: GitLabDashboardViewModel(service: resolvedGitLabService)
@@ -99,7 +107,7 @@ struct ContentView: View {
             case .gitLab:
                 GitLabDashboardView(viewModel: gitLabViewModel)
             case .dashboard:
-                DashboardView()
+                DashboardView(viewModel: sprintDashboardViewModel)
             case .settings:
                 SettingsView(
                     settingsStore: settingsStore,
@@ -108,6 +116,7 @@ struct ContentView: View {
                     appearanceStore: appearanceStore,
                     onDevRoomVisibilitySaved: { ids in
                         devRoomViewModel.applySelectedUserIDs(ids)
+                        sprintDashboardViewModel.applySelectedUserIDs(ids)
                     }
                 )
             case nil:
