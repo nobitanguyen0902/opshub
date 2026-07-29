@@ -2,10 +2,13 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
     private let settingsStore: any GitLabSettingsStoring
     private let gitLabService: any GitLabServicing
     private let visibilityStore: any DevRoomVisibilitySettingsStoring
     private let onDevRoomVisibilitySaved: (Set<Int>) -> Void
+    @ObservedObject private var appearanceStore: AppearanceSettingsStore
 
     @State private var gitLabURL = ""
     @State private var personalAccessToken = ""
@@ -20,11 +23,13 @@ struct SettingsView: View {
         gitLabService: any GitLabServicing = GitLabService(),
         visibilityStore: any DevRoomVisibilitySettingsStoring = DevRoomVisibilitySettingsStore(),
         memberService: any DevRoomMemberServicing = GitLabService(),
+        appearanceStore: AppearanceSettingsStore = AppearanceSettingsStore(),
         onDevRoomVisibilitySaved: @escaping (Set<Int>) -> Void = { _ in }
     ) {
         self.settingsStore = settingsStore
         self.gitLabService = gitLabService
         self.visibilityStore = visibilityStore
+        self.appearanceStore = appearanceStore
         self.onDevRoomVisibilitySaved = onDevRoomVisibilitySaved
 
         let settings = settingsStore.load()
@@ -47,8 +52,10 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 24) {
                 settingsHeader
+
+                appearanceSection
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text(":: GITLAB CONNECTION")
@@ -107,12 +114,19 @@ struct SettingsView: View {
                 }
             }
             .padding(20)
+            .frame(maxWidth: 760)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Settings")
-        .animation(.smooth(duration: 0.2), value: isTestingConnection)
-        .animation(.smooth(duration: 0.2), value: connectionStatus)
+        .animation(
+            accessibilityReduceMotion ? nil : .smooth(duration: 0.2),
+            value: isTestingConnection
+        )
+        .animation(
+            accessibilityReduceMotion ? nil : .smooth(duration: 0.2),
+            value: connectionStatus
+        )
         .task {
             await memberSelectionViewModel.loadMembers()
         }
@@ -127,10 +141,57 @@ struct SettingsView: View {
             }
             .font(.system(size: 26, weight: .bold, design: .monospaced))
 
-            Text("configuration=local · secrets=keychain")
-                .font(.system(.caption, design: .monospaced))
+            Text("Personalize OpsHub and configure local integrations.")
+                .font(.system(.callout))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(":: APPEARANCE")
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .foregroundStyle(OpsHubTerminalTheme.accent)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Theme")
+                    .font(.headline)
+
+                Text("Choose the appearance used across every OpsHub window.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Picker("Theme", selection: themeSelection) {
+                ForEach(AppTheme.allCases) { theme in
+                    Text(theme.title)
+                        .tag(theme)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .controlSize(.large)
+            .accessibilityLabel("Application theme")
+            .accessibilityHint("Changes the OpsHub appearance immediately")
+
+            Label(
+                appearanceStore.theme.description,
+                systemImage: appearanceStore.theme.systemImage
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .opsHubTerminalSurface(isEmphasized: true)
+    }
+
+    private var themeSelection: Binding<AppTheme> {
+        Binding(
+            get: { appearanceStore.theme },
+            set: { appearanceStore.setTheme($0) }
+        )
     }
 
     private var tokenField: some View {

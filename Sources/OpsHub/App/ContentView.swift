@@ -51,6 +51,7 @@ struct ContentView: View {
     let settingsStore: any GitLabSettingsStoring
     private let visibilityStore: any DevRoomVisibilitySettingsStoring
     private let memberService: any DevRoomMemberServicing
+    @ObservedObject private var appearanceStore: AppearanceSettingsStore
 
     init(
         navigationState: AppNavigationState,
@@ -58,13 +59,15 @@ struct ContentView: View {
         visibilityStore: any DevRoomVisibilitySettingsStoring = DevRoomVisibilitySettingsStore(),
         gitLabService: GitLabService? = nil,
         devRoomViewModel: DevRoomViewModel? = nil,
-        memberService: (any DevRoomMemberServicing)? = nil
+        memberService: (any DevRoomMemberServicing)? = nil,
+        appearanceStore: AppearanceSettingsStore = AppearanceSettingsStore()
     ) {
         self.navigationState = navigationState
         self.settingsStore = settingsStore
         self.visibilityStore = visibilityStore
         let resolvedGitLabService = gitLabService ?? GitLabService(settingsStore: settingsStore)
         self.memberService = memberService ?? resolvedGitLabService
+        self.appearanceStore = appearanceStore
         self.devRoomViewModel = devRoomViewModel ?? DevRoomViewModel(
             service: resolvedGitLabService,
             selectedUserIDs: visibilityStore.load().selectedUserIDs
@@ -102,6 +105,7 @@ struct ContentView: View {
                     settingsStore: settingsStore,
                     visibilityStore: visibilityStore,
                     memberService: memberService,
+                    appearanceStore: appearanceStore,
                     onDevRoomVisibilitySaved: { ids in
                         devRoomViewModel.applySelectedUserIDs(ids)
                     }
