@@ -389,3 +389,10 @@ git diff --check
 ```
 
 Không chạy packaging script và không tạo release trong phạm vi này.
+
+## 13. Điều hướng mặc định
+
+- Mỗi lần ứng dụng khởi tạo một phiên chạy mới, mục được chọn mặc định là `Dashboard`.
+- Không ghi nhớ hoặc khôi phục màn hình cuối cùng của phiên chạy trước.
+- Sau khi mở ứng dụng, người dùng vẫn có thể chuyển sang các mục khác như hiện tại.
+- Có regression test xác nhận `AppNavigationState` mới luôn khởi tạo với `.dashboard`.

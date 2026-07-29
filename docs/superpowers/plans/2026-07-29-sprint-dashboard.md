@@ -624,3 +624,63 @@ Report:
 - focused/full test and build results;
 - any residual limitation, especially first-assignee semantics and milestone discipline;
 - explicitly state that no commit, push, PR, packaging, or release was performed.
+
+---
+
+### Task 6: Default App Navigation to Dashboard
+
+**Files:**
+- Modify: `Sources/OpsHub/App/ContentView.swift`
+- Test: `Tests/OpsHubTests/AppSectionTests.swift`
+
+**Interfaces:**
+- Consumes: `AppNavigationState.selection: AppSection?`
+- Produces: a new `AppNavigationState` initialized with `.dashboard`
+
+- [ ] **Step 1: Write the failing regression test**
+
+Add:
+
+```swift
+func testNavigationDefaultsToDashboard() {
+    XCTAssertEqual(AppNavigationState().selection, .dashboard)
+}
+```
+
+- [ ] **Step 2: Run the focused test and verify it fails**
+
+Run:
+
+```bash
+swift test --filter AppSectionTests/testNavigationDefaultsToDashboard
+```
+
+Expected: FAIL because the current selection is `.gitLab`.
+
+- [ ] **Step 3: Apply the minimal implementation**
+
+Change the initial selection:
+
+```swift
+@Published var selection: AppSection? = .dashboard
+```
+
+Do not persist or restore the previously selected section.
+
+- [ ] **Step 4: Verify the focused and full suite**
+
+Run:
+
+```bash
+swift test --filter AppSectionTests
+swift test
+swift build
+git diff --check
+```
+
+Expected: all tests and the debug build pass; the diff check has no output.
+
+- [ ] **Step 5: Hand off without committing**
+
+Report the default-navigation behavior and verification results. Do not commit,
+push, create a pull request, package, or release.

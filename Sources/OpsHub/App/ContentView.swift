@@ -41,7 +41,7 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
 }
 
 final class AppNavigationState: ObservableObject {
-    @Published var selection: AppSection? = .gitLab
+    @Published var selection: AppSection? = .dashboard
 }
 
 struct ContentView: View {

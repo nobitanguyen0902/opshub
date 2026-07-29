@@ -2,6 +2,10 @@ import XCTest
 @testable import OpsHub
 
 final class AppSectionTests: XCTestCase {
+    func testNavigationDefaultsToDashboard() {
+        XCTAssertEqual(AppNavigationState().selection, .dashboard)
+    }
+
     func testDevRoomAppearsAfterDashboardWithoutRemovingExistingSections() {
         XCTAssertEqual(
             AppSection.allCases,
