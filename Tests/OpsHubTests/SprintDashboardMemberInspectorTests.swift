@@ -46,4 +46,25 @@ final class SprintDashboardMemberInspectorTests: XCTestCase {
 
         XCTAssertEqual(closeCount, 1)
     }
+
+    func testFocusRouterReturnsToMemberAfterInspectorCloses() {
+        XCTAssertEqual(
+            SprintDashboardInspectorFocusRouter.target(
+                previousSummaryID: "member:41",
+                selectedSummaryID: nil,
+                displayedSummaryIDs: ["member:41", "unassigned"]
+            ),
+            "member:41"
+        )
+    }
+
+    func testFocusRouterDoesNotReturnToRemovedMember() {
+        XCTAssertNil(
+            SprintDashboardInspectorFocusRouter.target(
+                previousSummaryID: "member:41",
+                selectedSummaryID: nil,
+                displayedSummaryIDs: ["member:52"]
+            )
+        )
+    }
 }

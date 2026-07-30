@@ -1,14 +1,83 @@
 import SwiftUI
 
+enum SprintDashboardInspectorFocusRouter {
+    static func target(
+        previousSummaryID: String?,
+        selectedSummaryID: String?,
+        displayedSummaryIDs: Set<String>
+    ) -> String? {
+        guard selectedSummaryID == nil,
+              let previousSummaryID,
+              displayedSummaryIDs.contains(previousSummaryID) else {
+            return nil
+        }
+        return previousSummaryID
+    }
+}
+
+private struct SprintDashboardMemberRowButtonStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                isSelected || configuration.isPressed
+                    ? OpsHubTerminalTheme.selected
+                    : Color.clear
+            )
+    }
+}
+
 struct DashboardView: View {
     @ObservedObject private var viewModel: SprintDashboardViewModel
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selectedSummaryID: String?
+    @AccessibilityFocusState private var focusedSummaryID: String?
 
     init(viewModel: SprintDashboardViewModel) {
         self.viewModel = viewModel
     }
 
     var body: some View {
+        ZStack(alignment: .trailing) {
+            dashboardScroll
+
+            if let selectedSummary {
+                inspectorOverlay(for: selectedSummary)
+            }
+        }
+        .animation(
+            .easeOut(duration: reduceMotion ? 0.12 : 0.20),
+            value: selectedSummaryID
+        )
+        .onExitCommand(perform: closeInspector)
+        .onChange(of: displayedSummaryIDs) { _, summaryIDs in
+            guard let selectedSummaryID,
+                  summaryIDs.contains(selectedSummaryID) == false else {
+                return
+            }
+            self.selectedSummaryID = nil
+        }
+        .onChange(of: selectedSummaryID) { previousID, currentID in
+            focusedSummaryID = SprintDashboardInspectorFocusRouter.target(
+                previousSummaryID: previousID,
+                selectedSummaryID: currentID,
+                displayedSummaryIDs: Set(displayedSummaryIDs)
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(OpsHubTerminalTheme.surfaceSecondary)
+        .navigationTitle("Dashboard")
+        .task {
+            await viewModel.loadIfNeeded()
+        }
+        .task {
+            await viewModel.autoRefresh()
+        }
+    }
+
+    private var dashboardScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
@@ -23,15 +92,57 @@ struct DashboardView: View {
             }
             .padding(20)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(OpsHubTerminalTheme.surfaceSecondary)
-        .navigationTitle("Dashboard")
-        .task {
-            await viewModel.loadIfNeeded()
+    }
+
+    private var selectedSummary: SprintDashboardMemberSummary? {
+        guard let selectedSummaryID else { return nil }
+        return viewModel.data?.memberSummaries.first {
+            $0.id == selectedSummaryID
         }
-        .task {
-            await viewModel.autoRefresh()
+    }
+
+    private var displayedSummaryIDs: [String] {
+        viewModel.data?.memberSummaries.map(\.id) ?? []
+    }
+
+    private func inspectorOverlay(
+        for summary: SprintDashboardMemberSummary
+    ) -> some View {
+        GeometryReader { proxy in
+            let placement = SprintDashboardInspectorLayout.placement(
+                for: proxy.size.width
+            )
+
+            SprintDashboardMemberInspector(
+                summary: summary,
+                onClose: closeInspector
+            )
+            .id(summary.id)
+            .frame(width: placement.width)
+            .frame(maxHeight: .infinity)
+            .background(OpsHubTerminalTheme.surfacePrimary)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(OpsHubTerminalTheme.accent)
+                    .frame(width: 2)
+            }
+            .padding(.trailing, placement.trailingInset)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .trailing
+            )
         }
+        .transition(
+            reduceMotion
+                ? .opacity
+                : .move(edge: .trailing).combined(with: .opacity)
+        )
+        .zIndex(1)
+    }
+
+    private func closeInspector() {
+        selectedSummaryID = nil
     }
 
     private var header: some View {
@@ -294,27 +405,51 @@ struct DashboardView: View {
             Divider()
 
             ForEach(viewModel.data?.memberSummaries ?? []) { summary in
-                memberTableRow(
-                    member: AnyView(memberIdentity(summary.member)),
-                    tickets: AnyView(
-                        Text(summary.ticketCount.formatted())
-                            .font(.system(.callout, design: .monospaced).weight(.semibold))
-                            .monospacedDigit()
-                    ),
-                    released: AnyView(
-                        Text(summary.releasedCount.formatted())
-                            .font(.system(.callout, design: .monospaced).weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.green)
-                    ),
-                    progress: AnyView(memberProgress(summary))
+                Button {
+                    selectedSummaryID = summary.id
+                } label: {
+                    memberTableRow(
+                        member: AnyView(memberIdentity(summary.member)),
+                        tickets: AnyView(
+                            Text(summary.ticketCount.formatted())
+                                .font(
+                                    .system(
+                                        .callout,
+                                        design: .monospaced
+                                    ).weight(.semibold)
+                                )
+                                .monospacedDigit()
+                        ),
+                        released: AnyView(
+                            Text(summary.releasedCount.formatted())
+                                .font(
+                                    .system(
+                                        .callout,
+                                        design: .monospaced
+                                    ).weight(.semibold)
+                                )
+                                .monospacedDigit()
+                                .foregroundStyle(.green)
+                        ),
+                        progress: AnyView(memberProgress(summary))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(
+                    SprintDashboardMemberRowButtonStyle(
+                        isSelected: selectedSummaryID == summary.id
+                    )
                 )
-                .accessibilityElement(children: .combine)
+                .accessibilityFocused(
+                    $focusedSummaryID,
+                    equals: summary.id
+                )
                 .accessibilityLabel(
                     "\(summary.member?.name ?? "Unassigned"), "
                         + "\(summary.ticketCount) tickets, "
                         + "\(summary.releasedCount) released"
                 )
+                .accessibilityHint("Shows this member's sprint tasks")
 
                 if summary.id != viewModel.data?.memberSummaries.last?.id {
                     Divider()
@@ -457,6 +592,9 @@ struct DashboardView: View {
 
                 Spacer()
 
+                SprintMemberAvatar(member: issue.assignee)
+                    .help(issue.assignee?.name ?? "Unassigned")
+
                 if let date = issue.createdAt {
                     Text(date.formatted(.relative(presentation: .named)))
                         .font(.system(.caption2, design: .monospaced))
@@ -474,6 +612,10 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain)
         .disabled(issue.webURL == nil)
+        .accessibilityLabel(
+            "\(issue.title), \(issue.project) issue \(issue.iid), "
+                + "assigned to \(issue.assignee?.name ?? "nobody")"
+        )
         .accessibilityHint(
             issue.webURL == nil
                 ? "GitLab link is unavailable"
