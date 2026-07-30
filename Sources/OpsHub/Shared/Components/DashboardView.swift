@@ -662,46 +662,6 @@ private struct SprintMetricCard: View {
     }
 }
 
-private struct SprintMemberAvatar: View {
-    let member: SprintDashboardMember?
-
-    var body: some View {
-        Group {
-            if let url = member?.avatarURL {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    fallback
-                }
-            } else {
-                fallback
-            }
-        }
-        .frame(width: 28, height: 28)
-        .clipShape(Circle())
-        .overlay {
-            Circle()
-                .strokeBorder(OpsHubTerminalTheme.borderStrong)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var fallback: some View {
-        ZStack {
-            OpsHubTerminalTheme.selected
-            Text(initials)
-                .font(.system(.caption2, design: .monospaced).weight(.bold))
-                .foregroundStyle(OpsHubTerminalTheme.accent)
-        }
-    }
-
-    private var initials: String {
-        guard let name = member?.name else { return "—" }
-        let parts = name.split(separator: " ")
-        return parts.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
-    }
-}
-
 #Preview {
     DashboardView(
         viewModel: SprintDashboardViewModel(
