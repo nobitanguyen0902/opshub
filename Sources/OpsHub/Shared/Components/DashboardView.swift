@@ -16,12 +16,12 @@ enum SprintDashboardInspectorFocusRouter {
 }
 
 private struct SprintDashboardMemberRowButtonStyle: ButtonStyle {
-    let isSelected: Bool
+    let isHighlighted: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                isSelected || configuration.isPressed
+                isHighlighted || configuration.isPressed
                     ? OpsHubTerminalTheme.selected
                     : Color.clear
             )
@@ -33,6 +33,7 @@ struct DashboardView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedSummaryID: String?
+    @State private var hoveredSummaryID: String?
     @AccessibilityFocusState private var focusedSummaryID: String?
 
     init(viewModel: SprintDashboardViewModel) {
@@ -437,9 +438,17 @@ struct DashboardView: View {
                 }
                 .buttonStyle(
                     SprintDashboardMemberRowButtonStyle(
-                        isSelected: selectedSummaryID == summary.id
+                        isHighlighted: selectedSummaryID == summary.id
+                            || hoveredSummaryID == summary.id
                     )
                 )
+                .onHover { isHovering in
+                    if isHovering {
+                        hoveredSummaryID = summary.id
+                    } else if hoveredSummaryID == summary.id {
+                        hoveredSummaryID = nil
+                    }
+                }
                 .accessibilityFocused(
                     $focusedSummaryID,
                     equals: summary.id
@@ -614,7 +623,7 @@ struct DashboardView: View {
         .disabled(issue.webURL == nil)
         .accessibilityLabel(
             "\(issue.title), \(issue.project) issue \(issue.iid), "
-                + "assigned to \(issue.assignee?.name ?? "nobody")"
+                + "\(issue.assignee.map { "assigned to \($0.name)" } ?? "Unassigned")"
         )
         .accessibilityHint(
             issue.webURL == nil
