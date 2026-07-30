@@ -2,6 +2,26 @@ import XCTest
 @testable import OpsHub
 
 final class SprintDashboardMemberInspectorTests: XCTestCase {
+    func testMilestoneLinkRequiresGitLabWebURL() {
+        let linked = SprintMilestone(
+            id: 31,
+            title: "Sprint 31",
+            startDate: .distantPast,
+            dueDate: .distantFuture,
+            webURL: URL(string: "https://gitlab.example.com/milestones/31")
+        )
+        let unavailable = SprintMilestone(
+            id: 30,
+            title: "Sprint 30",
+            startDate: .distantPast,
+            dueDate: .distantFuture,
+            webURL: nil
+        )
+
+        XCTAssertTrue(SprintDashboardMilestonePresentation.canOpen(linked))
+        XCTAssertFalse(SprintDashboardMilestonePresentation.canOpen(unavailable))
+    }
+
     func testInspectorUsesPreferredWidthWhenSpaceAllows() {
         let placement = SprintDashboardInspectorLayout.placement(for: 900)
         XCTAssertEqual(placement.width, 460)
@@ -45,6 +65,18 @@ final class SprintDashboardMemberInspectorTests: XCTestCase {
         inspector.close()
 
         XCTAssertEqual(closeCount, 1)
+    }
+
+    @MainActor
+    func testInspectorBackdropDismissInvokesAction() {
+        var dismissCount = 0
+        let backdrop = SprintDashboardInspectorBackdrop {
+            dismissCount += 1
+        }
+
+        backdrop.dismiss()
+
+        XCTAssertEqual(dismissCount, 1)
     }
 
     func testFocusRouterReturnsToMemberAfterInspectorCloses() {

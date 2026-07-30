@@ -299,7 +299,8 @@ final class SprintDashboardAggregationTests: XCTestCase {
             id: id,
             title: "Sprint \(id)",
             startDate: date(start),
-            dueDate: date(due)
+            dueDate: date(due),
+            webURL: nil
         )
     }
 

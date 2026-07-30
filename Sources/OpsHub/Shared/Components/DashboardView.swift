@@ -1,5 +1,26 @@
 import SwiftUI
 
+enum SprintDashboardMilestonePresentation {
+    static func canOpen(_ milestone: SprintMilestone?) -> Bool {
+        milestone?.webURL != nil
+    }
+}
+
+struct SprintDashboardInspectorBackdrop: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        Color.black.opacity(0.22)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: dismiss)
+            .accessibilityHidden(true)
+    }
+
+    func dismiss() {
+        onDismiss()
+    }
+}
+
 enum SprintDashboardInspectorFocusRouter {
     static func target(
         previousSummaryID: String?,
@@ -114,25 +135,26 @@ struct DashboardView: View {
                 for: proxy.size.width
             )
 
-            SprintDashboardMemberInspector(
-                summary: summary,
-                onClose: closeInspector
-            )
-            .id(summary.id)
-            .frame(width: placement.width)
-            .frame(maxHeight: .infinity)
-            .background(OpsHubTerminalTheme.surfacePrimary)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(OpsHubTerminalTheme.accent)
-                    .frame(width: 2)
+            ZStack(alignment: .trailing) {
+                SprintDashboardInspectorBackdrop(
+                    onDismiss: closeInspector
+                )
+
+                SprintDashboardMemberInspector(
+                    summary: summary,
+                    onClose: closeInspector
+                )
+                .id(summary.id)
+                .frame(width: placement.width)
+                .frame(maxHeight: .infinity)
+                .background(OpsHubTerminalTheme.surfacePrimary)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(OpsHubTerminalTheme.accent)
+                        .frame(width: 2)
+                }
+                .padding(.trailing, placement.trailingInset)
             }
-            .padding(.trailing, placement.trailingInset)
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .trailing
-            )
         }
         .transition(
             reduceMotion
@@ -154,6 +176,24 @@ struct DashboardView: View {
         ) {
             HStack(spacing: 0) {
                 milestonePicker
+
+                Button {
+                    if let webURL = viewModel.selectedMilestone?.webURL {
+                        openURL(webURL)
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .frame(width: 42, height: 42)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(
+                    SprintDashboardMilestonePresentation.canOpen(
+                        viewModel.selectedMilestone
+                    ) == false
+                )
+                .accessibilityLabel("Open selected milestone in GitLab")
+                .accessibilityHint("Opens the milestone details in your browser")
 
                 Divider()
                     .frame(height: 22)

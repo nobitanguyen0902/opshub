@@ -485,7 +485,8 @@ final class GitLabServiceTests: XCTestCase {
                     "title": "Sprint 2026-W31",
                     "state": "active",
                     "start_date": "2026-07-29",
-                    "due_date": "2026-08-04"
+                    "due_date": "2026-08-04",
+                    "web_url": "https://gitlab.example.com/social/socom-issues/-/milestones/31"
                   },
                   {
                     "id": 30,
@@ -522,6 +523,11 @@ final class GitLabServiceTests: XCTestCase {
 
         XCTAssertEqual(milestones.map(\.id), [31, 29])
         XCTAssertEqual(milestones.map(\.title), ["Sprint 2026-W31", "Sprint 2026-W29"])
+        XCTAssertEqual(
+            milestones.first?.webURL,
+            URL(string: "https://gitlab.example.com/social/socom-issues/-/milestones/31")
+        )
+        XCTAssertNil(milestones.last?.webURL)
         XCTAssertEqual(httpClient.requests.count, 2)
         let request = try XCTUnwrap(httpClient.requests.first)
         XCTAssertEqual(
