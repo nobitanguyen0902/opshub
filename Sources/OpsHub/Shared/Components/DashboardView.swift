@@ -35,58 +35,42 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(">")
-                            .foregroundStyle(OpsHubTerminalTheme.accent)
-                        Text("OPSHUB / DASHBOARD")
-                    }
-                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+        OpsHubFeatureHeader(
+            eyebrow: "OPSHUB / DASHBOARD",
+            title: "Sprint health",
+            metadata: headerMetadata
+        ) {
+            HStack(spacing: 0) {
+                milestonePicker
 
-                    Text("Sprint health")
-                        .font(.system(size: 26, weight: .bold, design: .monospaced))
+                Divider()
+                    .frame(height: 22)
+                    .accessibilityHidden(true)
 
-                    Text(headerMetadata)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 0) {
-                    milestonePicker
-
-                    Divider()
-                        .frame(height: 22)
-                        .accessibilityHidden(true)
-
-                    Button {
-                        Task { await viewModel.refresh() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if viewModel.isLoading {
-                                LoadingSpinnerView()
-                                    .accessibilityHidden(true)
-                            }
-
-                            Label("Refresh", systemImage: "arrow.clockwise")
+                Button {
+                    Task { await viewModel.refresh() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if viewModel.isLoading {
+                            LoadingSpinnerView()
+                                .accessibilityHidden(true)
                         }
-                        .frame(width: 116)
-                        .frame(minHeight: 42)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.isLoading)
-                    .accessibilityLabel(
-                        viewModel.isLoading ? "Refreshing Dashboard" : "Refresh Dashboard"
-                    )
-                    .accessibilityHint("Reloads milestones and sprint metrics from GitLab")
-                }
-                .opsHubTerminalControlGroup()
-            }
 
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .frame(width: 116)
+                    .frame(minHeight: 42)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isLoading)
+                .accessibilityLabel(
+                    viewModel.isLoading ? "Refreshing Dashboard" : "Refresh Dashboard"
+                )
+                .accessibilityHint("Reloads milestones and sprint metrics from GitLab")
+            }
+            .opsHubTerminalControlGroup()
+        } status: {
             if case let .stale(message) = viewModel.milestoneState {
                 statusBanner(
                     message: "Milestone list is stale. \(message)",
@@ -101,8 +85,6 @@ struct DashboardView: View {
                 )
             }
         }
-        .padding(16)
-        .opsHubTerminalSurface(isEmphasized: true)
     }
 
     private var milestonePicker: some View {

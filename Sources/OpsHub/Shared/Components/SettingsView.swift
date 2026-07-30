@@ -133,18 +133,11 @@ struct SettingsView: View {
     }
 
     private var settingsHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(">")
-                    .foregroundStyle(OpsHubTerminalTheme.accent)
-                Text("OPSHUB / SETTINGS")
-            }
-            .font(.system(size: 26, weight: .bold, design: .monospaced))
-
-            Text("Personalize OpsHub and configure local integrations.")
-                .font(.system(.callout))
-                .foregroundStyle(.secondary)
-        }
+        OpsHubFeatureHeader(
+            eyebrow: "OPSHUB / SETTINGS",
+            title: "Preferences",
+            metadata: "Personalize OpsHub and configure local integrations."
+        )
     }
 
     private var appearanceSection: some View {

@@ -11,47 +11,24 @@ struct GitLabWorkspaceHeader: View {
     let onRefresh: () -> Void
 
     var body: some View {
-        Group {
-            if mode == .narrow {
-                VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.medium) {
-                    titleBlock
-                    controls
-                }
-            } else {
-                HStack(alignment: .top, spacing: GitLabDesignTokens.Spacing.large) {
-                    titleBlock
-                    Spacer(minLength: GitLabDesignTokens.Spacing.large)
-                    controls
-                }
-            }
+        OpsHubFeatureHeader(
+            eyebrow: "OPSHUB / GITLAB",
+            title: "Workspace",
+            metadata: metadata
+        ) {
+            controls
         }
-        .accessibilityElement(children: .contain)
     }
 
-    private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: GitLabDesignTokens.Spacing.small) {
-            HStack(spacing: GitLabDesignTokens.Spacing.small) {
-                Text(">")
-                    .foregroundStyle(GitLabDesignTokens.terminalAccent)
-
-                Text("GITLAB / WORKSPACE")
-                    .foregroundStyle(.primary)
-            }
-            .font(.system(size: 26, weight: .bold, design: .monospaced))
-
-            HStack(spacing: GitLabDesignTokens.Spacing.medium) {
-                Text("scope=\(selectedScope.title)")
-
-                Text("updated=\(lastUpdatedText)")
-
-                if hasStaleData {
-                    Text("status=stale")
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.system(.caption, design: .monospaced))
-            .foregroundStyle(.secondary)
+    private var metadata: String {
+        var parts = [
+            "scope=\(selectedScope.title)",
+            "updated=\(lastUpdatedText)"
+        ]
+        if hasStaleData {
+            parts.append("status=stale")
         }
+        return parts.joined(separator: " · ")
     }
 
     private var controls: some View {

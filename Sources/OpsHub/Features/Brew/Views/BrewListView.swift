@@ -54,22 +54,11 @@ struct BrewListView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text(">")
-                        .foregroundStyle(OpsHubTerminalTheme.accent)
-                    Text("BREW / PACKAGE MANAGER")
-                }
-                .font(.system(size: 26, weight: .bold, design: .monospaced))
-
-                Text("source=homebrew · mode=local")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
+        OpsHubFeatureHeader(
+            eyebrow: "OPSHUB / BREW",
+            title: "Package manager",
+            metadata: "source=homebrew · mode=local"
+        ) {
             HStack {
                 Button("Refresh", systemImage: "arrow.clockwise") {
                     Task { await viewModel.loadPackages() }
