@@ -163,6 +163,27 @@ final class SprintDashboardAggregationTests: XCTestCase {
         XCTAssertEqual(data.memberSummaries.map(\.member?.id), [alice.id, nil])
         XCTAssertEqual(data.memberSummaries.map(\.ticketCount), [2, 1])
         XCTAssertEqual(data.memberSummaries.map(\.releasedCount), [1, 0])
+        XCTAssertEqual(data.memberSummaries[0].issues.map(\.id), [2, 1])
+        XCTAssertEqual(data.memberSummaries[1].issues.map(\.id), [4])
+    }
+
+    func testMemberSummaryIssuesSortByNewestUpdateThenDescendingGlobalID() {
+        let alice = member(id: 1, name: "Alice")
+        let issues = [
+            issue(id: 1, labels: [], assignee: alice, updatedAt: "2026-07-29T08:00:00+07:00"),
+            issue(id: 2, labels: [], assignee: alice, updatedAt: "2026-07-30T08:00:00+07:00"),
+            issue(id: 3, labels: [], assignee: alice, updatedAt: "2026-07-30T08:00:00+07:00")
+        ]
+
+        let data = SprintDashboardAggregator.makeData(
+            milestone: currentMilestone,
+            sprintIssues: issues,
+            productionBugs: [],
+            selectedUserIDs: [alice.id],
+            calendar: vietnamCalendar
+        )
+
+        XCTAssertEqual(data.memberSummaries.first?.issues.map(\.id), [3, 2, 1])
     }
 
     func testDuplicateGlobalIssueIDCountsOnceUsingMostRecentlyUpdatedIssue() {
@@ -196,6 +217,7 @@ final class SprintDashboardAggregationTests: XCTestCase {
         XCTAssertEqual(data.ticketCount, 1)
         XCTAssertEqual(data.releasedCount, 1)
         XCTAssertEqual(data.memberSummaries.map(\.member?.id), [bob.id])
+        XCTAssertEqual(data.memberSummaries.first?.issues.map(\.title), ["Current"])
     }
 
     func testDuplicateWithMatchingTimestampKeepsFirstResponseItem() {

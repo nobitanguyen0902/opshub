@@ -28,11 +28,16 @@ struct SprintDashboardIssue: Identifiable, Hashable, Sendable {
 
 struct SprintDashboardMemberSummary: Identifiable, Hashable, Sendable {
     let member: SprintDashboardMember?
-    let ticketCount: Int
-    let releasedCount: Int
+    let issues: [SprintDashboardIssue]
 
     var id: String {
         member.map { "member:\($0.id)" } ?? "unassigned"
+    }
+
+    var ticketCount: Int { issues.count }
+
+    var releasedCount: Int {
+        issues.count(where: SprintDashboardAggregator.isReleased)
     }
 
     var progress: Double {
@@ -161,8 +166,7 @@ enum SprintDashboardAggregator {
             let issues = memberIssues.map(\.1)
             return SprintDashboardMemberSummary(
                 member: member,
-                ticketCount: issues.count,
-                releasedCount: issues.count(where: isReleased)
+                issues: issues.sorted(by: memberIssueSort)
             )
         }
         .sorted { lhs, rhs in
@@ -181,12 +185,21 @@ enum SprintDashboardAggregator {
             summaries.append(
                 SprintDashboardMemberSummary(
                     member: nil,
-                    ticketCount: unassignedIssues.count,
-                    releasedCount: unassignedIssues.count(where: isReleased)
+                    issues: unassignedIssues.sorted(by: memberIssueSort)
                 )
             )
         }
         return summaries
+    }
+
+    private static func memberIssueSort(
+        _ lhs: SprintDashboardIssue,
+        _ rhs: SprintDashboardIssue
+    ) -> Bool {
+        if lhs.updatedAt != rhs.updatedAt {
+            return (lhs.updatedAt ?? .distantPast) > (rhs.updatedAt ?? .distantPast)
+        }
+        return lhs.id > rhs.id
     }
 
     private static func deduplicated(
