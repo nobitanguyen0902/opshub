@@ -337,7 +337,8 @@ struct GitLabService:
                 id: milestone.id,
                 title: title,
                 startDate: startDate,
-                dueDate: dueDate
+                dueDate: dueDate,
+                webURL: milestone.webUrl
             )
         }
         .sorted { lhs, rhs in

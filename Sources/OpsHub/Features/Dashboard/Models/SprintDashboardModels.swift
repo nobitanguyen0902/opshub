@@ -5,6 +5,7 @@ struct SprintMilestone: Identifiable, Hashable, Sendable {
     let title: String
     let startDate: Date
     let dueDate: Date
+    let webURL: URL?
 }
 
 struct SprintDashboardMember: Identifiable, Hashable, Sendable {

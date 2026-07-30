@@ -234,7 +234,8 @@ final class SprintDashboardViewModelTests: XCTestCase {
             id: id,
             title: title,
             startDate: date(start),
-            dueDate: date(due)
+            dueDate: date(due),
+            webURL: nil
         )
     }
 
