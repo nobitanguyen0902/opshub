@@ -55,21 +55,36 @@ struct DashboardView: View {
 
                 Spacer(minLength: 12)
 
-                HStack(spacing: 8) {
+                HStack(spacing: 0) {
                     milestonePicker
+
+                    Divider()
+                        .frame(height: 22)
+                        .accessibilityHidden(true)
 
                     Button {
                         Task { await viewModel.refresh() }
                     } label: {
-                        Label(
-                            viewModel.isLoading ? "Refreshing" : "Refresh",
-                            systemImage: "arrow.clockwise"
-                        )
+                        HStack(spacing: 6) {
+                            if viewModel.isLoading {
+                                LoadingSpinnerView()
+                                    .accessibilityHidden(true)
+                            }
+
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .frame(width: 116)
+                        .frame(minHeight: 42)
+                        .contentShape(Rectangle())
                     }
-                    .opsHubTerminalControl()
+                    .buttonStyle(.plain)
                     .disabled(viewModel.isLoading)
+                    .accessibilityLabel(
+                        viewModel.isLoading ? "Refreshing Dashboard" : "Refresh Dashboard"
+                    )
                     .accessibilityHint("Reloads milestones and sprint metrics from GitLab")
                 }
+                .opsHubTerminalControlGroup()
             }
 
             if case let .stale(message) = viewModel.milestoneState {
@@ -91,28 +106,47 @@ struct DashboardView: View {
     }
 
     private var milestonePicker: some View {
-        Picker(
-            "Sprint",
-            selection: Binding<Int?>(
-                get: { viewModel.selectedMilestoneID },
-                set: { id in
-                    guard let id else { return }
-                    Task { await viewModel.selectMilestone(id: id) }
+        HStack(spacing: 8) {
+            Image(systemName: "calendar")
+                .foregroundStyle(OpsHubTerminalTheme.accent)
+
+            Text("Milestone:")
+                .foregroundStyle(.secondary)
+
+            Picker("", selection: selectedMilestoneBinding) {
+                if viewModel.milestones.isEmpty {
+                    Text("No milestones")
+                        .tag(nil as Int?)
                 }
-            )
-        ) {
-            if viewModel.selectedMilestoneID == nil {
-                Text("Select sprint").tag(Optional<Int>.none)
+
+                ForEach(viewModel.milestones) { milestone in
+                    Text(milestone.title)
+                        .tag(Optional(milestone.id))
+                }
             }
-            ForEach(viewModel.milestones) { milestone in
-                Text(milestone.title).tag(Optional(milestone.id))
-            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .frame(minWidth: 170)
-        .opsHubTerminalControl()
-        .accessibilityLabel("Selected sprint")
+        .padding(.horizontal, 12)
+        .frame(width: 300, alignment: .leading)
+        .frame(minHeight: 42)
+        .contentShape(Rectangle())
+        .disabled(viewModel.milestones.isEmpty)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Selected milestone")
+        .accessibilityValue(viewModel.selectedMilestone?.title ?? "No milestone selected")
+    }
+
+    private var selectedMilestoneBinding: Binding<Int?> {
+        Binding(
+            get: { viewModel.selectedMilestoneID },
+            set: { milestoneID in
+                guard let milestoneID else { return }
+                Task { await viewModel.selectMilestone(id: milestoneID) }
+            }
+        )
     }
 
     private var initialLoading: some View {

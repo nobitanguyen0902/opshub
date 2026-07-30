@@ -396,3 +396,20 @@ Không chạy packaging script và không tạo release trong phạm vi này.
 - Không ghi nhớ hoặc khôi phục màn hình cuối cùng của phiên chạy trước.
 - Sau khi mở ứng dụng, người dùng vẫn có thể chuyển sang các mục khác như hiện tại.
 - Có regression test xác nhận `AppNavigationState` mới luôn khởi tạo với `.dashboard`.
+
+## 14. Đồng bộ control milestone và refresh
+
+- Chỉ thay đổi control chọn milestone và nút `Refresh` trong Dashboard header.
+- Milestone và `Refresh` nằm trong một terminal control group duy nhất, dùng chung
+  background, border, corner radius, font và chiều cao `42pt`.
+- Milestone dùng `Picker` native kiểu menu đặt cạnh icon lịch và label
+  `Milestone:` trong cùng segment. Picker tự render tên milestone đang chọn.
+- Segment milestone rộng `300pt`.
+- Khi chưa có milestone, hiển thị `No milestones` và disable riêng segment menu.
+- Divider dọc phân tách Select và Button nhưng không tạo hai khung control rời nhau.
+- Nút `Refresh` giữ icon và label trong mọi trạng thái; khi tải bổ sung spinner,
+  disable riêng segment button và không làm thay đổi kích thước group.
+- Dùng native `Picker` và `Button` semantics, accessibility label/value rõ ràng,
+  không dùng tap gesture trên view không có role.
+- Giữ nguyên vị trí header, nội dung tiêu đề, metadata, KPI và toàn bộ panel phía dưới.
+- Giữ nguyên hành vi chọn milestone, refresh dữ liệu và accessibility label hiện có.

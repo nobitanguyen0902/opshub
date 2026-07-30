@@ -71,6 +71,21 @@ private struct OpsHubTerminalControlModifier: ViewModifier {
     }
 }
 
+private struct OpsHubTerminalControlGroupModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(.callout, design: .monospaced))
+            .background(OpsHubTerminalTheme.surfacePrimary)
+            .clipShape(
+                RoundedRectangle(cornerRadius: OpsHubTerminalTheme.controlRadius)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: OpsHubTerminalTheme.controlRadius)
+                    .strokeBorder(OpsHubTerminalTheme.borderStrong)
+            }
+    }
+}
+
 private struct OpsHubTerminalInputModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -100,6 +115,10 @@ extension View {
 
     func opsHubTerminalControl() -> some View {
         modifier(OpsHubTerminalControlModifier())
+    }
+
+    func opsHubTerminalControlGroup() -> some View {
+        modifier(OpsHubTerminalControlGroupModifier())
     }
 
     func opsHubTerminalInput() -> some View {

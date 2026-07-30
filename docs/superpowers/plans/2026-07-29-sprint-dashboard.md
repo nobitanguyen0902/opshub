@@ -684,3 +684,60 @@ Expected: all tests and the debug build pass; the diff check has no output.
 
 Report the default-navigation behavior and verification results. Do not commit,
 push, create a pull request, package, or release.
+
+---
+
+### Task 7: Align Milestone and Refresh Controls
+
+**Files:**
+- Modify: `Sources/OpsHub/Shared/Components/OpsHubTerminalTheme.swift`
+- Modify: `Sources/OpsHub/Shared/Components/DashboardView.swift`
+
+**Interfaces:**
+- Consumes: `viewModel.milestones`, `viewModel.selectedMilestoneID`,
+  `viewModel.isLoading`, `viewModel.selectMilestone(id:)`, `viewModel.refresh()`
+- Produces: `opsHubTerminalControlGroup()` and a grouped milestone `Picker` plus
+  refresh `Button`
+
+- [ ] **Step 1: Add the shared terminal control-group surface**
+
+Add an `OpsHubTerminalControlGroupModifier` that applies the shared monospaced
+font, primary surface, strong border, control radius and clipping. Expose:
+
+```swift
+func opsHubTerminalControlGroup() -> some View {
+    modifier(OpsHubTerminalControlGroupModifier())
+}
+```
+
+- [ ] **Step 2: Render the native milestone Picker as one segment**
+
+Place a menu-style `Picker` beside the calendar icon and `Milestone:` label.
+Give the segment `300pt` width and `42pt` minimum height. The Picker must render
+the selected title itself; keep selection behavior and accessibility value.
+
+- [ ] **Step 3: Render Refresh as the matching segment**
+
+Place a vertical divider between the segments. Render Refresh using a plain
+native `Button` with the same `42pt` height and horizontal padding. Keep its
+label visible while loading, prepend `LoadingSpinnerView()`, and disable it
+during refresh.
+
+- [ ] **Step 4: Verify scope and behavior**
+
+Run:
+
+```bash
+swift test --filter SprintDashboard
+swift test
+swift build
+git diff --check
+```
+
+Expected: all tests and debug build pass. Confirm the production diff changes
+only the shared group style and the two controls inside `DashboardView.header`.
+
+- [ ] **Step 5: Hand off without committing**
+
+Report the control changes and verification results. Do not commit, push,
+create a pull request, package, or release.
