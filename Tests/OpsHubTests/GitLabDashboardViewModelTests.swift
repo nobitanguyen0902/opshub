@@ -236,6 +236,24 @@ final class GitLabDashboardViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshReloadsDetailsForPreviouslyLoadedPipeline() async {
+        let pipeline = actionPipeline()
+        let service = RefreshingPipelineGitLabService(pipeline: pipeline)
+        let viewModel = GitLabDashboardViewModel(service: service)
+
+        await viewModel.loadPipelineDetails(pipeline)
+        await service.setJobStatus(.success)
+        await viewModel.refresh()
+
+        guard case let .loaded(details) = viewModel.pipelineDetailsState(for: pipeline) else {
+            return XCTFail("Expected loaded pipeline details.")
+        }
+        XCTAssertEqual(details.stages.first?.status, .success)
+        let calls = await service.recordedPipelineJobsCalls()
+        XCTAssertEqual(calls, 2)
+    }
+
+    @MainActor
     func testBuildStagePlaysManualJobAndRefreshesToSuccess() async {
         let service = PipelineActionGitLabService()
         let viewModel = GitLabDashboardViewModel(service: service)
@@ -253,6 +271,131 @@ final class GitLabDashboardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.stageActionState(for: stage, pipeline: pipeline), .idle)
         XCTAssertEqual(viewModel.pipelineActionNotice?.severity, .success)
         XCTAssertEqual(viewModel.pipelineActionNotice?.message, "deploy completed successfully.")
+    }
+
+    @MainActor
+    func testBuildStageUnlocksActionWhileRunningJobIsStillMonitored() async {
+        let service = PipelineActionGitLabService(postPlayStatuses: [.running])
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline()
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        let actionTask = Task {
+            await viewModel.perform(
+                .build,
+                on: stage,
+                pipeline: pipeline,
+                pollIntervals: [.seconds(5)]
+            )
+        }
+        for _ in 0..<100 {
+            let calls = await service.recordedCalls()
+            if calls.pipelineJobs >= 2 { break }
+            await Task.yield()
+        }
+
+        let calls = await service.recordedCalls()
+        XCTAssertEqual(calls.playJobIDs, [301])
+        XCTAssertGreaterThanOrEqual(calls.pipelineJobs, 2)
+        XCTAssertEqual(viewModel.stageActionState(for: stage, pipeline: pipeline), .idle)
+        actionTask.cancel()
+        await actionTask.value
+    }
+
+    @MainActor
+    func testBuildStageUsesAcceptedJobStatusWhileFirstPollIsPending() async {
+        let service = PipelineActionGitLabService(
+            postPlayStatuses: [.running],
+            postPlayJobsDelay: .seconds(5)
+        )
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline()
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        let actionTask = Task {
+            await viewModel.perform(
+                .build,
+                on: stage,
+                pipeline: pipeline,
+                pollIntervals: []
+            )
+        }
+        for _ in 0..<100 {
+            let calls = await service.recordedCalls()
+            if calls.playJobIDs == [301], calls.pipelineJobs >= 2 { break }
+            await Task.yield()
+        }
+
+        guard case let .loaded(details) = viewModel.pipelineDetailsState(for: pipeline) else {
+            actionTask.cancel()
+            await actionTask.value
+            return XCTFail("Expected loaded pipeline details.")
+        }
+        XCTAssertEqual(details.stages.first?.status, .pending)
+        XCTAssertEqual(viewModel.stageActionState(for: stage, pipeline: pipeline), .idle)
+        actionTask.cancel()
+        await actionTask.value
+    }
+
+    @MainActor
+    func testBuildStageKeepsPollingUntilRunningJobSucceeds() async {
+        let service = PipelineActionGitLabService(
+            postPlayStatuses: [.running, .running, .success]
+        )
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline()
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        await viewModel.perform(
+            .build,
+            on: stage,
+            pipeline: pipeline,
+            pollIntervals: [.zero, .zero]
+        )
+
+        guard case let .loaded(details) = viewModel.pipelineDetailsState(for: pipeline) else {
+            return XCTFail("Expected loaded pipeline details.")
+        }
+        XCTAssertEqual(details.stages.first?.status, .success)
+        XCTAssertEqual(viewModel.pipelineActionNotice?.severity, .success)
+        let calls = await service.recordedCalls()
+        XCTAssertEqual(calls.pipelineJobs, 4)
+    }
+
+    @MainActor
+    func testBuildStageReportsWhenRunningJobOutlastsPollingWindow() async {
+        let service = PipelineActionGitLabService(postPlayStatuses: [.running])
+        let viewModel = GitLabDashboardViewModel(service: service)
+        let pipeline = actionPipeline()
+        let stage = GitLabPipelineStage(
+            name: "deploy",
+            jobs: [actionJob(status: .manual)]
+        )
+
+        await viewModel.perform(.build, on: stage, pipeline: pipeline, pollIntervals: [])
+
+        XCTAssertEqual(viewModel.pipelineActionNotice?.severity, .neutral)
+        XCTAssertEqual(
+            viewModel.pipelineActionNotice?.message,
+            "deploy is still running. Refresh to check its latest status."
+        )
+    }
+
+    @MainActor
+    func testDefaultPipelineActionPollingWindowIsThirtyMinutes() {
+        let duration = GitLabDashboardViewModel.pipelineActionPollIntervals
+            .reduce(Duration.zero, +)
+
+        XCTAssertEqual(duration, .seconds(30 * 60))
     }
 
     @MainActor
@@ -325,6 +468,16 @@ final class GitLabDashboardViewModelTests: XCTestCase {
 private actor PipelineActionGitLabService: GitLabServicing {
     private var pipelineJobsCalls = 0
     private var playJobIDs: [Int] = []
+    private var postPlayStatuses: [GitLabJobStatus]
+    private let postPlayJobsDelay: Duration
+
+    init(
+        postPlayStatuses: [GitLabJobStatus] = [.success],
+        postPlayJobsDelay: Duration = .zero
+    ) {
+        self.postPlayStatuses = postPlayStatuses
+        self.postPlayJobsDelay = postPlayJobsDelay
+    }
 
     func mergeRequests() async throws -> [GitLabMergeRequest] { [] }
     func mergeReviews() async throws -> [GitLabMergeRequest] { [] }
@@ -335,19 +488,18 @@ private actor PipelineActionGitLabService: GitLabServicing {
 
     func pipelineJobs(projectID: Int, pipelineID: Int) async throws -> [GitLabJob] {
         pipelineJobsCalls += 1
-        return [
-            GitLabJob(
-                id: 301,
-                name: "deploy-production",
-                stage: "deploy",
-                status: playJobIDs.isEmpty ? .manual : .success,
-                allowFailure: false,
-                isArchived: false,
-                failureReason: nil,
-                duration: nil,
-                webURL: nil
-            )
-        ]
+        let status: GitLabJobStatus
+        if playJobIDs.isEmpty {
+            status = .manual
+        } else {
+            try? await Task.sleep(for: postPlayJobsDelay)
+            if postPlayStatuses.count > 1 {
+                status = postPlayStatuses.removeFirst()
+            } else {
+                status = postPlayStatuses.first ?? .success
+            }
+        }
+        return [makeJob(status: status)]
     }
 
     func playJob(projectID: Int, jobID: Int) async throws -> GitLabJob {
@@ -367,6 +519,62 @@ private actor PipelineActionGitLabService: GitLabServicing {
 
     func recordedCalls() -> (pipelineJobs: Int, playJobIDs: [Int]) {
         (pipelineJobsCalls, playJobIDs)
+    }
+
+    private func makeJob(status: GitLabJobStatus) -> GitLabJob {
+        GitLabJob(
+            id: 301,
+            name: "deploy-production",
+            stage: "deploy",
+            status: status,
+            allowFailure: false,
+            isArchived: false,
+            failureReason: nil,
+            duration: nil,
+            webURL: nil
+        )
+    }
+}
+
+private actor RefreshingPipelineGitLabService: GitLabServicing {
+    private let pipeline: GitLabPipeline
+    private var jobStatus: GitLabJobStatus = .running
+    private var pipelineJobsCalls = 0
+
+    init(pipeline: GitLabPipeline) {
+        self.pipeline = pipeline
+    }
+
+    func mergeRequests() async throws -> [GitLabMergeRequest] { [] }
+    func mergeReviews() async throws -> [GitLabMergeRequest] { [] }
+    func issues() async throws -> [GitLabIssue] { [] }
+    func notifications() async throws -> [GitLabNotification] { [] }
+    func pipelines() async throws -> [GitLabPipeline] { [pipeline] }
+    func testConnection(settings: GitLabSettings) async throws -> GitLabConnectionTestResult { .connected }
+
+    func pipelineJobs(projectID: Int, pipelineID: Int) async throws -> [GitLabJob] {
+        pipelineJobsCalls += 1
+        return [
+            GitLabJob(
+                id: 301,
+                name: "deploy-production",
+                stage: "deploy",
+                status: jobStatus,
+                allowFailure: false,
+                isArchived: false,
+                failureReason: nil,
+                duration: nil,
+                webURL: nil
+            )
+        ]
+    }
+
+    func setJobStatus(_ status: GitLabJobStatus) {
+        jobStatus = status
+    }
+
+    func recordedPipelineJobsCalls() -> Int {
+        pipelineJobsCalls
     }
 }
 

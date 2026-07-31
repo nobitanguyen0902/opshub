@@ -4,6 +4,9 @@ import Foundation
 @MainActor
 final class GitLabDashboardViewModel: ObservableObject {
     static let autoRefreshInterval: Duration = .seconds(5 * 60)
+    static let pipelineActionPollIntervals: [Duration] =
+        [.seconds(2), .seconds(3), .seconds(5)]
+        + Array(repeating: .seconds(10), count: 179)
 
     @Published var selection = GitLabWorkspaceSelection()
     @Published var selectedScope: GitLabProjectScope = .allProjects
@@ -28,6 +31,12 @@ final class GitLabDashboardViewModel: ObservableObject {
     private var loadingScope: GitLabProjectScope?
     private var loadedScope: GitLabProjectScope?
     private var loadingPipelineDetails: Set<GitLabPipelineKey> = []
+    private var pipelineStageMonitors: [GitLabPipelineStageKey: PipelineStageMonitor] = [:]
+
+    private struct PipelineStageMonitor {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
 
     init(
         service: any GitLabServicing = GitLabService()
@@ -301,9 +310,7 @@ final class GitLabDashboardViewModel: ObservableObject {
         _ action: GitLabPipelineStageAction,
         on stage: GitLabPipelineStage,
         pipeline: GitLabPipeline,
-        pollIntervals: [Duration] = [
-            .seconds(2), .seconds(3), .seconds(5), .seconds(10), .seconds(10)
-        ]
+        pollIntervals: [Duration]? = nil
     ) async {
         let actionKey = stageKey(for: stage, pipeline: pipeline)
         guard pipelineStageActions[actionKey]?.isRunning != true else { return }
@@ -317,6 +324,8 @@ final class GitLabDashboardViewModel: ObservableObject {
             return
         }
 
+        pipelineStageMonitors[actionKey]?.task.cancel()
+        pipelineStageMonitors.removeValue(forKey: actionKey)
         pipelineStageActions[actionKey] = .running(action)
 
         do {
@@ -340,9 +349,15 @@ final class GitLabDashboardViewModel: ObservableObject {
 
             var failedCount = 0
             var lastError: (any Error)?
+            var acceptedJobsByID: [Int: GitLabJob] = [:]
             for job in jobs {
                 do {
-                    _ = try await perform(action, on: job, projectID: pipeline.projectID)
+                    let acceptedJob = try await perform(
+                        action,
+                        on: job,
+                        projectID: pipeline.projectID
+                    )
+                    acceptedJobsByID[job.id] = acceptedJob
                 } catch {
                     failedCount += 1
                     lastError = error
@@ -362,16 +377,40 @@ final class GitLabDashboardViewModel: ObservableObject {
                 return
             }
 
+            let acceptedDetails = GitLabPipelineDetails(
+                pipeline: refreshedDetails.pipeline,
+                jobs: freshJobs.map { acceptedJobsByID[$0.id] ?? $0 }
+            )
+            pipelineDetails[acceptedDetails.pipeline] = .loaded(acceptedDetails)
             pipelineActionNotice = GitLabPipelineActionNotice(
                 message: "\(action.rawValue) requested for \(stage.name).",
                 severity: .neutral
             )
-            await monitor(
-                stageName: stage.name,
-                pipeline: pipeline,
-                intervals: pollIntervals
-            )
             pipelineStageActions[actionKey] = .idle
+
+            let monitorID = UUID()
+            let monitorTask = Task { [weak self] in
+                guard let self else { return }
+                await self.monitor(
+                    stageName: stage.name,
+                    pipeline: pipeline,
+                    actionKey: actionKey,
+                    monitorID: monitorID,
+                    intervals: pollIntervals ?? Self.pipelineActionPollIntervals
+                )
+            }
+            pipelineStageMonitors[actionKey] = PipelineStageMonitor(
+                id: monitorID,
+                task: monitorTask
+            )
+            await withTaskCancellationHandler {
+                await monitorTask.value
+            } onCancel: {
+                monitorTask.cancel()
+            }
+            if pipelineStageMonitors[actionKey]?.id == monitorID {
+                pipelineStageMonitors.removeValue(forKey: actionKey)
+            }
         } catch {
             let message = errorMessage(error)
             pipelineStageActions[actionKey] = .failed(message)
@@ -408,6 +447,7 @@ final class GitLabDashboardViewModel: ObservableObject {
     func refresh() async {
         let scope = selectedScope
         guard loadingScope != scope else { return }
+        let loadedPipelineKeys = Set(pipelineDetails.keys)
         loadingScope = scope
         isLoading = true
         defer {
@@ -456,6 +496,7 @@ final class GitLabDashboardViewModel: ObservableObject {
             section: .issues,
             hadData: issues.isEmpty == false
         ) { issues = $0 }
+        var pipelinesWithLoadedDetails: [GitLabPipeline] = []
         let pipelinesSucceeded = apply(
             pipelinesResult,
             section: .pipelines,
@@ -467,9 +508,16 @@ final class GitLabDashboardViewModel: ObservableObject {
             pipelineStageActions = pipelineStageActions.filter {
                 activeKeys.contains($0.key.pipeline)
             }
+            pipelinesWithLoadedDetails = batch.pipelines.filter {
+                loadedPipelineKeys.contains(pipelineKey(for: $0))
+            }
+            cancelPipelineStageMonitors(excluding: activeKeys)
             pipelineWarning = batch.failedProjects.isEmpty
                 ? nil
                 : "Could not load pipelines for: \(batch.failedProjects.joined(separator: ", "))."
+        }
+        if pipelinesSucceeded {
+            await refreshLoadedPipelineDetails(pipelinesWithLoadedDetails)
         }
         loadWarning = loadWarning(for: [
             projectsResult.error,
@@ -562,6 +610,22 @@ final class GitLabDashboardViewModel: ObservableObject {
         GitLabPipelineStageKey(pipeline: pipelineKey(for: pipeline), name: stage.name)
     }
 
+    private func refreshLoadedPipelineDetails(_ pipelines: [GitLabPipeline]) async {
+        for pipeline in pipelines {
+            await loadPipelineDetails(pipeline, force: true)
+        }
+    }
+
+    private func cancelPipelineStageMonitors(excluding activeKeys: Set<GitLabPipelineKey>) {
+        let obsoleteMonitorKeys = pipelineStageMonitors.keys.filter {
+            !activeKeys.contains($0.pipeline)
+        }
+        for key in obsoleteMonitorKeys {
+            pipelineStageMonitors[key]?.task.cancel()
+            pipelineStageMonitors.removeValue(forKey: key)
+        }
+    }
+
     private func perform(
         _ action: GitLabPipelineStageAction,
         on job: GitLabJob,
@@ -580,9 +644,15 @@ final class GitLabDashboardViewModel: ObservableObject {
     private func monitor(
         stageName: String,
         pipeline: GitLabPipeline,
+        actionKey: GitLabPipelineStageKey,
+        monitorID: UUID,
         intervals: [Duration]
     ) async {
         for interval in [.zero] + intervals {
+            guard Task.isCancelled == false,
+                  pipelineStageMonitors[actionKey]?.id == monitorID else {
+                return
+            }
             if interval != .zero {
                 do {
                     try await Task.sleep(for: interval)
@@ -591,7 +661,15 @@ final class GitLabDashboardViewModel: ObservableObject {
                 }
             }
 
+            guard Task.isCancelled == false,
+                  pipelineStageMonitors[actionKey]?.id == monitorID else {
+                return
+            }
             await loadPipelineDetails(pipeline, force: true)
+            guard Task.isCancelled == false,
+                  pipelineStageMonitors[actionKey]?.id == monitorID else {
+                return
+            }
             guard case let .loaded(details) = pipelineDetailsState(for: pipeline),
                   let stage = details.stages.first(where: { $0.name == stageName }) else {
                 continue
@@ -621,6 +699,12 @@ final class GitLabDashboardViewModel: ObservableObject {
                 continue
             }
         }
+
+        guard pipelineStageMonitors[actionKey]?.id == monitorID else { return }
+        pipelineActionNotice = GitLabPipelineActionNotice(
+            message: "\(stageName) is still running. Refresh to check its latest status.",
+            severity: .neutral
+        )
     }
 
 }
