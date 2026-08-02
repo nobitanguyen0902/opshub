@@ -40,6 +40,10 @@ final class CodexTerminalViewModel: ObservableObject {
         sessions.first(where: { $0.id == id })?.state.isActive == true
     }
 
+    func setColor(_ color: CodexTerminalTabColor, for id: UUID) {
+        sessions.first(where: { $0.id == id })?.setTabColor(color)
+    }
+
     func close(_ id: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].terminate()

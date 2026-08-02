@@ -32,6 +32,10 @@ struct CodexLaunchConfiguration: Equatable {
     let arguments = ["-l"]
 }
 
+enum CodexTerminalTabColor: String, CaseIterable, Equatable {
+    case `default`, red, orange, yellow, green, blue, purple, pink
+}
+
 @MainActor
 protocol CodexTerminalHosting: AnyObject {
     var onStateChange: ((CodexTerminalSessionState) -> Void)? { get set }
@@ -42,6 +46,7 @@ protocol CodexTerminalHosting: AnyObject {
 final class CodexTerminalSession: ObservableObject, Identifiable {
     let id: UUID
     @Published private(set) var title: String
+    @Published private(set) var tabColor: CodexTerminalTabColor
     let host: any CodexTerminalHosting
     @Published var state: CodexTerminalSessionState
 
@@ -49,10 +54,12 @@ final class CodexTerminalSession: ObservableObject, Identifiable {
         id: UUID = UUID(),
         title: String,
         host: any CodexTerminalHosting,
-        state: CodexTerminalSessionState = .starting
+        state: CodexTerminalSessionState = .starting,
+        tabColor: CodexTerminalTabColor = .default
     ) {
         self.id = id
         self.title = title
+        self.tabColor = tabColor
         self.host = host
         self.state = state
         host.onStateChange = { [weak self] state in self?.state = state }
@@ -66,5 +73,9 @@ final class CodexTerminalSession: ObservableObject, Identifiable {
 
     func rename(to title: String) {
         self.title = title
+    }
+
+    func setTabColor(_ color: CodexTerminalTabColor) {
+        tabColor = color
     }
 }

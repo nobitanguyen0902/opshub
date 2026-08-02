@@ -128,7 +128,7 @@ private struct CodexTerminalTab: View {
         HStack(spacing: 7) {
             Button(action: onSelect) {
                 HStack(spacing: 7) {
-                    Circle().fill(session.state.isActive ? OpsHubTerminalTheme.accent : Color.secondary).frame(width: 7, height: 7)
+                    Circle().fill(session.tabColor.color ?? (session.state.isActive ? OpsHubTerminalTheme.accent : Color.secondary)).frame(width: 7, height: 7)
                     Text(session.title)
                     Text(session.state.label).foregroundStyle(.secondary)
                 }
@@ -141,7 +141,27 @@ private struct CodexTerminalTab: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button("Rename Tab", action: onRename)
+            Menu("Tab Color") {
+                ForEach(CodexTerminalTabColor.allCases, id: \.self) { color in
+                    Button(color.rawValue.capitalized) { session.setTabColor(color) }
+                }
+            }
         }
         .accessibilityLabel("\(session.title), \(session.state.label)")
+    }
+}
+
+private extension CodexTerminalTabColor {
+    var color: Color? {
+        switch self {
+        case .default: nil
+        case .red: .red
+        case .orange: .orange
+        case .yellow: .yellow
+        case .green: .green
+        case .blue: .blue
+        case .purple: .purple
+        case .pink: .pink
+        }
     }
 }

@@ -85,6 +85,26 @@ final class CodexTerminalViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.sessions.map(\.title), ["Terminal 1", "Terminal 2"])
     }
+
+    func testChangesColorForOnlyTheRequestedSession() throws {
+        let viewModel = CodexTerminalViewModel(factory: CodexTestSessionFactory())
+        let first = try viewModel.createSession()
+        let second = try viewModel.createSession()
+
+        viewModel.setColor(.orange, for: first.id)
+
+        XCTAssertEqual(first.tabColor, .orange)
+        XCTAssertEqual(second.tabColor, .default)
+        XCTAssertEqual(viewModel.selectedSessionID, second.id)
+    }
+
+    func testChangingColorForUnknownSessionDoesNothing() {
+        let viewModel = CodexTerminalViewModel(factory: CodexTestSessionFactory())
+
+        viewModel.setColor(.purple, for: UUID())
+
+        XCTAssertTrue(viewModel.sessions.isEmpty)
+    }
 }
 
 @MainActor
