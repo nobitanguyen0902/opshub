@@ -3,6 +3,8 @@ import SwiftUI
 struct CodexTerminalView: View {
     @ObservedObject var viewModel: CodexTerminalViewModel
     @State private var pendingCloseID: UUID?
+    @State private var pendingRenameID: UUID?
+    @State private var renameDraft = ""
 
     var body: some View {
         VStack(spacing: 12) {
@@ -32,6 +34,12 @@ struct CodexTerminalView: View {
             }
             Button("Cancel", role: .cancel) { pendingCloseID = nil }
         } message: { Text("Closing a running tab can interrupt work in progress.") }
+        .alert("Rename Tab", isPresented: renameAlertBinding) {
+            TextField("Tab Name", text: $renameDraft)
+            Button("Cancel", role: .cancel) { resetRenameState() }
+            Button("Rename") { submitRename() }
+                .disabled(normalizedRenameDraft.isEmpty)
+        }
     }
 
     private var metadata: String {
@@ -42,20 +50,13 @@ struct CodexTerminalView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
                 ForEach(viewModel.sessions) { session in
-                    HStack(spacing: 7) {
-                        Button { viewModel.select(session.id) } label: {
-                            HStack(spacing: 7) {
-                                Circle().fill(session.state.isActive ? OpsHubTerminalTheme.accent : Color.secondary).frame(width: 7, height: 7)
-                                Text(session.title)
-                                Text(session.state.label).foregroundStyle(.secondary)
-                            }
-                        }.buttonStyle(.plain)
-                        Button { requestClose(session) } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.plain).accessibilityLabel("Close \(session.title)")
-                    }
-                    .padding(.horizontal, 10).frame(minHeight: 34)
-                    .background(viewModel.selectedSessionID == session.id ? OpsHubTerminalTheme.selected : .clear)
-                    .accessibilityLabel("\(session.title), \(session.state.label)")
+                    CodexTerminalTab(
+                        session: session,
+                        isSelected: viewModel.selectedSessionID == session.id,
+                        onSelect: { viewModel.select(session.id) },
+                        onClose: { requestClose(session) },
+                        onRename: { requestRename(session) }
+                    )
                 }
             }
         }.opsHubTerminalSurface()
@@ -65,7 +66,10 @@ struct CodexTerminalView: View {
         ZStack {
             ForEach(viewModel.sessions) { session in
                 if let host = session.host as? SwiftTermCodexTerminalHost {
-                    CodexTerminalHostView(host: host)
+                    CodexTerminalHostView(
+                        host: host,
+                        isActive: viewModel.selectedSessionID == session.id
+                    )
                         .opacity(viewModel.selectedSessionID == session.id ? 1 : 0)
                         .allowsHitTesting(viewModel.selectedSessionID == session.id)
                 }
@@ -80,12 +84,64 @@ struct CodexTerminalView: View {
         Binding(get: { pendingCloseID != nil }, set: { if !$0 { pendingCloseID = nil } })
     }
 
+    private var renameAlertBinding: Binding<Bool> {
+        Binding(get: { pendingRenameID != nil }, set: { if !$0 { resetRenameState() } })
+    }
+
+    private var normalizedRenameDraft: String {
+        renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func requestClose(_ session: CodexTerminalSession) {
         if viewModel.requiresCloseConfirmation(session.id) { pendingCloseID = session.id } else { viewModel.close(session.id) }
+    }
+
+    private func requestRename(_ session: CodexTerminalSession) {
+        pendingRenameID = session.id
+        renameDraft = session.title
+    }
+
+    private func submitRename() {
+        if let pendingRenameID { viewModel.renameSession(pendingRenameID, to: renameDraft) }
+        resetRenameState()
+    }
+
+    private func resetRenameState() {
+        pendingRenameID = nil
+        renameDraft = ""
     }
 
     private func createSession() {
         do { try viewModel.createSession() } catch { viewModel.errorMessage = error.localizedDescription }
     }
 
+}
+
+private struct CodexTerminalTab: View {
+    @ObservedObject var session: CodexTerminalSession
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    let onRename: () -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Button(action: onSelect) {
+                HStack(spacing: 7) {
+                    Circle().fill(session.state.isActive ? OpsHubTerminalTheme.accent : Color.secondary).frame(width: 7, height: 7)
+                    Text(session.title)
+                    Text(session.state.label).foregroundStyle(.secondary)
+                }
+            }.buttonStyle(.plain)
+            Button(action: onClose) { Image(systemName: "xmark") }
+                .buttonStyle(.plain).accessibilityLabel("Close \(session.title)")
+        }
+        .padding(.horizontal, 10).frame(minHeight: 34)
+        .background(isSelected ? OpsHubTerminalTheme.selected : .clear)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("Rename Tab", action: onRename)
+        }
+        .accessibilityLabel("\(session.title), \(session.state.label)")
+    }
 }

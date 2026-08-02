@@ -38,6 +38,53 @@ final class CodexTerminalViewModelTests: XCTestCase {
         XCTAssertEqual(active.terminateCount, 1)
         XCTAssertEqual(exited.terminateCount, 0)
     }
+
+    func testRenamesNonSelectedSessionWithoutAffectingSelectionOrHost() throws {
+        let viewModel = CodexTerminalViewModel(factory: CodexTestSessionFactory())
+        let first = try viewModel.createSession()
+        let second = try viewModel.createSession()
+
+        viewModel.renameSession(first.id, to: "Architect")
+
+        XCTAssertEqual(first.title, "Architect")
+        XCTAssertEqual(second.title, "Terminal 2")
+        XCTAssertEqual(viewModel.selectedSessionID, second.id)
+        XCTAssertEqual(first.terminateCount, 0)
+        XCTAssertEqual(second.terminateCount, 0)
+        XCTAssertEqual(first.state, .starting)
+    }
+
+    func testRenameTrimsWhitespaceAndRejectsBlankTitle() throws {
+        let viewModel = CodexTerminalViewModel(factory: CodexTestSessionFactory())
+        let session = try viewModel.createSession()
+
+        viewModel.renameSession(session.id, to: "  Build Logs\n")
+        XCTAssertEqual(session.title, "Build Logs")
+
+        viewModel.renameSession(session.id, to: " \n\t ")
+        XCTAssertEqual(session.title, "Build Logs")
+    }
+
+    func testRenameAllowsDuplicateTitles() throws {
+        let viewModel = CodexTerminalViewModel(factory: CodexTestSessionFactory())
+        let first = try viewModel.createSession()
+        let second = try viewModel.createSession()
+
+        viewModel.renameSession(first.id, to: "Shared")
+        viewModel.renameSession(second.id, to: "Shared")
+
+        XCTAssertEqual(viewModel.sessions.map(\.title), ["Shared", "Shared"])
+    }
+
+    func testRenameUnknownSessionDoesNotChangeExistingSessions() throws {
+        let viewModel = CodexTerminalViewModel(factory: CodexTestSessionFactory())
+        _ = try viewModel.createSession()
+        _ = try viewModel.createSession()
+
+        viewModel.renameSession(UUID(), to: "Unknown")
+
+        XCTAssertEqual(viewModel.sessions.map(\.title), ["Terminal 1", "Terminal 2"])
+    }
 }
 
 @MainActor

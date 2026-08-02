@@ -9,10 +9,11 @@ swift run OpsHub
 ## Terminal
 
 Open **Terminal** and use **New Terminal** to start independent interactive
-terminal tabs. Each tab starts a zsh login shell at the current user's home
-directory. Terminal processes, tabs, and output are not restored after an app
-restart. Agent presets are not included in V1. SwiftTerm is included under its
-MIT license.
+terminal tabs named `Terminal N`. Right-click a tab and select **Rename Tab** to
+change its display name for the current session. Each tab starts a zsh login
+shell at the current user's home directory. Terminal processes, tabs, titles,
+and output are not restored after an app restart. Agent presets are not included
+in V1. SwiftTerm is included under its MIT license.
 
 ## Create a macOS release archive
 

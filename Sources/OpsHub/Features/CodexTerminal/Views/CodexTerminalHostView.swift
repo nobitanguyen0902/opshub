@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 final class SwiftTermCodexTerminalHost: NSObject, CodexTerminalHosting {
-    let terminalView = LocalProcessTerminalView(frame: .zero)
+    let terminalView = FocusableLocalProcessTerminalView(frame: .zero)
     var onStateChange: ((CodexTerminalSessionState) -> Void)?
     private var didStart = false
     private let startDirectory: URL
@@ -15,9 +15,11 @@ final class SwiftTermCodexTerminalHost: NSObject, CodexTerminalHosting {
         self.configuration = configuration
         super.init()
         terminalView.processDelegate = self
-        terminalView.nativeBackgroundColor = .textBackgroundColor
-        terminalView.nativeForegroundColor = .textColor
-        terminalView.caretColor = .systemGreen
+        terminalView.nativeBackgroundColor = .black
+        terminalView.nativeForegroundColor = .white
+        terminalView.caretColor = .white
+        terminalView.selectedTextBackgroundColor = .selectedContentBackgroundColor
+        terminalView.selectedTextForegroundColor = .white
     }
 
     func startIfNeeded() {
@@ -36,6 +38,18 @@ final class SwiftTermCodexTerminalHost: NSObject, CodexTerminalHosting {
     }
 
     func terminate() { terminalView.terminate() }
+
+    func restoreKeyboardFocus() {
+        terminalView.window?.makeFirstResponder(terminalView)
+    }
+}
+
+@MainActor
+final class FocusableLocalProcessTerminalView: LocalProcessTerminalView {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
 }
 
 extension SwiftTermCodexTerminalHost: @preconcurrency LocalProcessTerminalViewDelegate {
@@ -47,11 +61,24 @@ extension SwiftTermCodexTerminalHost: @preconcurrency LocalProcessTerminalViewDe
 
 struct CodexTerminalHostView: NSViewRepresentable {
     let host: SwiftTermCodexTerminalHost
+    let isActive: Bool
+
+    final class Coordinator {
+        var wasActive = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
+        context.coordinator.wasActive = isActive
         host.startIfNeeded()
         return host.terminalView
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {}
+    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
+        let becameActive = isActive && !context.coordinator.wasActive
+        context.coordinator.wasActive = isActive
+        guard becameActive else { return }
+        DispatchQueue.main.async { host.restoreKeyboardFocus() }
+    }
 }

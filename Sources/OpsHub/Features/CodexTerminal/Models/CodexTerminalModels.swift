@@ -41,7 +41,7 @@ protocol CodexTerminalHosting: AnyObject {
 @MainActor
 final class CodexTerminalSession: ObservableObject, Identifiable {
     let id: UUID
-    let title: String
+    @Published private(set) var title: String
     let host: any CodexTerminalHosting
     @Published var state: CodexTerminalSessionState
 
@@ -62,5 +62,9 @@ final class CodexTerminalSession: ObservableObject, Identifiable {
         guard state.isActive else { return }
         state = .terminating
         host.terminate()
+    }
+
+    func rename(to title: String) {
+        self.title = title
     }
 }

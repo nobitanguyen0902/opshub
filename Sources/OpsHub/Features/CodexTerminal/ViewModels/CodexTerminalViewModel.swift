@@ -30,6 +30,12 @@ final class CodexTerminalViewModel: ObservableObject {
 
     func select(_ id: UUID) { selectedSessionID = id }
 
+    func renameSession(_ id: UUID, to candidateTitle: String) {
+        let title = candidateTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, let session = sessions.first(where: { $0.id == id }) else { return }
+        session.rename(to: title)
+    }
+
     func requiresCloseConfirmation(_ id: UUID) -> Bool {
         sessions.first(where: { $0.id == id })?.state.isActive == true
     }
