@@ -5,6 +5,7 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
     case devRoom
     case brew
     case gitLab
+    case terminal
     case settings
 
     var id: Self { self }
@@ -19,6 +20,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
             return "Brew"
         case .gitLab:
             return "GitLab"
+        case .terminal:
+            return "Terminal"
         case .settings:
             return "Settings"
         }
@@ -34,6 +37,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
             return "cup.and.saucer"
         case .gitLab:
             return "arrow.triangle.branch"
+        case .terminal:
+            return "terminal"
         case .settings:
             return "gearshape"
         }
@@ -49,6 +54,7 @@ struct ContentView: View {
     private let devRoomViewModel: DevRoomViewModel
     @StateObject private var sprintDashboardViewModel: SprintDashboardViewModel
     @StateObject private var gitLabViewModel: GitLabDashboardViewModel
+    @ObservedObject private var codexTerminalViewModel: CodexTerminalViewModel
     let settingsStore: any GitLabSettingsStoring
     private let visibilityStore: any DevRoomVisibilitySettingsStoring
     private let memberService: any DevRoomMemberServicing
@@ -61,7 +67,8 @@ struct ContentView: View {
         gitLabService: GitLabService? = nil,
         devRoomViewModel: DevRoomViewModel? = nil,
         memberService: (any DevRoomMemberServicing)? = nil,
-        appearanceStore: AppearanceSettingsStore = AppearanceSettingsStore()
+        appearanceStore: AppearanceSettingsStore = AppearanceSettingsStore(),
+        codexTerminalViewModel: CodexTerminalViewModel? = nil
     ) {
         self.navigationState = navigationState
         self.settingsStore = settingsStore
@@ -69,6 +76,7 @@ struct ContentView: View {
         let resolvedGitLabService = gitLabService ?? GitLabService(settingsStore: settingsStore)
         self.memberService = memberService ?? resolvedGitLabService
         self.appearanceStore = appearanceStore
+        self.codexTerminalViewModel = codexTerminalViewModel ?? CodexTerminalViewModel()
         let selectedUserIDs = visibilityStore.load().selectedUserIDs
         self.devRoomViewModel = devRoomViewModel ?? DevRoomViewModel(
             service: resolvedGitLabService,
@@ -106,6 +114,8 @@ struct ContentView: View {
                 BrewListView()
             case .gitLab:
                 GitLabDashboardView(viewModel: gitLabViewModel)
+            case .terminal:
+                CodexTerminalView(viewModel: codexTerminalViewModel)
             case .dashboard:
                 DashboardView(viewModel: sprintDashboardViewModel)
             case .settings:

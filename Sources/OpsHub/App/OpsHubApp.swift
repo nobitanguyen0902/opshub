@@ -7,6 +7,7 @@ struct OpsHubApp: App {
     @StateObject private var navigationState = AppNavigationState()
     @StateObject private var devRoomViewModel: DevRoomViewModel
     @StateObject private var appearanceStore: AppearanceSettingsStore
+    @StateObject private var codexTerminalViewModel: CodexTerminalViewModel
 
     private let updateManager: UpdateManager
     private let gitLabSettingsStore: GitLabSettingsStore
@@ -18,12 +19,14 @@ struct OpsHubApp: App {
         let visibilityStore = DevRoomVisibilitySettingsStore()
         let service = GitLabService(settingsStore: settingsStore)
         let appearanceStore = AppearanceSettingsStore()
+        let codexTerminalViewModel = CodexTerminalViewModel()
 
         updateManager = UpdateManager()
         gitLabSettingsStore = settingsStore
         devRoomVisibilityStore = visibilityStore
         gitLabService = service
         _appearanceStore = StateObject(wrappedValue: appearanceStore)
+        _codexTerminalViewModel = StateObject(wrappedValue: codexTerminalViewModel)
         _devRoomViewModel = StateObject(
             wrappedValue: DevRoomViewModel(
                 service: service,
@@ -40,9 +43,13 @@ struct OpsHubApp: App {
                 visibilityStore: devRoomVisibilityStore,
                 gitLabService: gitLabService,
                 devRoomViewModel: devRoomViewModel,
-                appearanceStore: appearanceStore
+                appearanceStore: appearanceStore,
+                codexTerminalViewModel: codexTerminalViewModel
             )
             .preferredColorScheme(appearanceStore.theme.colorScheme)
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                codexTerminalViewModel.terminateAll()
+            }
         }
         .defaultSize(width: 960, height: 620)
         .commands {

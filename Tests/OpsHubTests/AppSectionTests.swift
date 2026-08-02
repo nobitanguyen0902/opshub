@@ -6,13 +6,13 @@ final class AppSectionTests: XCTestCase {
         XCTAssertEqual(AppNavigationState().selection, .dashboard)
     }
 
-    func testDevRoomAppearsAfterDashboardWithoutRemovingExistingSections() {
+    func testTerminalAppearsBeforeSettingsWithoutRemovingExistingSections() {
         XCTAssertEqual(
             AppSection.allCases,
-            [.dashboard, .devRoom, .brew, .gitLab, .settings]
+            [.dashboard, .devRoom, .brew, .gitLab, .terminal, .settings]
         )
-        XCTAssertEqual(AppSection.devRoom.title, "Dev Room")
-        XCTAssertEqual(AppSection.devRoom.systemImage, "person.3.fill")
+        XCTAssertEqual(AppSection.terminal.title, "Terminal")
+        XCTAssertEqual(AppSection.terminal.systemImage, "terminal")
     }
 
     @MainActor

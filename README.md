@@ -6,6 +6,14 @@
 swift run OpsHub
 ```
 
+## Terminal
+
+Open **Terminal** and use **New Terminal** to start independent interactive
+terminal tabs. Each tab starts a zsh login shell at the current user's home
+directory. Terminal processes, tabs, and output are not restored after an app
+restart. Agent presets are not included in V1. SwiftTerm is included under its
+MIT license.
+
 ## Create a macOS release archive
 
 The packaging script creates `dist/OpsHub.app` and `dist/OpsHub.zip`, suitable

@@ -8,13 +8,15 @@ let package = Package(
         .executable(name: "OpsHub", targets: ["OpsHub"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.15.0")
     ],
     targets: [
         .executableTarget(
             name: "OpsHub",
             dependencies: [
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             resources: [
                 .copy("Resources/AppIcon.icns")
