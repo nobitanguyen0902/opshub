@@ -38,7 +38,7 @@ final class SwiftTermCodexTerminalHost: NSObject, CodexTerminalHosting {
     func terminate() { terminalView.terminate() }
 }
 
-extension SwiftTermCodexTerminalHost: @MainActor LocalProcessTerminalViewDelegate {
+extension SwiftTermCodexTerminalHost: @preconcurrency LocalProcessTerminalViewDelegate {
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
