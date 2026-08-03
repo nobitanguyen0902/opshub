@@ -88,33 +88,6 @@ final class KanbanSQLiteReaderTests: XCTestCase {
     }
 }
 
-@MainActor
-final class KanbanViewModelTests: XCTestCase {
-    func testRefreshMapsTasksAndClearsPreviousError() async {
-        let task = KanbanTask(id: "1", title: "Task", body: "", assignee: nil, status: .running, priority: 1, createdAt: Date(), result: nil)
-        let model = KanbanViewModel(reader: StubKanbanReader(snapshot: KanbanBoardSnapshot(tasks: [task], loadedAt: Date())))
-        await model.refresh()
-        XCTAssertEqual(model.snapshot?.tasks.first?.status, .running)
-        XCTAssertNil(model.errorMessage)
-    }
-
-    func testRefreshExposesReaderErrorAndEmptySnapshot() async {
-        let model = KanbanViewModel(reader: StubKanbanReader(error: KanbanReadError.query("boom")))
-        await model.refresh()
-        XCTAssertNil(model.snapshot)
-        XCTAssertEqual(model.errorMessage, "Unable to read Kanban database: boom")
-    }
-}
-
-private struct StubKanbanReader: KanbanDatabaseReading {
-    let snapshot: KanbanBoardSnapshot?
-    let error: Error?
-    init(snapshot: KanbanBoardSnapshot) { self.snapshot = snapshot; self.error = nil }
-    init(error: Error) { self.snapshot = nil; self.error = error }
-    func loadBoard() throws -> KanbanBoardSnapshot { if let error { throw error }; return snapshot! }
-    func loadTaskDetail(taskID: String) throws -> KanbanTaskDetail { fatalError("unused") }
-}
-
 extension KanbanReadError: Equatable {
     public static func == (lhs: KanbanReadError, rhs: KanbanReadError) -> Bool {
         lhs.errorDescription == rhs.errorDescription

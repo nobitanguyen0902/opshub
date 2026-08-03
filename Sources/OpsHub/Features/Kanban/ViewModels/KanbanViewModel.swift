@@ -3,23 +3,296 @@ import Foundation
 @MainActor final class KanbanViewModel: ObservableObject {
     @Published private(set) var snapshot: KanbanBoardSnapshot?
     @Published private(set) var errorMessage: String?
-    @Published private(set) var isLoading = false
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var activeAction: KanbanAction?
+    @Published var selectedCardID: KanbanCardID?
+    @Published var isPresentingNewTask = false
     @Published var selectedDetail: KanbanTaskDetail?
-    private let reader: any KanbanDatabaseReading
-    private var refreshing = false
-    init(reader: any KanbanDatabaseReading = KanbanSQLiteReader()) { self.reader = reader }
+    @Published private(set) var selectedHermesDetail: HermesKanbanTaskDetail?
+    @Published private(set) var selectedLog: String?
+
+    var isLoading: Bool { isRefreshing }
+
+    private let hermes: any HermesKanbanServicing
+    private let coordinator: any KanbanWorkflowCoordinating
+    private let sleeper: @Sendable (Duration) async throws -> Void
+
+    init(
+        hermes: any HermesKanbanServicing = HermesKanbanService(),
+        coordinator: (any KanbanWorkflowCoordinating)? = nil,
+        sleeper: @escaping @Sendable (Duration) async throws -> Void = { duration in
+            try await Task.sleep(for: duration)
+        }
+    ) {
+        self.hermes = hermes
+        self.coordinator = coordinator ?? KanbanWorkflowCoordinator(
+            store: FileKanbanWorkflowStore(),
+            hermes: hermes,
+            workspaceValidator: KanbanWorkspaceValidator()
+        )
+        self.sleeper = sleeper
+    }
+
     func refresh() async {
-        guard !refreshing else { return }
-        refreshing = true
-        isLoading = true
-        defer { refreshing = false; isLoading = false }
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         do {
-            let value = try await Task.detached { try self.reader.loadBoard() }.value
-            snapshot = value
+            async let workflows = coordinator.refresh()
+            async let hermesTasks = hermes.listTasks()
+            snapshot = KanbanBoardSnapshot(
+                cards: makeCards(workflows: try await workflows, hermesTasks: try await hermesTasks),
+                loadedAt: Date()
+            )
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
     }
-    func select(_ task: KanbanTask) async { do { selectedDetail = try await Task.detached { try self.reader.loadTaskDetail(taskID: task.id) }.value } catch { errorMessage = error.localizedDescription } }
+
+    func createDraft(_ input: KanbanDraftInput) async {
+        await performMutation(.createDraft) {
+            _ = try await self.coordinator.createDraft(input)
+        }
+    }
+
+    func startSelected() async {
+        await performSelectedMutation(action: .start, requiredAction: .start) { workflowID in
+            _ = try await self.coordinator.start(workflowID: workflowID)
+        }
+    }
+
+    func approveSelected() async {
+        await performSelectedMutation(action: .approve, requiredAction: .approve) { workflowID in
+            _ = try await self.coordinator.approve(workflowID: workflowID)
+        }
+    }
+
+    func cancelSelected() async {
+        await performSelectedMutation(action: .cancel, requiredAction: .cancel) { workflowID in
+            _ = try await self.coordinator.cancel(workflowID: workflowID)
+        }
+    }
+
+    func retrySelected() async {
+        await performSelectedMutation(action: .retry, requiredAction: .retry) { workflowID in
+            _ = try await self.coordinator.retry(workflowID: workflowID)
+        }
+    }
+
+    func loadSelectedDetail() async {
+        guard let taskID = selectedHermesTaskID else { return }
+        do {
+            let detail = try await hermes.taskDetail(id: taskID)
+            selectedHermesDetail = detail
+            selectedDetail = legacyDetail(from: detail)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadSelectedLog(tailBytes: Int = 64_000) async {
+        guard let taskID = selectedHermesTaskID else { return }
+        do {
+            selectedLog = try await hermes.log(taskID: taskID, tailBytes: tailBytes)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func autoRefresh() async {
+        do {
+            _ = try await coordinator.resumePendingTransitions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await refresh()
+
+        while !Task.isCancelled {
+            do {
+                try await sleeper(.seconds(5))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await refresh()
+        }
+    }
+
+    // Kept until Task 8 moves the existing board to card selection.
+    func select(_ task: KanbanTask) async {
+        selectedCardID = snapshot?.cards.first(where: { $0.displayID == task.id })?.id ?? .hermes(task.id)
+        await loadSelectedDetail()
+    }
+
+    private func performSelectedMutation(
+        action: KanbanAction,
+        requiredAction: KanbanAvailableAction,
+        operation: @escaping @MainActor (UUID) async throws -> Void
+    ) async {
+        guard case let .workflow(workflowID)? = selectedCardID,
+              selectedCard?.availableActions.contains(requiredAction) == true
+        else {
+            return
+        }
+        await performMutation(action) {
+            try await operation(workflowID)
+        }
+    }
+
+    private func performMutation(
+        _ action: KanbanAction,
+        operation: @escaping @MainActor () async throws -> Void
+    ) async {
+        guard activeAction == nil else { return }
+        activeAction = action
+        defer { activeAction = nil }
+        do {
+            try await operation()
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+            await reconcilePartialFailure(preserving: error.localizedDescription)
+        }
+    }
+
+    private func reconcilePartialFailure(preserving message: String) async {
+        do {
+            _ = try await coordinator.resumePendingTransitions()
+            await refresh()
+            errorMessage = message
+        } catch {
+            // Keep the original mutation error; it is more actionable than a recovery failure.
+        }
+    }
+
+    private var selectedCard: KanbanCardViewData? {
+        guard let selectedCardID else { return nil }
+        return snapshot?.cards.first(where: { $0.id == selectedCardID })
+    }
+
+    private var selectedHermesTaskID: String? {
+        guard let selectedCardID else { return nil }
+        switch selectedCardID {
+        case let .hermes(taskID):
+            return taskID
+        case let .workflow(workflowID):
+            guard let workflow = lastWorkflows.first(where: { $0.id == workflowID }) else { return nil }
+            if let currentStage = workflow.currentStage,
+               let reference = workflow.stageReferences.last(where: { $0.stage == currentStage }) {
+                return reference.hermesTaskID
+            }
+            return workflow.stageReferences.last?.hermesTaskID
+        }
+    }
+
+    private var lastWorkflows: [KanbanWorkflow] = []
+
+    private func makeCards(
+        workflows: [KanbanWorkflow],
+        hermesTasks: [HermesKanbanTask]
+    ) -> [KanbanCardViewData] {
+        lastWorkflows = workflows
+        let internalTaskIDs = Set(workflows.flatMap(\.stageReferences).map(\.hermesTaskID))
+        let tasksByID = Dictionary(uniqueKeysWithValues: hermesTasks.map { ($0.id, $0) })
+        let workflowCards = workflows.map { workflow in
+            workflowCard(workflow, task: workflow.currentStage.flatMap { stage in
+                workflow.stageReferences.last(where: { $0.stage == stage }).flatMap { tasksByID[$0.hermesTaskID] }
+            })
+        }
+        let externalCards = hermesTasks.compactMap { task -> KanbanCardViewData? in
+            guard !internalTaskIDs.contains(task.id), let column = KanbanColumn(status: task.status) else {
+                return nil
+            }
+            return KanbanCardViewData(
+                id: .hermes(task.id),
+                title: task.title,
+                column: column,
+                priority: KanbanPriority(rawValue: task.priority) ?? .normal,
+                displayID: task.id,
+                workspacePath: task.workspacePath,
+                stageLabel: task.assignee,
+                elapsed: elapsed(since: task.startedAtDate),
+                isWorkflowOwned: false,
+                availableActions: []
+            )
+        }
+        return workflowCards + externalCards
+    }
+
+    private func workflowCard(_ workflow: KanbanWorkflow, task: HermesKanbanTask?) -> KanbanCardViewData {
+        let phase = workflow.phase
+        let column: KanbanColumn
+        let actions: Set<KanbanAvailableAction>
+        let stageLabel: String?
+        switch phase {
+        case .triage:
+            column = .triage
+            actions = [.start]
+            stageLabel = "Triage"
+        case .active:
+            column = .running
+            actions = [.cancel]
+            stageLabel = workflow.currentStage?.rawValue.capitalized
+        case .approvalRequired:
+            column = .ready
+            actions = [.approve, .cancel]
+            stageLabel = "Approval Required"
+        case .blocked:
+            column = .blocked
+            actions = [.retry]
+            stageLabel = workflow.cancellationReason ?? "Blocked"
+        case .needsAttention:
+            column = .blocked
+            actions = []
+            stageLabel = "Needs Attention"
+        case .done:
+            column = .done
+            actions = []
+            stageLabel = "Done"
+        }
+        return KanbanCardViewData(
+            id: .workflow(workflow.id),
+            title: workflow.title,
+            column: column,
+            priority: workflow.priority,
+            displayID: workflow.id.uuidString,
+            workspacePath: workflow.workspacePath,
+            stageLabel: stageLabel,
+            elapsed: elapsed(since: task?.startedAtDate),
+            isWorkflowOwned: true,
+            availableActions: actions
+        )
+    }
+
+    private func elapsed(since start: Date?) -> TimeInterval? {
+        start.map { max(0, Date().timeIntervalSince($0)) }
+    }
+
+    private func legacyDetail(from detail: HermesKanbanTaskDetail) -> KanbanTaskDetail {
+        let task = detail.task
+        let legacyTask = KanbanTask(
+            id: task.id,
+            title: task.title,
+            body: task.body ?? "",
+            assignee: task.assignee,
+            status: KanbanStatus(rawValue: KanbanColumn(status: task.status)?.rawValue ?? "todo") ?? .todo,
+            priority: task.priority,
+            createdAt: task.createdAtDate ?? Date(),
+            result: task.result
+        )
+        return KanbanTaskDetail(
+            task: legacyTask,
+            comments: detail.comments.enumerated().map { index, comment in
+                KanbanComment(id: index, author: comment.author, body: comment.body, createdAt: comment.createdAtDate ?? Date())
+            },
+            events: detail.events.enumerated().map { index, event in
+                KanbanEvent(id: index, kind: event.kind, payload: event.payload, createdAt: event.createdAtDate ?? Date())
+            }
+        )
+    }
 }

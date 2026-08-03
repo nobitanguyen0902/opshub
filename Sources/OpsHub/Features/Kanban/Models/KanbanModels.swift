@@ -27,12 +27,85 @@ enum KanbanPriority: Int, CaseIterable, Codable, Sendable {
     var title: String { String(describing: self).capitalized }
 }
 
+enum KanbanCardID: Hashable, Sendable {
+    case workflow(UUID)
+    case hermes(String)
+}
+
+enum KanbanAvailableAction: Hashable, Sendable {
+    case start, approve, cancel, retry
+}
+
+enum KanbanAction: Hashable, Sendable {
+    case createDraft, start, approve, cancel, retry
+}
+
+struct KanbanCardViewData: Identifiable, Equatable, Sendable {
+    let id: KanbanCardID
+    let title: String
+    let column: KanbanColumn
+    let priority: KanbanPriority
+    let displayID: String
+    let workspacePath: String?
+    let stageLabel: String?
+    let elapsed: TimeInterval?
+    let isWorkflowOwned: Bool
+    let availableActions: Set<KanbanAvailableAction>
+
+    var workspaceName: String? {
+        workspacePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+    }
+}
+
 enum KanbanStatus: String, CaseIterable, Identifiable, Hashable { case triage, todo, ready, running, blocked, done; var id: Self { self }; var title: String { rawValue.capitalized } }
 struct KanbanTask: Identifiable, Hashable { let id: String; let title: String; let body: String; let assignee: String?; let status: KanbanStatus; let priority: Int; let createdAt: Date; let result: String? }
 struct KanbanComment: Identifiable, Hashable { let id: Int; let author: String; let body: String; let createdAt: Date }
 struct KanbanEvent: Identifiable, Hashable { let id: Int; let kind: String; let payload: String?; let createdAt: Date }
 struct KanbanTaskDetail: Identifiable, Hashable { let task: KanbanTask; let comments: [KanbanComment]; let events: [KanbanEvent]; var id: String { task.id } }
-struct KanbanBoardSnapshot { let tasks: [KanbanTask]; let loadedAt: Date }
+struct KanbanBoardSnapshot: Equatable, Sendable {
+    let cards: [KanbanCardViewData]
+    let loadedAt: Date
+
+    init(cards: [KanbanCardViewData], loadedAt: Date) {
+        self.cards = cards
+        self.loadedAt = loadedAt
+    }
+
+    // Temporary compatibility for the legacy board and SQLite reader. Task 8 replaces
+    // its consumer and Task 10 removes the SQLite path.
+    init(tasks: [KanbanTask], loadedAt: Date) {
+        cards = tasks.map { task in
+            KanbanCardViewData(
+                id: .hermes(task.id),
+                title: task.title,
+                column: KanbanColumn(status: HermesKanbanStatus(rawValue: task.status.rawValue) ?? .todo) ?? .todo,
+                priority: KanbanPriority(rawValue: task.priority) ?? .normal,
+                displayID: task.id,
+                workspacePath: nil,
+                stageLabel: task.assignee,
+                elapsed: nil,
+                isWorkflowOwned: false,
+                availableActions: []
+            )
+        }
+        self.loadedAt = loadedAt
+    }
+
+    var tasks: [KanbanTask] {
+        cards.map { card in
+            KanbanTask(
+                id: card.displayID,
+                title: card.title,
+                body: "",
+                assignee: card.stageLabel,
+                status: KanbanStatus(rawValue: card.column.rawValue) ?? .todo,
+                priority: card.priority.rawValue,
+                createdAt: loadedAt.addingTimeInterval(-(card.elapsed ?? 0)),
+                result: nil
+            )
+        }
+    }
+}
 enum KanbanReadError: LocalizedError {
     case missing
     case open(String)
