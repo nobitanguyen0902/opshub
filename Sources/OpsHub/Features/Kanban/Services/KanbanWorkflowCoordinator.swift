@@ -7,6 +7,7 @@ protocol KanbanWorkflowCoordinating: Sendable {
     func refresh() async throws -> [KanbanWorkflow]
     func approve(workflowID: UUID) async throws -> KanbanWorkflow
     func cancel(workflowID: UUID) async throws -> KanbanWorkflow
+    func recoverCancellation(workflowID: UUID) async throws -> KanbanWorkflow
     func retry(workflowID: UUID) async throws -> KanbanWorkflow
     func resumePendingTransitions() async throws -> [KanbanWorkflow]
 }
@@ -127,7 +128,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         )
         let canonicalPath = canonicalWorkspace.standardizedFileURL.resolvingSymlinksInPath().path
         if let activeWorkflow = current.first(where: {
-            $0.id != workflowID && ($0.phase == .active || $0.phase == .approvalRequired) &&
+            $0.id != workflowID && Self.reservesWorkspace($0) &&
                 Self.canonicalPath($0.workspacePath) == canonicalPath
         }) {
             throw KanbanStartGuardError.workspaceAlreadyActive(activeWorkflow.id)
@@ -179,13 +180,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 throw KanbanWorkflowError.missingCurrentTask
             }
             let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
-            guard
-                let run = Self.latestTerminalRun(in: detail.runs),
-                run.profile == KanbanStage.architect.rawValue,
-                let metadata = run.metadata
-            else {
-                throw KanbanWorkflowError.unsafeRecovery
-            }
+            let run = try Self.currentTerminalRun(in: detail, stage: .architect)
+            guard let metadata = run.metadata else { throw KanbanWorkflowError.unsafeRecovery }
             let handoff = try architectHandoff(from: metadata)
             guard handoff.outcome == .approvalRequired else {
                 throw KanbanWorkflowError.unsafeRecovery
@@ -213,41 +209,72 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             guard workflow.phase == .active || workflow.phase == .approvalRequired else {
                 throw KanbanWorkflowError.invalidPhase(workflow.phase)
             }
-
-            var cancelled = workflow
-            cancelled.phase = .blocked
-            cancelled.pendingTransition = KanbanPendingTransition(
-                kind: .cancel,
-                stage: workflow.currentStage,
-                attempt: workflow.repairCount,
-                idempotencyKey: "opshub:\(workflow.id.uuidString.lowercased()):cancel:\(workflow.repairCount)",
-                previousPhase: workflow.phase,
-                previousHandoffSummary: nil,
-                startedAt: now()
-            )
-            cancelled.cancellationReason = "Cancelled by user"
-            cancelled.updatedAt = now()
-            try await persist(cancelled, replacingAt: index, in: workflows)
-
             guard let reference = Self.currentReference(in: workflow) else {
-                return cancelled
+                return try await finishCancellation(
+                    workflow,
+                    previousPhase: workflow.phase,
+                    requiresHermesUnblock: false,
+                    replacingAt: index,
+                    in: workflows
+                )
             }
-            try await hermes.reclaim(taskID: reference.hermesTaskID, reason: "Cancelled by user")
-            do {
-                try await hermes.block(taskID: reference.hermesTaskID, reason: "Cancelled by user")
-                let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
-                guard detail.task.status == .blocked else {
-                    throw KanbanWorkflowError.unsafeRecovery
-                }
-                return cancelled
-            } catch {
-                var needsAttention = cancelled
-                needsAttention.phase = .needsAttention
-                needsAttention.cancellationReason = "Reclaimed but failed to block: \(error.localizedDescription)"
-                needsAttention.updatedAt = now()
-                try await persist(needsAttention, replacingAt: index, in: workflows)
-                throw error
+            let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
+            switch detail.task.status {
+            case .ready, .running, .review:
+                var pending = workflow
+                pending.phase = .blocked
+                pending.pendingTransition = Self.cancelTransition(
+                    workflow: workflow,
+                    previousPhase: workflow.phase,
+                    reclaimed: false,
+                    startedAt: now()
+                )
+                pending.cancellationReason = "Cancelled by user"
+                pending.cancellationPreviousPhase = workflow.phase
+                pending.cancellationRequiresHermesUnblock = true
+                pending.updatedAt = now()
+                try await persist(pending, replacingAt: index, in: workflows)
+                return try await executeCancellation(
+                    pending,
+                    reference: reference,
+                    replacingAt: index,
+                    in: workflows
+                )
+            case .blocked:
+                return try await finishCancellation(
+                    workflow,
+                    previousPhase: workflow.phase,
+                    requiresHermesUnblock: true,
+                    replacingAt: index,
+                    in: workflows
+                )
+            case .triage, .todo, .scheduled, .done, .archived:
+                return try await finishCancellation(
+                    workflow,
+                    previousPhase: workflow.phase,
+                    requiresHermesUnblock: false,
+                    replacingAt: index,
+                    in: workflows
+                )
             }
+        }
+    }
+
+    func recoverCancellation(workflowID: UUID) async throws -> KanbanWorkflow {
+        try await mutationGate.run { [self] in
+            let workflows = try await store.load()
+            guard let index = workflows.firstIndex(where: { $0.id == workflowID }) else {
+                throw KanbanWorkflowError.workflowNotFound(workflowID)
+            }
+            let workflow = workflows[index]
+            guard workflow.pendingTransition?.kind == .cancel else {
+                throw KanbanWorkflowError.unsafeRecovery
+            }
+            return try await recoverCancellationTransition(
+                workflow: workflow,
+                replacingAt: index,
+                in: workflows
+            )
         }
     }
 
@@ -278,9 +305,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                             in: workflows
                         )
                     case .cancel:
-                        recovered = try await resumeCancellation(
+                        recovered = try await recoverCancellationTransition(
                             workflow: workflow,
-                            transition: transition,
                             replacingAt: index,
                             in: workflows
                         )
@@ -294,10 +320,12 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                     }
                     workflows[index] = recovered
                 } catch {
-                    var needsAttention = workflow
+                    let latest = try await store.load()
+                    var needsAttention = latest[index]
                     needsAttention.phase = .needsAttention
+                    needsAttention.attentionReason = "Pending transition recovery failed: \(error.localizedDescription)"
                     needsAttention.updatedAt = now()
-                    try await persist(needsAttention, replacingAt: index, in: workflows)
+                    try await persist(needsAttention, replacingAt: index, in: latest)
                     workflows[index] = needsAttention
                 }
             }
@@ -312,23 +340,44 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             guard workflow.phase == .active, let stage = workflow.currentStage else {
                 continue
             }
-            guard let reference = workflow.stageReferences.last(where: { $0.stage == stage }) else {
-                throw KanbanWorkflowError.missingCurrentTask
+            do {
+                guard let reference = workflow.stageReferences.last(where: { $0.stage == stage }) else {
+                    throw KanbanWorkflowError.missingCurrentTask
+                }
+                let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
+                switch detail.task.status {
+                case .done:
+                    let run = try Self.currentTerminalRun(in: detail, stage: stage)
+                    let reconciled = try await reconcile(
+                        workflow: workflow,
+                        stage: stage,
+                        metadata: run.metadata,
+                        replacingAt: index,
+                        in: current
+                    )
+                    current[index] = reconciled
+                case .blocked:
+                    var blocked = workflow
+                    blocked.phase = .blocked
+                    blocked.attentionReason = nil
+                    blocked.updatedAt = now()
+                    current[index] = blocked
+                    try await store.save(current)
+                case .triage, .todo, .scheduled, .ready, .running, .review:
+                    continue
+                case .archived:
+                    throw KanbanWorkflowError.unsafeRecovery
+                }
+            } catch {
+                let latest = try await store.load()
+                current = latest
+                var needsAttention = latest[index]
+                needsAttention.phase = .needsAttention
+                needsAttention.attentionReason = Self.auditReason(for: error, stage: stage)
+                needsAttention.updatedAt = now()
+                current[index] = needsAttention
+                try await store.save(current)
             }
-
-            let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
-            guard let run = Self.latestTerminalRun(in: detail.runs), run.profile == stage.rawValue else {
-                continue
-            }
-
-            let reconciled = try await reconcile(
-                workflow: workflow,
-                stage: stage,
-                metadata: run.metadata,
-                replacingAt: index,
-                in: current
-            )
-            current[index] = reconciled
         }
         return current
     }
@@ -456,6 +505,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             idempotencyKey: idempotencyKey
         )
         let task = try await hermes.createTask(request)
+        let detail = try await hermes.taskDetail(id: task.id)
+        try Self.validateCreatedTask(detail, expectedTaskID: task.id, request: request)
 
         var completed = pending
         completed.stageReferences.append(KanbanStageReference(
@@ -480,12 +531,16 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         guard workflow.phase == .blocked else {
             throw KanbanWorkflowError.invalidPhase(workflow.phase)
         }
-        let previousPhase = workflow.pendingTransition?.previousPhase ?? .active
-        guard let reference = Self.currentReference(in: workflow) else {
+        let previousPhase = workflow.cancellationPreviousPhase ?? workflow.pendingTransition?.previousPhase ?? .active
+        let isLocalCancellation = workflow.cancellationPreviousPhase != nil &&
+            workflow.cancellationRequiresHermesUnblock != true
+        guard !isLocalCancellation, let reference = Self.currentReference(in: workflow) else {
             var restored = workflow
             restored.phase = previousPhase
             restored.pendingTransition = nil
             restored.cancellationReason = nil
+            restored.cancellationPreviousPhase = nil
+            restored.cancellationRequiresHermesUnblock = nil
             restored.updatedAt = now()
             try await persist(restored, replacingAt: index, in: workflows)
             return restored
@@ -499,6 +554,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             idempotencyKey: "opshub:\(workflow.id.uuidString.lowercased()):retry:\(reference.attempt)",
             previousPhase: previousPhase,
             previousHandoffSummary: nil,
+            cancelReclaimed: nil,
             startedAt: now()
         )
         pending.updatedAt = now()
@@ -536,15 +592,18 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             idempotencyKey: transition.idempotencyKey
         )
         let task: HermesKanbanTask
+        let detail: HermesKanbanTaskDetail
         if let reference = workflow.stageReferences.last(where: { $0.idempotencyKey == transition.idempotencyKey }) {
             guard reference.stage == stage, reference.attempt == attempt else {
                 throw KanbanWorkflowError.unsafeRecovery
             }
-            task = try await hermes.taskDetail(id: reference.hermesTaskID).task
+            detail = try await hermes.taskDetail(id: reference.hermesTaskID)
+            task = detail.task
         } else {
             task = try await hermes.createTask(request)
-            _ = try await hermes.taskDetail(id: task.id)
+            detail = try await hermes.taskDetail(id: task.id)
         }
+        try Self.validateCreatedTask(detail, expectedTaskID: task.id, request: request)
 
         var recovered = workflow
         recovered.phase = .active
@@ -564,28 +623,112 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         return recovered
     }
 
-    private func resumeCancellation(
+    private func recoverCancellationTransition(
         workflow: KanbanWorkflow,
-        transition: KanbanPendingTransition,
         replacingAt index: Int,
         in workflows: [KanbanWorkflow]
     ) async throws -> KanbanWorkflow {
+        guard let transition = workflow.pendingTransition, transition.kind == .cancel else {
+            throw KanbanWorkflowError.unsafeRecovery
+        }
         guard let reference = Self.currentReference(in: workflow) else {
-            return workflow
+            return try await finishCancellation(
+                workflow,
+                previousPhase: transition.previousPhase ?? workflow.cancellationPreviousPhase ?? .active,
+                requiresHermesUnblock: false,
+                replacingAt: index,
+                in: workflows
+            )
         }
         let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
         switch detail.task.status {
         case .blocked:
-            return workflow
+            return try await finishCancellation(
+                workflow,
+                previousPhase: transition.previousPhase ?? workflow.cancellationPreviousPhase ?? .active,
+                requiresHermesUnblock: true,
+                replacingAt: index,
+                in: workflows
+            )
         case .ready, .running, .review:
+            return try await executeCancellation(
+                workflow,
+                reference: reference,
+                replacingAt: index,
+                in: workflows
+            )
+        case .triage, .todo, .scheduled, .done, .archived:
+            return try await finishCancellation(
+                workflow,
+                previousPhase: transition.previousPhase ?? workflow.cancellationPreviousPhase ?? .active,
+                requiresHermesUnblock: false,
+                replacingAt: index,
+                in: workflows
+            )
+        }
+    }
+
+    private func executeCancellation(
+        _ workflow: KanbanWorkflow,
+        reference: KanbanStageReference,
+        replacingAt index: Int,
+        in workflows: [KanbanWorkflow]
+    ) async throws -> KanbanWorkflow {
+        guard let transition = workflow.pendingTransition, transition.kind == .cancel else {
+            throw KanbanWorkflowError.unsafeRecovery
+        }
+        let previousPhase = transition.previousPhase ?? workflow.cancellationPreviousPhase ?? .active
+        var checkpoint = workflow
+        if transition.cancelReclaimed != true {
             try await hermes.reclaim(taskID: reference.hermesTaskID, reason: "Cancelled by user")
+            checkpoint.pendingTransition = Self.cancelTransition(
+                workflow: workflow,
+                previousPhase: previousPhase,
+                reclaimed: true,
+                startedAt: transition.startedAt
+            )
+            checkpoint.updatedAt = now()
+            try await persist(checkpoint, replacingAt: index, in: workflows)
+        }
+        do {
             try await hermes.block(taskID: reference.hermesTaskID, reason: "Cancelled by user")
             let blocked = try await hermes.taskDetail(id: reference.hermesTaskID)
             guard blocked.task.status == .blocked else { throw KanbanWorkflowError.unsafeRecovery }
-            return workflow
-        default:
-            throw KanbanWorkflowError.unsafeRecovery
+            return try await finishCancellation(
+                checkpoint,
+                previousPhase: previousPhase,
+                requiresHermesUnblock: true,
+                replacingAt: index,
+                in: workflows
+            )
+        } catch {
+            var needsAttention = checkpoint
+            needsAttention.phase = .needsAttention
+            needsAttention.attentionReason = "Reclaimed but failed to block Hermes task: \(error.localizedDescription)"
+            needsAttention.cancellationReason = "Cancelled by user"
+            needsAttention.updatedAt = now()
+            try await persist(needsAttention, replacingAt: index, in: workflows)
+            throw error
         }
+    }
+
+    private func finishCancellation(
+        _ workflow: KanbanWorkflow,
+        previousPhase: KanbanPhase,
+        requiresHermesUnblock: Bool,
+        replacingAt index: Int,
+        in workflows: [KanbanWorkflow]
+    ) async throws -> KanbanWorkflow {
+        var cancelled = workflow
+        cancelled.phase = .blocked
+        cancelled.pendingTransition = nil
+        cancelled.cancellationReason = "Cancelled by user"
+        cancelled.cancellationPreviousPhase = previousPhase
+        cancelled.cancellationRequiresHermesUnblock = requiresHermesUnblock
+        cancelled.attentionReason = nil
+        cancelled.updatedAt = now()
+        try await persist(cancelled, replacingAt: index, in: workflows)
+        return cancelled
     }
 
     private func resumeRetry(
@@ -599,6 +742,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             restored.phase = transition.previousPhase ?? .active
             restored.pendingTransition = nil
             restored.cancellationReason = nil
+            restored.cancellationPreviousPhase = nil
+            restored.cancellationRequiresHermesUnblock = nil
             restored.updatedAt = now()
             try await persist(restored, replacingAt: index, in: workflows)
             return restored
@@ -616,6 +761,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         restored.currentStage = reference.stage
         restored.pendingTransition = nil
         restored.cancellationReason = nil
+        restored.cancellationPreviousPhase = nil
+        restored.cancellationRequiresHermesUnblock = nil
         restored.updatedAt = now()
         try await persist(restored, replacingAt: index, in: workflows)
         return restored
@@ -648,12 +795,71 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         try await store.save(persisted)
     }
 
-    private static func latestTerminalRun(in runs: [HermesKanbanRun]) -> HermesKanbanRun? {
-        runs
-            .filter { $0.endedAt != nil }
-            .max { lhs, rhs in
-                (lhs.endedAt ?? 0, lhs.id) < (rhs.endedAt ?? 0, rhs.id)
-            }
+    private static func cancelTransition(
+        workflow: KanbanWorkflow,
+        previousPhase: KanbanPhase,
+        reclaimed: Bool,
+        startedAt: Date
+    ) -> KanbanPendingTransition {
+        KanbanPendingTransition(
+            kind: .cancel,
+            stage: workflow.currentStage,
+            attempt: workflow.repairCount,
+            idempotencyKey: "opshub:\(workflow.id.uuidString.lowercased()):cancel:\(workflow.repairCount)",
+            previousPhase: previousPhase,
+            previousHandoffSummary: nil,
+            cancelReclaimed: reclaimed,
+            startedAt: startedAt
+        )
+    }
+
+    private static func currentTerminalRun(
+        in detail: HermesKanbanTaskDetail,
+        stage: KanbanStage
+    ) throws -> HermesKanbanRun {
+        guard detail.task.status == .done else { throw KanbanWorkflowError.unsafeRecovery }
+        guard let run = detail.runs.max(by: { lhs, rhs in
+            (lhs.startedAt, lhs.id) < (rhs.startedAt, rhs.id)
+        }) else {
+            throw KanbanWorkflowError.invalidHandoff(stage)
+        }
+        guard run.profile == stage.rawValue, run.status == "completed", run.endedAt != nil else {
+            throw KanbanWorkflowError.invalidHandoff(stage)
+        }
+        return run
+    }
+
+    private static func validateCreatedTask(
+        _ detail: HermesKanbanTaskDetail,
+        expectedTaskID: String,
+        request: HermesTaskCreateRequest
+    ) throws {
+        let task = detail.task
+        guard
+            task.id == expectedTaskID,
+            task.title == request.title,
+            task.body == request.body,
+            task.assignee == request.assignee,
+            task.workspaceKind == "dir",
+            task.workspacePath.map(canonicalPath) == canonicalPath(request.workspacePath),
+            task.priority == request.priority,
+            task.createdBy == "opshub",
+            [.ready, .running, .review, .done].contains(task.status)
+        else {
+            throw KanbanWorkflowError.unsafeRecovery
+        }
+    }
+
+    private static func auditReason(for error: Error, stage: KanbanStage) -> String {
+        "\(stage.rawValue.capitalized) reconciliation failed: \(error.localizedDescription)"
+    }
+
+    private static func reservesWorkspace(_ workflow: KanbanWorkflow) -> Bool {
+        workflow.phase == .active ||
+            workflow.phase == .approvalRequired ||
+            (workflow.phase == .blocked && workflow.cancellationReason == nil) ||
+            (workflow.phase == .needsAttention && workflow.currentStage != nil) ||
+            workflow.pendingTransition != nil
     }
 
     private func stagePrompt(

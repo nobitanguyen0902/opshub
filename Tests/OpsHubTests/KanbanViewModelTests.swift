@@ -471,6 +471,7 @@ private actor ViewModelCoordinatorStub: KanbanWorkflowCoordinating {
     func refresh() async throws -> [KanbanWorkflow] { value }
     func approve(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
     func cancel(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
+    func recoverCancellation(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
     func retry(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
     func resumePendingTransitions() async throws -> [KanbanWorkflow] { value }
     func startCallCount() -> Int { startCalls }

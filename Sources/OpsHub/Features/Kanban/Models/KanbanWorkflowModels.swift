@@ -23,6 +23,7 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
     let idempotencyKey: String
     let previousPhase: KanbanPhase?
     let previousHandoffSummary: String?
+    let cancelReclaimed: Bool?
     let startedAt: Date
 
     init(
@@ -32,6 +33,7 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
         idempotencyKey: String,
         previousPhase: KanbanPhase?,
         previousHandoffSummary: String? = nil,
+        cancelReclaimed: Bool? = nil,
         startedAt: Date
     ) {
         self.kind = kind
@@ -40,6 +42,7 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
         self.idempotencyKey = idempotencyKey
         self.previousPhase = previousPhase
         self.previousHandoffSummary = previousHandoffSummary
+        self.cancelReclaimed = cancelReclaimed
         self.startedAt = startedAt
     }
 }
@@ -60,6 +63,9 @@ struct KanbanWorkflow: Identifiable, Codable, Equatable, Sendable {
     var stageReferences: [KanbanStageReference]
     var pendingTransition: KanbanPendingTransition?
     var cancellationReason: String?
+    var cancellationPreviousPhase: KanbanPhase? = nil
+    var cancellationRequiresHermesUnblock: Bool? = nil
+    var attentionReason: String? = nil
     let createdAt: Date
     var updatedAt: Date
 }

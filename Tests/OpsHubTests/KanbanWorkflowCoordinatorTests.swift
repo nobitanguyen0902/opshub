@@ -277,11 +277,16 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(requests.first?.assignee, "developer")
     }
 
-    func testRefreshRejectsNonTerminalOrMismatchedRunWithoutCreatingTask() async throws {
+    func testRefreshDoesNotConsumeStaleTerminalRunWhileTaskIsRunning() async throws {
         let workflow = makeActiveWorkflow()
         let hermes = StubHermesKanbanService()
         let harness = makeCoordinatorHarness(workflows: [workflow], hermes: hermes)
-        await hermes.setDetail(detail(for: workflow, stage: .architect, handoff: .architectReady, endedAt: nil))
+        let stale = detail(for: workflow, stage: .architect, handoff: .architectReady)
+        await hermes.setDetail(HermesKanbanTaskDetail(
+            task: stale.task.replacing(status: .running), latestSummary: stale.latestSummary,
+            parents: stale.parents, children: stale.children, comments: stale.comments,
+            events: stale.events, runs: stale.runs
+        ))
 
         let refreshed = try await harness.coordinator.refresh()
         XCTAssertEqual(refreshed, [workflow])
@@ -299,9 +304,9 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         )
         await hermes.setDetail(detail(for: workflow, stage: .architect, metadata: invalid))
 
-        await XCTAssertThrowsErrorAsync(try await harness.coordinator.refresh()) { error in
-            XCTAssertEqual(error as? KanbanWorkflowError, .invalidHandoff(.architect))
-        }
+        let refreshed = try await harness.coordinator.refresh()
+        XCTAssertEqual(refreshed[0].phase, .needsAttention)
+        XCTAssertNotNil(refreshed[0].attentionReason)
         let requests = await hermes.createdRequests
         XCTAssertEqual(requests.count, 0)
     }
@@ -367,7 +372,7 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         ))
 
         await XCTAssertThrowsErrorAsync(try await harness.coordinator.approve(workflowID: workflow.id)) { error in
-            XCTAssertEqual(error as? KanbanWorkflowError, .unsafeRecovery)
+            XCTAssertEqual(error as? KanbanWorkflowError, .invalidHandoff(.architect))
         }
         let requests = await harness.hermes.createdRequests
         let stored = await harness.store.load()
@@ -597,6 +602,178 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         let attempts = await hermes.createAttempts
         XCTAssertEqual(attempts, [expectedRequest, expectedRequest])
     }
+
+    func testMalformedHandoffMovesOnlyThatWorkflowToNeedsAttentionAndRefreshContinues() async throws {
+        let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+        let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
+        let first = makeActiveWorkflow(workspacePath: "/tmp/first", id: firstID)
+        var second = makeActiveWorkflow(workspacePath: "/tmp/second", id: secondID)
+        second.stageReferences = [.init(
+            stage: .architect, attempt: 0, hermesTaskID: "architect-task-2",
+            idempotencyKey: stageKey(workflowID: second.id, stage: .architect, attempt: 0),
+            createdAt: Date(timeIntervalSince1970: 1)
+        )]
+        let hermes = StubHermesKanbanService()
+        let harness = makeCoordinatorHarness(workflows: [first, second], hermes: hermes)
+        let malformed = HermesRunMetadata(
+            schemaVersion: 1, outcome: "ready", summary: "Missing risks", risks: nil,
+            changedFiles: nil, verification: nil, findings: nil
+        )
+        await hermes.setDetail(detail(for: first, stage: .architect, metadata: malformed))
+        await hermes.setDetail(detail(for: second, stage: .architect, handoff: .architectReady))
+
+        let refreshed = try await harness.coordinator.refresh()
+
+        XCTAssertEqual(refreshed[0].phase, .needsAttention)
+        XCTAssertNotNil(refreshed[0].attentionReason)
+        XCTAssertEqual(refreshed[1].phase, .active)
+        XCTAssertEqual(refreshed[1].currentStage, .developer)
+    }
+
+    func testDoneTaskWithLatestNonterminalRunMovesToNeedsAttention() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        let terminal = detail(for: workflow, stage: .architect, handoff: .architectReady)
+        let running = HermesKanbanRun(
+            id: 2, profile: "architect", stepKey: nil, status: "running", outcome: nil, summary: nil,
+            error: nil, metadata: nil, workerPID: nil, startedAt: 3, endedAt: nil
+        )
+        await harness.hermes.setDetail(.init(
+            task: terminal.task, latestSummary: nil, parents: [], children: [], comments: [], events: [],
+            runs: terminal.runs + [running]
+        ))
+
+        let refreshed = try await harness.coordinator.refresh()
+
+        XCTAssertEqual(refreshed[0].phase, .needsAttention)
+        let requests = await harness.hermes.createdRequests
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testDoneTaskDoesNotConsumeOlderArchitectRunWhenLatestRunHasDifferentProfile() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        let terminal = detail(for: workflow, stage: .architect, handoff: .architectReady)
+        let newerWrongProfile = HermesKanbanRun(
+            id: 2, profile: "developer", stepKey: nil, status: "completed", outcome: "completed", summary: nil,
+            error: nil, metadata: terminal.runs[0].metadata, workerPID: nil, startedAt: 3, endedAt: 4
+        )
+        await harness.hermes.setDetail(.init(
+            task: terminal.task, latestSummary: nil, parents: [], children: [], comments: [], events: [],
+            runs: terminal.runs + [newerWrongProfile]
+        ))
+
+        let refreshed = try await harness.coordinator.refresh()
+
+        XCTAssertEqual(refreshed[0].phase, .needsAttention)
+        let requests = await harness.hermes.createdRequests
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testCancelTerminalStageUsesLocalSemanticsAndRetryDoesNotUnblock() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        await harness.hermes.setDetail(detail(for: workflow, stage: .architect, handoff: .architectReady))
+
+        let cancelled = try await harness.coordinator.cancel(workflowID: workflow.id)
+
+        XCTAssertEqual(cancelled.phase, .blocked)
+        XCTAssertNil(cancelled.pendingTransition)
+        XCTAssertEqual(cancelled.cancellationPreviousPhase, .active)
+        XCTAssertEqual(cancelled.cancellationRequiresHermesUnblock, false)
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertTrue(reclaimCalls.isEmpty)
+        XCTAssertTrue(blockCalls.isEmpty)
+
+        let retried = try await harness.coordinator.retry(workflowID: workflow.id)
+        XCTAssertEqual(retried.phase, .active)
+        let unblockCalls = await harness.hermes.unblockCalls
+        XCTAssertTrue(unblockCalls.isEmpty)
+    }
+
+    func testSuccessfulCancellationClearsPendingTransition() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        await harness.hermes.setDetail(runningDetail(for: workflow, stage: .architect))
+
+        let cancelled = try await harness.coordinator.cancel(workflowID: workflow.id)
+
+        XCTAssertNil(cancelled.pendingTransition)
+        XCTAssertEqual(cancelled.cancellationPreviousPhase, .active)
+        XCTAssertEqual(cancelled.cancellationRequiresHermesUnblock, true)
+    }
+
+    func testStartRejectsWorkspaceReservedByUnfinishedCancellation() async throws {
+        let cancellingID = UUID(uuidString: "00000000-0000-0000-0000-000000000021")!
+        var cancelling = makeActiveWorkflow(id: cancellingID)
+        cancelling.phase = .needsAttention
+        cancelling.pendingTransition = KanbanPendingTransition(
+            kind: .cancel, stage: .architect, attempt: 0, idempotencyKey: "cancel",
+            previousPhase: .active, cancelReclaimed: true, startedAt: Date(timeIntervalSince1970: 1)
+        )
+        let draft = makeTriageWorkflow(id: UUID(uuidString: "00000000-0000-0000-0000-000000000022")!)
+        let harness = makeCoordinatorHarness(workflows: [cancelling, draft])
+
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.start(workflowID: draft.id)) { error in
+            XCTAssertEqual(error as? KanbanStartGuardError, .workspaceAlreadyActive(cancelling.id))
+        }
+        let requests = await harness.hermes.createdRequests
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testPartialCancellationRecoveryDoesNotReclaimTwice() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        await harness.hermes.setDetail(runningDetail(for: workflow, stage: .architect))
+        await harness.hermes.failNextBlock()
+
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.cancel(workflowID: workflow.id)) { _ in }
+        let partialValues = await harness.store.load()
+        let partial = try XCTUnwrap(partialValues.first)
+        XCTAssertEqual(partial.phase, .needsAttention)
+        XCTAssertEqual(partial.pendingTransition?.kind, .cancel)
+        XCTAssertEqual(partial.pendingTransition?.cancelReclaimed, true)
+
+        let recovered = try await harness.coordinator.recoverCancellation(workflowID: workflow.id)
+
+        XCTAssertEqual(recovered.phase, .blocked)
+        XCTAssertNil(recovered.pendingTransition)
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertEqual(reclaimCalls, ["architect-task"])
+        XCTAssertEqual(blockCalls, ["architect-task", "architect-task"])
+    }
+
+    func testCancellationRecoveryRejectsWorkflowWithoutPendingCancelMutation() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+
+        await XCTAssertThrowsErrorAsync(
+            try await harness.coordinator.recoverCancellation(workflowID: workflow.id)
+        ) { error in
+            XCTAssertEqual(error as? KanbanWorkflowError, .unsafeRecovery)
+        }
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertTrue(reclaimCalls.isEmpty)
+        XCTAssertTrue(blockCalls.isEmpty)
+    }
+
+    func testCreateStageRequiresValidPostCreateShowBeforePersistingReference() async throws {
+        let harness = makeCoordinatorHarness()
+        let draft = try await harness.coordinator.createDraft(makeDraftInput())
+        await harness.hermes.invalidateNextCreatedTaskIdentity()
+
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.start(workflowID: draft.id)) { error in
+            XCTAssertEqual(error as? KanbanWorkflowError, .unsafeRecovery)
+        }
+        let storedValues = await harness.store.load()
+        let stored = try XCTUnwrap(storedValues.first)
+        XCTAssertEqual(stored.phase, .active)
+        XCTAssertEqual(stored.pendingTransition?.kind, .createStage)
+        XCTAssertTrue(stored.stageReferences.isEmpty)
+    }
 }
 
 private struct CoordinatorHarness {
@@ -632,10 +809,12 @@ private func makeDraftInput() -> KanbanDraftInput {
     )
 }
 
-private func makeTriageWorkflow() -> KanbanWorkflow {
+private func makeTriageWorkflow(
+    id: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+) -> KanbanWorkflow {
     KanbanWorkflow(
         schemaVersion: 1,
-        id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+        id: id,
         title: "Task",
         objective: "Objective",
         acceptanceCriteria: ["Criterion"],
@@ -652,8 +831,11 @@ private func makeTriageWorkflow() -> KanbanWorkflow {
     )
 }
 
-private func makeActiveWorkflow(workspacePath: String = "/tmp/repo") -> KanbanWorkflow {
-    var workflow = makeTriageWorkflow()
+private func makeActiveWorkflow(
+    workspacePath: String = "/tmp/repo",
+    id: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+) -> KanbanWorkflow {
+    var workflow = makeTriageWorkflow(id: id)
     workflow.phase = .active
     workflow.currentStage = .architect
     workflow.workspacePath = workspacePath
@@ -737,6 +919,8 @@ private actor StubHermesKanbanService: HermesKanbanServicing {
     private var suspendNextCreateRequest = false
     private var suspendedCreate: CheckedContinuation<Void, Never>?
     private var createRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var blockFailuresRemaining = 0
+    private var invalidateNextCreatedTask = false
     private let available: Bool
     private let profiles: Set<String>
     private let gatewayRunning: Bool
@@ -778,14 +962,20 @@ private actor StubHermesKanbanService: HermesKanbanServicing {
         }
         let task = HermesKanbanTask.fixture(id: "task-\(createdRequests.count)", request: request)
         tasksByIdempotencyKey[request.idempotencyKey] = task
+        let detailTask = invalidateNextCreatedTask ? task.replacing(assignee: "wrong-profile") : task
+        invalidateNextCreatedTask = false
         details[task.id] = HermesKanbanTaskDetail(
-            task: task, latestSummary: nil, parents: [], children: [], comments: [], events: [], runs: []
+            task: detailTask, latestSummary: nil, parents: [], children: [], comments: [], events: [], runs: []
         )
         return task
     }
     func reclaim(taskID: String, reason: String) async throws { reclaimCalls.append(taskID) }
     func block(taskID: String, reason: String) async throws {
         blockCalls.append(taskID)
+        if blockFailuresRemaining > 0 {
+            blockFailuresRemaining -= 1
+            throw StubHermesFailure.blockFailed
+        }
         try updateStatus(taskID: taskID, status: .blocked)
     }
     func unblock(taskID: String, reason: String) async throws {
@@ -793,6 +983,8 @@ private actor StubHermesKanbanService: HermesKanbanServicing {
         try updateStatus(taskID: taskID, status: .ready)
     }
     func setDetail(_ detail: HermesKanbanTaskDetail) { details[detail.task.id] = detail }
+    func failNextBlock() { blockFailuresRemaining += 1 }
+    func invalidateNextCreatedTaskIdentity() { invalidateNextCreatedTask = true }
     func suspendNextCreate() { suspendNextCreateRequest = true }
     func releaseSuspendedCreate() {
         suspendedCreate?.resume()
@@ -833,6 +1025,21 @@ private extension HermesKanbanTask {
             completedAt: completedAt, result: result
         )
     }
+
+    func replacing(assignee: String?) -> Self {
+        HermesKanbanTask(
+            id: id, title: title, body: body, assignee: assignee, status: status, priority: priority,
+            tenant: tenant, workspaceKind: workspaceKind, workspacePath: workspacePath, branchName: branchName,
+            projectID: projectID, createdBy: createdBy, createdAt: createdAt, startedAt: startedAt,
+            completedAt: completedAt, result: result
+        )
+    }
+}
+
+private enum StubHermesFailure: LocalizedError {
+    case blockFailed
+
+    var errorDescription: String? { "Block failed" }
 }
 
 private enum TestHandoff {
