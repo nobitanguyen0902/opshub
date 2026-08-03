@@ -71,8 +71,7 @@ struct KanbanBoardSnapshot: Equatable, Sendable {
         self.loadedAt = loadedAt
     }
 
-    // Temporary compatibility for the legacy board and SQLite reader. Task 8 replaces
-    // its consumer and Task 10 removes the SQLite path.
+    // Compatibility projection for callers that still consume the legacy card model.
     init(tasks: [KanbanTask], loadedAt: Date) {
         cards = tasks.map { task in
             KanbanCardViewData(
@@ -103,25 +102,6 @@ struct KanbanBoardSnapshot: Equatable, Sendable {
                 createdAt: loadedAt.addingTimeInterval(-(card.elapsed ?? 0)),
                 result: nil
             )
-        }
-    }
-}
-enum KanbanReadError: LocalizedError {
-    case missing
-    case open(String)
-    case schema
-    case query(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .missing:
-            "Kanban database was not found in the Hermes data directory"
-        case .open(let message):
-            "Unable to open Kanban database: \(message)"
-        case .schema:
-            "Kanban database schema is incompatible"
-        case .query(let message):
-            "Unable to read Kanban database: \(message)"
         }
     }
 }
