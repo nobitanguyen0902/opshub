@@ -104,6 +104,15 @@ import Foundation
         }
     }
 
+    func retryCancellationRecoverySelected() async {
+        await performSelectedMutation(
+            action: .retryCancellationRecovery,
+            requiredAction: .retryCancellationRecovery
+        ) { workflowID in
+            _ = try await self.coordinator.recoverCancellation(workflowID: workflowID)
+        }
+    }
+
     func loadSelectedDetail() async {
         guard let taskID = selectedHermesTaskID else { return }
         let requestID = UUID()
@@ -285,7 +294,7 @@ import Foundation
     private func workflowCard(_ workflow: KanbanWorkflow, task: HermesKanbanTask?) -> KanbanCardViewData {
         let phase = workflow.phase
         let column: KanbanColumn
-        let actions: Set<KanbanAvailableAction>
+        var actions: Set<KanbanAvailableAction>
         let stageLabel: String?
         switch phase {
         case .triage:
@@ -306,12 +315,17 @@ import Foundation
             stageLabel = workflow.cancellationReason ?? "Blocked"
         case .needsAttention:
             column = .blocked
-            actions = []
+            actions = workflow.pendingTransition?.kind == .cancel
+                ? [.retryCancellationRecovery]
+                : []
             stageLabel = "Needs Attention"
         case .done:
             column = .done
             actions = []
             stageLabel = "Done"
+        }
+        if workflow.pendingTransition?.kind == .cancel, phase != .needsAttention {
+            actions = []
         }
         return KanbanCardViewData(
             id: .workflow(workflow.id),

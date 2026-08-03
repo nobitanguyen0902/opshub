@@ -33,11 +33,11 @@ enum KanbanCardID: Hashable, Sendable {
 }
 
 enum KanbanAvailableAction: Hashable, Sendable {
-    case start, approve, cancel, retry
+    case start, approve, cancel, retry, retryCancellationRecovery
 }
 
 enum KanbanAction: Hashable, Sendable {
-    case createDraft, start, approve, cancel, retry
+    case createDraft, start, approve, cancel, retry, retryCancellationRecovery
 }
 
 struct KanbanCardViewData: Identifiable, Equatable, Sendable {

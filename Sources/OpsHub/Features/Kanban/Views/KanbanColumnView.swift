@@ -6,6 +6,25 @@ enum KanbanColumnLayout {
     }
 }
 
+enum KanbanColumnCollapseAnimationKind: Equatable {
+    case none, standard
+}
+
+struct KanbanColumnCollapseAnimationPolicy: Equatable {
+    let kind: KanbanColumnCollapseAnimationKind
+
+    static func policy(reduceMotion: Bool) -> KanbanColumnCollapseAnimationPolicy {
+        .init(kind: reduceMotion ? .none : .standard)
+    }
+
+    var animation: Animation? {
+        switch kind {
+        case .none: nil
+        case .standard: .easeOut(duration: 0.20)
+        }
+    }
+}
+
 struct KanbanColumnView: View {
     let column: KanbanColumn
     let cards: [KanbanCardViewData]
@@ -14,6 +33,8 @@ struct KanbanColumnView: View {
     let focusedCardID: AccessibilityFocusState<KanbanCardID?>.Binding
     let onToggleCollapsed: () -> Void
     let onSelect: (KanbanCardViewData) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -24,7 +45,10 @@ struct KanbanColumnView: View {
             }
         }
         .frame(width: KanbanColumnLayout.width(isCollapsed: isCollapsed), alignment: .topLeading)
-        .animation(.default, value: isCollapsed)
+        .animation(
+            KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: reduceMotion).animation,
+            value: isCollapsed
+        )
     }
 
     private var collapsedColumn: some View {

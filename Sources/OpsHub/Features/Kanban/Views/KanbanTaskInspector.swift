@@ -79,6 +79,11 @@ enum KanbanLogFollowPolicy {
     }
 }
 
+enum KanbanCancellationRecoveryPresentation {
+    static let title = "Retry cancellation recovery"
+    static let accessibilityHint = "Retries the interrupted cancellation recovery for this managed workflow"
+}
+
 private struct KanbanLogBottomOffsetPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
@@ -191,6 +196,18 @@ struct KanbanTaskInspector: View {
                 }
                 if card.availableActions.contains(.cancel) {
                     Button("Cancel Run", role: .destructive) { Task { await model.cancelSelected() } }
+                }
+                if card.availableActions.contains(.retryCancellationRecovery) {
+                    Button {
+                        Task { await model.retryCancellationRecoverySelected() }
+                    } label: {
+                        Label(
+                            KanbanCancellationRecoveryPresentation.title,
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                    }
+                    .tint(.orange)
+                    .accessibilityHint(KanbanCancellationRecoveryPresentation.accessibilityHint)
                 }
             }
             .disabled(model.activeAction != nil)

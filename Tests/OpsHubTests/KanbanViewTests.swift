@@ -97,6 +97,29 @@ final class KanbanViewTests: XCTestCase {
         XCTAssertEqual(KanbanControlLayout.collapseHitTarget, 34)
     }
 
+    func testColumnCollapseAnimationHonorsReduceMotionWithoutChangingLayout() {
+        XCTAssertEqual(
+            KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: true).kind,
+            .none
+        )
+        XCTAssertEqual(
+            KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: false).kind,
+            .standard
+        )
+        XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: true), 48)
+        XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: false), 264)
+    }
+
+    func testCancellationRecoveryActionUsesExplicitAccessibleWording() {
+        XCTAssertEqual(
+            KanbanCancellationRecoveryPresentation.title,
+            "Retry cancellation recovery"
+        )
+        XCTAssertTrue(
+            KanbanCancellationRecoveryPresentation.accessibilityHint.contains("managed workflow")
+        )
+    }
+
     func testCardPresentationShowsWorkspaceBasename() {
         let value = KanbanCardViewData(
             id: .hermes("t_1"),

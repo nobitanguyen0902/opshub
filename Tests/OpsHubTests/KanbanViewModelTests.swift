@@ -207,6 +207,99 @@ final class KanbanViewModelTests: XCTestCase {
         XCTAssertEqual(actions(for: blocked.id, in: model), [.retry])
     }
 
+    func testCancellationRecoveryActionIsScopedToManagedNeedsAttentionCancelTransition() async {
+        let recoverable = cancellationRecoveryWorkflow(
+            id: "00000000-0000-0000-0000-000000000010"
+        )
+        var genericAttention = makeTriageWorkflow(
+            id: "00000000-0000-0000-0000-000000000011"
+        )
+        genericAttention.phase = .needsAttention
+        var unrelatedAttention = makeTriageWorkflow(
+            id: "00000000-0000-0000-0000-000000000012"
+        )
+        unrelatedAttention.phase = .needsAttention
+        unrelatedAttention.pendingTransition = pendingTransition(kind: .createStage)
+        var otherPhase = makeTriageWorkflow(
+            id: "00000000-0000-0000-0000-000000000015"
+        )
+        otherPhase.phase = .blocked
+        otherPhase.pendingTransition = pendingTransition(kind: .cancel)
+        let externalTask = HermesKanbanTask.fixture(
+            id: "t_external_recovery",
+            request: .init(
+                title: "External",
+                body: "",
+                assignee: "developer",
+                workspacePath: "/tmp/external",
+                priority: 1,
+                idempotencyKey: "external-recovery"
+            )
+        )
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: [externalTask]),
+            coordinator: ViewModelCoordinatorStub(
+                workflows: [recoverable, genericAttention, unrelatedAttention, otherPhase]
+            )
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(actions(for: recoverable.id, in: model), [.retryCancellationRecovery])
+        XCTAssertEqual(actions(for: genericAttention.id, in: model), [])
+        XCTAssertEqual(actions(for: unrelatedAttention.id, in: model), [])
+        XCTAssertEqual(actions(for: otherPhase.id, in: model), [])
+        XCTAssertEqual(
+            model.snapshot?.cards.first(where: { $0.id == .hermes(externalTask.id) })?.availableActions,
+            []
+        )
+    }
+
+    func testDoubleCancellationRecoveryInvokesCoordinatorOnce() async {
+        let workflow = cancellationRecoveryWorkflow(
+            id: "00000000-0000-0000-0000-000000000013"
+        )
+        let coordinator = ViewModelCoordinatorStub(
+            workflows: [workflow],
+            recoveryDelayNanoseconds: 100_000_000
+        )
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: coordinator
+        )
+        await model.refresh()
+        model.selectedCardID = .workflow(workflow.id)
+
+        async let first: Void = model.retryCancellationRecoverySelected()
+        async let second: Void = model.retryCancellationRecoverySelected()
+        _ = await (first, second)
+
+        let calls = await coordinator.recoveryCallCount()
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testCancellationRecoveryErrorRemainsVisible() async {
+        let workflow = cancellationRecoveryWorkflow(
+            id: "00000000-0000-0000-0000-000000000014"
+        )
+        let coordinator = ViewModelCoordinatorStub(
+            workflows: [workflow],
+            recoveryFails: true
+        )
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: coordinator
+        )
+        await model.refresh()
+        model.selectedCardID = .workflow(workflow.id)
+
+        await model.retryCancellationRecoverySelected()
+
+        XCTAssertNotNil(model.errorMessage)
+        let calls = await coordinator.recoveryCallCount()
+        XCTAssertEqual(calls, 1)
+    }
+
     func testDoubleStartInvokesCoordinatorOnce() async {
         let workflow = makeTriageWorkflow()
         let coordinator = ViewModelCoordinatorStub(workflows: [workflow], startDelayNanoseconds: 100_000_000)
@@ -450,12 +543,22 @@ private actor DeferredViewModelHermesStub: HermesKanbanServicing {
 private actor ViewModelCoordinatorStub: KanbanWorkflowCoordinating {
     private var value: [KanbanWorkflow]
     private let startDelayNanoseconds: UInt64
+    private let recoveryDelayNanoseconds: UInt64
+    private let recoveryFails: Bool
     private(set) var startCalls = 0
     private(set) var createDraftCalls = 0
+    private(set) var recoveryCalls = 0
 
-    init(workflows: [KanbanWorkflow], startDelayNanoseconds: UInt64 = 0) {
+    init(
+        workflows: [KanbanWorkflow],
+        startDelayNanoseconds: UInt64 = 0,
+        recoveryDelayNanoseconds: UInt64 = 0,
+        recoveryFails: Bool = false
+    ) {
         value = workflows
         self.startDelayNanoseconds = startDelayNanoseconds
+        self.recoveryDelayNanoseconds = recoveryDelayNanoseconds
+        self.recoveryFails = recoveryFails
     }
 
     func workflows() async throws -> [KanbanWorkflow] { value }
@@ -471,11 +574,19 @@ private actor ViewModelCoordinatorStub: KanbanWorkflowCoordinating {
     func refresh() async throws -> [KanbanWorkflow] { value }
     func approve(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
     func cancel(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
-    func recoverCancellation(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
+    func recoverCancellation(workflowID: UUID) async throws -> KanbanWorkflow {
+        recoveryCalls += 1
+        if recoveryDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: recoveryDelayNanoseconds)
+        }
+        if recoveryFails { throw KanbanWorkflowError.unsafeRecovery }
+        return value[0]
+    }
     func retry(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
     func resumePendingTransitions() async throws -> [KanbanWorkflow] { value }
     func startCallCount() -> Int { startCalls }
     func createDraftCallCount() -> Int { createDraftCalls }
+    func recoveryCallCount() -> Int { recoveryCalls }
     func setWorkflows(_ workflows: [KanbanWorkflow]) { value = workflows }
 }
 
@@ -521,6 +632,28 @@ private func makeTriageWorkflow(id: String = "00000000-0000-0000-0000-0000000000
         cancellationReason: nil,
         createdAt: Date(timeIntervalSince1970: 1),
         updatedAt: Date(timeIntervalSince1970: 1)
+    )
+}
+
+private func cancellationRecoveryWorkflow(id: String) -> KanbanWorkflow {
+    var workflow = makeTriageWorkflow(id: id)
+    workflow.phase = .needsAttention
+    workflow.pendingTransition = pendingTransition(kind: .cancel)
+    workflow.attentionReason = "Cancellation recovery requires confirmation."
+    return workflow
+}
+
+private func pendingTransition(kind: KanbanPendingTransition.Kind) -> KanbanPendingTransition {
+    .init(
+        kind: kind,
+        stage: kind == .createStage ? .developer : nil,
+        attempt: kind == .createStage ? 0 : nil,
+        idempotencyKey: "pending-\(kind.rawValue)",
+        previousPhase: .active,
+        cancelReclaimAttempted: kind == .cancel ? false : nil,
+        cancelReclaimed: kind == .cancel ? false : nil,
+        cancelPreReclaimStatus: kind == .cancel ? .running : nil,
+        startedAt: Date(timeIntervalSince1970: 1)
     )
 }
 
