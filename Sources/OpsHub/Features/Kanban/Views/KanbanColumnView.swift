@@ -71,6 +71,11 @@ struct KanbanColumnView: View {
 
                 Button(action: onToggleCollapsed) {
                     Image(systemName: "rectangle.compress.vertical")
+                        .frame(
+                            width: KanbanControlLayout.collapseHitTarget,
+                            height: KanbanControlLayout.collapseHitTarget
+                        )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Collapse \(column.title) column")

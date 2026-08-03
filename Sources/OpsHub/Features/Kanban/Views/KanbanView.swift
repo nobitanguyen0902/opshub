@@ -43,14 +43,24 @@ struct KanbanView: View {
             metadata: model.headerMetadata
         ) {
             HStack(spacing: 8) {
-                Button("Refresh", systemImage: "arrow.clockwise") {
+                Button {
                     Task { await model.refresh() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .frame(minHeight: KanbanControlLayout.headerHitTarget)
+                        .padding(.horizontal, 12)
+                        .contentShape(Rectangle())
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(model.isLoading)
 
-                Button("New Task", systemImage: "plus") {
+                Button {
                     model.isPresentingNewTask = true
+                } label: {
+                    Label("New Task", systemImage: "plus")
+                        .frame(minHeight: KanbanControlLayout.headerHitTarget)
+                        .padding(.horizontal, 12)
+                        .contentShape(Rectangle())
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }
@@ -103,4 +113,9 @@ struct KanbanView: View {
             collapsedColumns.remove(column)
         }
     }
+}
+
+enum KanbanControlLayout {
+    static let headerHitTarget: CGFloat = 42
+    static let collapseHitTarget: CGFloat = 34
 }

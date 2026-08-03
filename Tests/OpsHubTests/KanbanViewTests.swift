@@ -8,6 +8,11 @@ final class KanbanViewTests: XCTestCase {
         XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: false), 264)
     }
 
+    func testHeaderAndCollapseControlsKeepMinimumHitTargets() {
+        XCTAssertEqual(KanbanControlLayout.headerHitTarget, 42)
+        XCTAssertEqual(KanbanControlLayout.collapseHitTarget, 34)
+    }
+
     func testCardPresentationShowsWorkspaceBasename() {
         let value = KanbanCardViewData(
             id: .hermes("t_1"),
