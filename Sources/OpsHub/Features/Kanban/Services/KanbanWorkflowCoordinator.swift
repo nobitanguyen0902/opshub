@@ -175,11 +175,22 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             guard workflow.phase == .approvalRequired else {
                 throw KanbanWorkflowError.invalidPhase(workflow.phase)
             }
+            guard let reference = workflow.stageReferences.last(where: { $0.stage == .architect }) else {
+                throw KanbanWorkflowError.missingCurrentTask
+            }
+            let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
+            guard let run = Self.latestTerminalRun(in: detail.runs), let metadata = run.metadata else {
+                throw KanbanWorkflowError.unsafeRecovery
+            }
+            let handoff = try architectHandoff(from: metadata)
+            guard handoff.outcome == .approvalRequired else {
+                throw KanbanWorkflowError.unsafeRecovery
+            }
 
             return try await createStage(
                 stage: .developer,
                 attempt: workflow.repairCount,
-                previousHandoffSummary: nil,
+                previousHandoffSummary: handoff.summary,
                 workflow: workflow,
                 replacingAt: index,
                 in: workflows,
@@ -207,6 +218,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 attempt: workflow.repairCount,
                 idempotencyKey: "opshub:\(workflow.id.uuidString.lowercased()):cancel:\(workflow.repairCount)",
                 previousPhase: workflow.phase,
+                previousHandoffSummary: nil,
                 startedAt: now()
             )
             cancelled.cancellationReason = "Cancelled by user"
@@ -301,7 +313,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             }
 
             let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
-            guard let run = latestTerminalRun(in: detail.runs), run.profile == stage.rawValue else {
+            guard let run = Self.latestTerminalRun(in: detail.runs), run.profile == stage.rawValue else {
                 continue
             }
 
@@ -349,7 +361,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 try await persist(awaitingApproval, replacingAt: index, in: workflows)
                 return awaitingApproval
             case .blocked:
-                return try await block(workflow, replacingAt: index, in: workflows)
+                return try await markNeedsAttention(workflow, replacingAt: index, in: workflows)
             }
 
         case .developer:
@@ -365,7 +377,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                     in: workflows
                 )
             case .blocked, .failed:
-                return try await block(workflow, replacingAt: index, in: workflows)
+                return try await markNeedsAttention(workflow, replacingAt: index, in: workflows)
             }
 
         case .reviewer:
@@ -399,7 +411,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                     in: workflows
                 )
             case .blocked:
-                return try await block(workflow, replacingAt: index, in: workflows)
+                return try await markNeedsAttention(workflow, replacingAt: index, in: workflows)
             }
         }
     }
@@ -423,6 +435,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             attempt: attempt,
             idempotencyKey: idempotencyKey,
             previousPhase: workflow.phase,
+            previousHandoffSummary: previousHandoffSummary,
             startedAt: now()
         )
         pending.updatedAt = now()
@@ -481,6 +494,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             attempt: reference.attempt,
             idempotencyKey: "opshub:\(workflow.id.uuidString.lowercased()):retry:\(reference.attempt)",
             previousPhase: previousPhase,
+            previousHandoffSummary: nil,
             startedAt: now()
         )
         pending.updatedAt = now()
@@ -507,7 +521,11 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         }
         let request = HermesTaskCreateRequest(
             title: workflow.title,
-            body: stagePrompt(for: stage, workflow: workflow, previousHandoffSummary: nil),
+            body: stagePrompt(
+                for: stage,
+                workflow: workflow,
+                previousHandoffSummary: transition.previousHandoffSummary
+            ),
             assignee: stage.rawValue,
             workspacePath: workflow.workspacePath,
             priority: workflow.priority.hermesValue,
@@ -599,16 +617,16 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         return restored
     }
 
-    private func block(
+    private func markNeedsAttention(
         _ workflow: KanbanWorkflow,
         replacingAt index: Int,
         in workflows: [KanbanWorkflow]
     ) async throws -> KanbanWorkflow {
-        var blocked = workflow
-        blocked.phase = .blocked
-        blocked.updatedAt = now()
-        try await persist(blocked, replacingAt: index, in: workflows)
-        return blocked
+        var needsAttention = workflow
+        needsAttention.phase = .needsAttention
+        needsAttention.updatedAt = now()
+        try await persist(needsAttention, replacingAt: index, in: workflows)
+        return needsAttention
     }
 
     private static func currentReference(in workflow: KanbanWorkflow) -> KanbanStageReference? {
@@ -626,7 +644,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         try await store.save(persisted)
     }
 
-    private func latestTerminalRun(in runs: [HermesKanbanRun]) -> HermesKanbanRun? {
+    private static func latestTerminalRun(in runs: [HermesKanbanRun]) -> HermesKanbanRun? {
         runs
             .filter { $0.endedAt != nil }
             .max { lhs, rhs in

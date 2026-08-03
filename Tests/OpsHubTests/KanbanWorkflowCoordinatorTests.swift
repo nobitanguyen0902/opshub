@@ -328,6 +328,11 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         workflow.phase = .approvalRequired
         workflow.currentStage = nil
         let harness = makeCoordinatorHarness(workflows: [workflow])
+        let approval = HermesRunMetadata(
+            schemaVersion: 1, outcome: "approval_required", summary: "Breaking API", risks: ["breaking API"],
+            changedFiles: nil, verification: nil, findings: nil
+        )
+        await harness.hermes.setDetail(detail(for: workflow, stage: .architect, metadata: approval))
 
         let approved = try await harness.coordinator.approve(workflowID: workflow.id)
 
@@ -336,6 +341,72 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(approved.stageReferences.last?.attempt, 0)
         let requests = await harness.hermes.createdRequests
         XCTAssertEqual(requests.last?.idempotencyKey, stageKey(workflowID: workflow.id, stage: .developer, attempt: 0))
+        XCTAssertTrue(requests.last?.body.contains("Architect handoff: Breaking API") == true)
+    }
+
+    func testTerminalArchitectBlockedMovesToNeedsAttentionAndCannotRetry() async throws {
+        let workflow = makeActiveWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        let metadata = HermesRunMetadata(
+            schemaVersion: 1, outcome: "blocked", summary: "Cannot proceed", risks: [],
+            changedFiles: nil, verification: nil, findings: nil
+        )
+        await harness.hermes.setDetail(detail(for: workflow, stage: .architect, metadata: metadata))
+
+        let result = try await harness.coordinator.refresh()[0]
+
+        XCTAssertEqual(result.phase, .needsAttention)
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.retry(workflowID: workflow.id)) { error in
+            XCTAssertEqual(error as? KanbanWorkflowError, .invalidPhase(.needsAttention))
+        }
+    }
+
+    func testTerminalDeveloperBlockedAndFailedMoveToNeedsAttentionAndCannotRetry() async throws {
+        for outcome in ["blocked", "failed"] {
+            var workflow = makeActiveWorkflow()
+            workflow.currentStage = .developer
+            workflow.stageReferences = [KanbanStageReference(
+                stage: .developer, attempt: 0, hermesTaskID: "developer-task",
+                idempotencyKey: stageKey(workflowID: workflow.id, stage: .developer, attempt: 0),
+                createdAt: Date(timeIntervalSince1970: 1)
+            )]
+            let harness = makeCoordinatorHarness(workflows: [workflow])
+            let metadata = HermesRunMetadata(
+                schemaVersion: 1, outcome: outcome, summary: "Cannot proceed", risks: nil,
+                changedFiles: [], verification: [], findings: nil
+            )
+            await harness.hermes.setDetail(detail(for: workflow, stage: .developer, metadata: metadata))
+
+            let result = try await harness.coordinator.refresh()[0]
+
+            XCTAssertEqual(result.phase, .needsAttention, "\(outcome) must not become Hermes-retryable")
+            await XCTAssertThrowsErrorAsync(try await harness.coordinator.retry(workflowID: workflow.id)) { error in
+                XCTAssertEqual(error as? KanbanWorkflowError, .invalidPhase(.needsAttention))
+            }
+        }
+    }
+
+    func testTerminalReviewerBlockedMovesToNeedsAttentionAndCannotRetry() async throws {
+        var workflow = makeActiveWorkflow()
+        workflow.currentStage = .reviewer
+        workflow.stageReferences = [KanbanStageReference(
+            stage: .reviewer, attempt: 0, hermesTaskID: "reviewer-task",
+            idempotencyKey: stageKey(workflowID: workflow.id, stage: .reviewer, attempt: 0),
+            createdAt: Date(timeIntervalSince1970: 1)
+        )]
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        let metadata = HermesRunMetadata(
+            schemaVersion: 1, outcome: "blocked", summary: "Cannot proceed", risks: nil,
+            changedFiles: nil, verification: nil, findings: []
+        )
+        await harness.hermes.setDetail(detail(for: workflow, stage: .reviewer, metadata: metadata))
+
+        let result = try await harness.coordinator.refresh()[0]
+
+        XCTAssertEqual(result.phase, .needsAttention)
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.retry(workflowID: workflow.id)) { error in
+            XCTAssertEqual(error as? KanbanWorkflowError, .invalidPhase(.needsAttention))
+        }
     }
 
     func testThirdChangesRequestedStopsAtNeedsAttention() async throws {
@@ -473,13 +544,17 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         let key = stageKey(workflowID: workflow.id, stage: .developer, attempt: 0)
         workflow.pendingTransition = KanbanPendingTransition(
             kind: .approve, stage: .developer, attempt: 0, idempotencyKey: key,
-            previousPhase: .approvalRequired, startedAt: Date(timeIntervalSince1970: 1)
+            previousPhase: .approvalRequired, previousHandoffSummary: "Breaking API",
+            startedAt: Date(timeIntervalSince1970: 1)
         )
         let hermes = StubHermesKanbanService()
-        _ = try await hermes.createTask(HermesTaskCreateRequest(
-            title: workflow.title, body: "Body", assignee: "developer", workspacePath: workflow.workspacePath,
+        let expectedRequest = HermesTaskCreateRequest(
+            title: workflow.title,
+            body: developerPromptBody(for: workflow, handoff: "Breaking API"),
+            assignee: "developer", workspacePath: workflow.workspacePath,
             priority: workflow.priority.hermesValue, idempotencyKey: key
-        ))
+        )
+        _ = try await hermes.createTask(expectedRequest)
         let harness = makeCoordinatorHarness(workflows: [workflow], hermes: hermes)
 
         let resumed = try await harness.coordinator.resumePendingTransitions()
@@ -488,6 +563,8 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(resumed[0].stageReferences.last?.hermesTaskID, "task-1")
         let requests = await hermes.createdRequests
         XCTAssertEqual(requests.count, 1)
+        let attempts = await hermes.createAttempts
+        XCTAssertEqual(attempts, [expectedRequest, expectedRequest])
     }
 }
 
@@ -619,6 +696,7 @@ private struct StubWorkspaceValidator: KanbanWorkspaceValidating {
 
 private actor StubHermesKanbanService: HermesKanbanServicing {
     private(set) var createdRequests: [HermesTaskCreateRequest] = []
+    private(set) var createAttempts: [HermesTaskCreateRequest] = []
     private(set) var profileChecks: [String] = []
     private(set) var reclaimCalls: [String] = []
     private(set) var blockCalls: [String] = []
@@ -653,6 +731,7 @@ private actor StubHermesKanbanService: HermesKanbanServicing {
     }
     func isGatewayRunning() async -> Bool { gatewayRunning }
     func createTask(_ request: HermesTaskCreateRequest) async throws -> HermesKanbanTask {
+        createAttempts.append(request)
         if let existing = tasksByIdempotencyKey[request.idempotencyKey] {
             return existing
         }
@@ -774,6 +853,25 @@ private func runningDetail(for workflow: KanbanWorkflow, stage: KanbanStage) -> 
         ),
         latestSummary: nil, parents: [], children: [], comments: [], events: [], runs: []
     )
+}
+
+private func developerPromptBody(for workflow: KanbanWorkflow, handoff: String) -> String {
+    """
+    Objective: \(workflow.objective)
+
+    Acceptance criteria:
+    \(workflow.acceptanceCriteria.map { "- \($0)" }.joined(separator: "\\n"))
+
+    You are the Developer. You may modify only the selected workspace and must preserve unrelated user changes.
+
+    Architect handoff: \(handoff)
+
+    Complete this Hermes task with metadata JSON schemaVersion=1.
+    Architect outcomes: ready | approval_required | blocked; include risks[].
+    Developer outcomes: completed | blocked | failed; include changedFiles[] and verification[].
+    Reviewer outcomes: approved | changes_requested | blocked; include findings[].
+    Do not claim success unless the required work and verification are complete.
+    """
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

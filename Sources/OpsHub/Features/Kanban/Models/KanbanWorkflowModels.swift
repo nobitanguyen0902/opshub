@@ -22,7 +22,26 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
     let attempt: Int?
     let idempotencyKey: String
     let previousPhase: KanbanPhase?
+    let previousHandoffSummary: String?
     let startedAt: Date
+
+    init(
+        kind: Kind,
+        stage: KanbanStage?,
+        attempt: Int?,
+        idempotencyKey: String,
+        previousPhase: KanbanPhase?,
+        previousHandoffSummary: String? = nil,
+        startedAt: Date
+    ) {
+        self.kind = kind
+        self.stage = stage
+        self.attempt = attempt
+        self.idempotencyKey = idempotencyKey
+        self.previousPhase = previousPhase
+        self.previousHandoffSummary = previousHandoffSummary
+        self.startedAt = startedAt
+    }
 }
 
 struct KanbanWorkflow: Identifiable, Codable, Equatable, Sendable {
