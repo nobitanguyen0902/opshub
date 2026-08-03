@@ -155,13 +155,15 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
     }
 
     func testConcurrentStartsCreateOnlyOneArchitectTask() async throws {
-        let harness = makeCoordinatorHarness()
+        let gate = KanbanWorkflowMutationGate()
+        let harness = makeCoordinatorHarness(mutationGate: gate)
         let draft = try await harness.coordinator.createDraft(makeDraftInput())
         await harness.hermes.suspendNextCreate()
 
         let firstStart = Task { try await harness.coordinator.start(workflowID: draft.id) }
         await harness.hermes.waitForCreateRequest()
         let secondStart = Task { try await harness.coordinator.start(workflowID: draft.id) }
+        await gate.waitForQueuedMutation()
         await harness.hermes.releaseSuspendedCreate()
 
         _ = try await firstStart.value
@@ -171,6 +173,34 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         let requests = await harness.hermes.createdRequests
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests.first?.assignee, "architect")
+    }
+
+    func testConcurrentDraftAndStartPreserveBothWorkflowSnapshots() async throws {
+        let gate = KanbanWorkflowMutationGate()
+        let triage = makeTriageWorkflow()
+        let harness = makeCoordinatorHarness(workflows: [triage], mutationGate: gate)
+        await harness.hermes.suspendNextCreate()
+
+        let start = Task { try await harness.coordinator.start(workflowID: triage.id) }
+        await harness.hermes.waitForCreateRequest()
+        let createDraft = Task {
+            try await harness.coordinator.createDraft(
+                KanbanDraftInput(
+                    title: "Second task", objective: "Second objective", acceptanceCriteria: ["Second criterion"],
+                    workspacePath: "/tmp/repo", priority: .normal
+                )
+            )
+        }
+        await gate.waitForQueuedMutation()
+        await harness.hermes.releaseSuspendedCreate()
+
+        let started = try await start.value
+        let draft = try await createDraft.value
+        let workflows = await harness.store.load()
+        XCTAssertEqual(workflows.count, 2)
+        XCTAssertEqual(workflows.first(where: { $0.id == started.id })?.phase, .active)
+        XCTAssertEqual(workflows.first(where: { $0.id == started.id })?.stageReferences.count, 1)
+        XCTAssertEqual(workflows.first(where: { $0.id == draft.id })?.phase, .triage)
     }
 
     func testRefreshAdvancesArchitectDeveloperReviewerAndMarksDone() async throws {
@@ -222,13 +252,15 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
     func testConcurrentRefreshesCreateOnlyOneDeveloperTask() async throws {
         let workflow = makeActiveWorkflow()
         let hermes = StubHermesKanbanService()
-        let harness = makeCoordinatorHarness(workflows: [workflow], hermes: hermes)
+        let gate = KanbanWorkflowMutationGate()
+        let harness = makeCoordinatorHarness(workflows: [workflow], hermes: hermes, mutationGate: gate)
         await hermes.setDetail(detail(for: workflow, stage: .architect, handoff: .architectReady))
         await hermes.suspendNextCreate()
 
         let firstRefresh = Task { try await harness.coordinator.refresh() }
         await hermes.waitForCreateRequest()
         let secondRefresh = Task { try await harness.coordinator.refresh() }
+        await gate.waitForQueuedMutation()
         let developerWorkflow = workflowWithStage(
             workflow,
             stage: .developer,
@@ -284,14 +316,16 @@ private struct CoordinatorHarness {
 private func makeCoordinatorHarness(
     workflows: [KanbanWorkflow] = [],
     hermes: StubHermesKanbanService = StubHermesKanbanService(),
-    workspaceValidator: StubWorkspaceValidator = StubWorkspaceValidator()
+    workspaceValidator: StubWorkspaceValidator = StubWorkspaceValidator(),
+    mutationGate: KanbanWorkflowMutationGate = KanbanWorkflowMutationGate()
 ) -> CoordinatorHarness {
     let store = InMemoryWorkflowStore(workflows)
     let coordinator = KanbanWorkflowCoordinator(
         store: store,
         hermes: hermes,
         workspaceValidator: workspaceValidator,
-        now: { Date(timeIntervalSince1970: 1) }
+        now: { Date(timeIntervalSince1970: 1) },
+        mutationGate: mutationGate
     )
     return CoordinatorHarness(coordinator: coordinator, hermes: hermes, store: store)
 }

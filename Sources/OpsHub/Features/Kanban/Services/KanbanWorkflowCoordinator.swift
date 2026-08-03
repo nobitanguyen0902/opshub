@@ -38,18 +38,20 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     private let hermes: any HermesKanbanServicing
     private let workspaceValidator: any KanbanWorkspaceValidating
     private let now: @Sendable () -> Date
-    private let mutationGate = KanbanWorkflowMutationGate()
+    private let mutationGate: KanbanWorkflowMutationGate
 
     init(
         store: any KanbanWorkflowStoring,
         hermes: any HermesKanbanServicing,
         workspaceValidator: any KanbanWorkspaceValidating,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        mutationGate: KanbanWorkflowMutationGate = KanbanWorkflowMutationGate()
     ) {
         self.store = store
         self.hermes = hermes
         self.workspaceValidator = workspaceValidator
         self.now = now
+        self.mutationGate = mutationGate
     }
 
     func workflows() async throws -> [KanbanWorkflow] {
@@ -57,6 +59,12 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     }
 
     func createDraft(_ input: KanbanDraftInput) async throws -> KanbanWorkflow {
+        try await mutationGate.run { [self] in
+            try await createDraftLocked(input)
+        }
+    }
+
+    private func createDraftLocked(_ input: KanbanDraftInput) async throws -> KanbanWorkflow {
         let title = input.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let objective = input.objective.trimmingCharacters(in: .whitespacesAndNewlines)
         let workspacePath = input.workspacePath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -335,9 +343,10 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     }
 }
 
-private actor KanbanWorkflowMutationGate {
+actor KanbanWorkflowMutationGate {
     private var isRunning = false
     private var waiters: [(UUID, CheckedContinuation<Bool, Never>)] = []
+    private var queueObservers: [CheckedContinuation<Void, Never>] = []
 
     func run<T: Sendable>(
         _ operation: @escaping @Sendable () async throws -> T
@@ -359,6 +368,9 @@ private actor KanbanWorkflowMutationGate {
                         return
                     }
                     waiters.append((waiterID, continuation))
+                    let observers = queueObservers
+                    queueObservers.removeAll()
+                    observers.forEach { $0.resume() }
                 }
             }, onCancel: {
                 Task { await self.cancelWaiter(id: waiterID) }
@@ -383,6 +395,13 @@ private actor KanbanWorkflowMutationGate {
         }
         let waiter = waiters.remove(at: index)
         waiter.1.resume(returning: false)
+    }
+
+    func waitForQueuedMutation() async {
+        guard waiters.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            queueObservers.append(continuation)
+        }
     }
 }
 
