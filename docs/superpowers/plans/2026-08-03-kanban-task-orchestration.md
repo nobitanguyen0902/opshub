@@ -1100,8 +1100,26 @@ private func makeTerminalDetail(
         priority: 1,
         idempotencyKey: "test"
     )
+    let task = HermesKanbanTask(
+        id: taskID,
+        title: request.title,
+        body: request.body,
+        assignee: request.assignee,
+        status: .done,
+        priority: request.priority,
+        tenant: nil,
+        workspaceKind: "dir",
+        workspacePath: request.workspacePath,
+        branchName: nil,
+        projectID: nil,
+        createdBy: "opshub",
+        createdAt: 1,
+        startedAt: 1,
+        completedAt: 2,
+        result: metadata.summary
+    )
     return HermesKanbanTaskDetail(
-        task: .fixture(id: taskID, request: request),
+        task: task,
         latestSummary: metadata.summary,
         parents: [],
         children: [],
@@ -1199,7 +1217,7 @@ git commit -m "feat: recover Kanban workflow actions"
 - Modify: `Sources/OpsHub/Features/Kanban/ViewModels/KanbanViewModel.swift`
 - Modify: `Sources/OpsHub/Features/Kanban/Models/KanbanModels.swift`
 - Create: `Tests/OpsHubTests/KanbanViewModelTests.swift`
-- Modify: `Tests/OpsHubTests/KanbanTests.swift`
+- Modify: `Tests/OpsHubTests/KanbanTests.swift` to move the existing `KanbanViewModelTests` class into the new file before adding tests; never leave duplicate test classes.
 
 **Interfaces:**
 - Consumes: `HermesKanbanServicing`, `KanbanWorkflowCoordinating`, column projection.
@@ -1317,6 +1335,8 @@ Expected: FAIL because the old view model only reads SQLite tasks.
 - [ ] **Step 3: Implement CLI-backed refresh and ownership merge**
 
 Replace `KanbanDatabaseReading` dependency with Hermes service + coordinator. Build one logical card per workflow; hide its internal stage task IDs from external cards. Remaining Hermes tasks are external and read-only for workflow actions.
+
+Move the existing `KanbanViewModelTests` and its private stub reader out of `KanbanTests.swift` into `KanbanViewModelTests.swift`, then rewrite that single class for the new dependencies. `KanbanTests.swift` keeps only SQLite reader regression tests until Task 10.
 
 Use these presentation types:
 
