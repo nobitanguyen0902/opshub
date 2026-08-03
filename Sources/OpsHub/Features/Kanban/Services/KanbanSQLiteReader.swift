@@ -1,11 +1,20 @@
 import Foundation
+import os
 import SQLite3
 
 protocol KanbanDatabaseReading: Sendable { func loadBoard() throws -> KanbanBoardSnapshot; func loadTaskDetail(taskID: String) throws -> KanbanTaskDetail }
 
 struct KanbanSQLiteReader: KanbanDatabaseReading {
+    private static let logger = Logger(subsystem: "com.opshub.app", category: "KanbanSQLiteReader")
+
     let url: URL
-    init(url: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes/kanban.db")) { self.url = url }
+    init(url: URL = Self.defaultDatabaseURL()) { self.url = url }
+
+    static func defaultDatabaseURL(fileManager: FileManager = .default) -> URL {
+        fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".hermes", isDirectory: true)
+            .appendingPathComponent("kanban.db", isDirectory: false)
+    }
     func loadBoard() throws -> KanbanBoardSnapshot {
         let db = try open(); defer { sqlite3_close(db) }
         try validate(db)
@@ -21,7 +30,19 @@ struct KanbanSQLiteReader: KanbanDatabaseReading {
         let events = try query(db, sql: "SELECT id,kind,payload,created_at FROM task_events WHERE task_id = ? ORDER BY created_at ASC,id ASC", binds: [taskID]).compactMap { r in Int(r[0]).map { KanbanEvent(id:$0,kind:r[1],payload:r[2].isEmpty ? nil : r[2],createdAt:Date(timeIntervalSince1970:Double(r[3]) ?? 0)) } }
         return KanbanTaskDetail(task: task, comments: comments, events: events)
     }
-    private func open() throws -> OpaquePointer { guard FileManager.default.fileExists(atPath: url.path) else { throw KanbanReadError.missing }; var db: OpaquePointer?; let rc = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil); guard rc == SQLITE_OK, let db else { throw KanbanReadError.open(String(cString: sqlite3_errstr(rc))) }; return db }
+    private func open() throws -> OpaquePointer {
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        Self.logger.debug("Resolving Kanban database path: \(self.url.path, privacy: .public), fileExists=\(exists, privacy: .public)")
+        guard exists else { throw KanbanReadError.missing }
+
+        var db: OpaquePointer?
+        let rc = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil)
+        guard rc == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
+            throw KanbanReadError.open(String(cString: sqlite3_errstr(rc)))
+        }
+        return db
+    }
     private func validate(_ db: OpaquePointer) throws { let rows = try query(db, sql: "PRAGMA table_info(tasks)"); let names = Set(rows.map{$0[1]}); guard Set(["id","title","status","priority","created_at"]).isSubset(of:names) else { throw KanbanReadError.schema } }
     private func query(_ db: OpaquePointer, sql: String, binds: [String] = []) throws -> [[String]] { var stmt: OpaquePointer?; guard sqlite3_prepare_v2(db,sql,-1,&stmt,nil) == SQLITE_OK else { throw KanbanReadError.query(String(cString:sqlite3_errmsg(db))) }; defer { sqlite3_finalize(stmt) }; for (i,v) in binds.enumerated() { sqlite3_bind_text(stmt,Int32(i+1),v,-1,unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }; var out:[[String]]=[]
         while true {

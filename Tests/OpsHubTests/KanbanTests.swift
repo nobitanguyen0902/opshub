@@ -3,6 +3,29 @@ import SQLite3
 @testable import OpsHub
 
 final class KanbanSQLiteReaderTests: XCTestCase {
+    func testDefaultDatabaseURLUsesCurrentHomeDirectory() {
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".hermes", isDirectory: true)
+            .appendingPathComponent("kanban.db", isDirectory: false)
+
+        XCTAssertEqual(KanbanSQLiteReader.defaultDatabaseURL(), expected)
+        XCTAssertFalse(KanbanSQLiteReader.defaultDatabaseURL().path.hasPrefix("~"))
+    }
+
+    func testReportsOpenFailureForNonDatabasePath() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kanban-directory-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        XCTAssertThrowsError(try KanbanSQLiteReader(url: directory).loadBoard()) { error in
+            guard case let .open(message) = error as? KanbanReadError else {
+                return XCTFail("Expected an open error, got \(error)")
+            }
+            XCTAssertFalse(message.isEmpty)
+        }
+    }
+
     func testLoadsTasksInPriorityOrder() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("kanban-\(UUID().uuidString).db")
         defer { try? FileManager.default.removeItem(at: url) }
