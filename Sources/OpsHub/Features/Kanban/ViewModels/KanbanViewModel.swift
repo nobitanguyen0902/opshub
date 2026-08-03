@@ -16,6 +16,8 @@ import Foundation
     private let hermes: any HermesKanbanServicing
     private let coordinator: any KanbanWorkflowCoordinating
     private let sleeper: @Sendable (Duration) async throws -> Void
+    private var detailRequestID: UUID?
+    private var logRequestID: UUID?
 
     init(
         hermes: any HermesKanbanServicing = HermesKanbanService(),
@@ -82,22 +84,31 @@ import Foundation
 
     func loadSelectedDetail() async {
         guard let taskID = selectedHermesTaskID else { return }
+        let requestID = UUID()
+        detailRequestID = requestID
         do {
             let detail = try await hermes.taskDetail(id: taskID)
+            guard shouldPublishDetail(requestID: requestID, taskID: taskID) else { return }
             selectedHermesDetail = detail
             selectedDetail = legacyDetail(from: detail)
             errorMessage = nil
         } catch {
+            guard shouldPublishDetail(requestID: requestID, taskID: taskID) else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     func loadSelectedLog(tailBytes: Int = 64_000) async {
         guard let taskID = selectedHermesTaskID else { return }
+        let requestID = UUID()
+        logRequestID = requestID
         do {
-            selectedLog = try await hermes.log(taskID: taskID, tailBytes: tailBytes)
+            let log = try await hermes.log(taskID: taskID, tailBytes: tailBytes)
+            guard shouldPublishLog(requestID: requestID, taskID: taskID) else { return }
+            selectedLog = log
             errorMessage = nil
         } catch {
+            guard shouldPublishLog(requestID: requestID, taskID: taskID) else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -173,6 +184,14 @@ import Foundation
     private var selectedCard: KanbanCardViewData? {
         guard let selectedCardID else { return nil }
         return snapshot?.cards.first(where: { $0.id == selectedCardID })
+    }
+
+    private func shouldPublishDetail(requestID: UUID, taskID: String) -> Bool {
+        !Task.isCancelled && detailRequestID == requestID && selectedHermesTaskID == taskID
+    }
+
+    private func shouldPublishLog(requestID: UUID, taskID: String) -> Bool {
+        !Task.isCancelled && logRequestID == requestID && selectedHermesTaskID == taskID
     }
 
     private var selectedHermesTaskID: String? {

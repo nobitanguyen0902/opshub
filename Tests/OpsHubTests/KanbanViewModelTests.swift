@@ -141,6 +141,67 @@ final class KanbanViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedCardID, .hermes(task.id))
     }
 
+    func testSelectionSwapDropsStaleDetailAndLogResponses() async {
+        let (first, second) = externalTasks()
+        let hermes = DeferredViewModelHermesStub(tasks: [first, second])
+        let model = KanbanViewModel(hermes: hermes, coordinator: ViewModelCoordinatorStub(workflows: []))
+        await model.refresh()
+
+        model.selectedCardID = .hermes(first.id)
+        let staleDetail = Task { await model.loadSelectedDetail() }
+        await hermes.waitForDetailRequest(first.id)
+        model.selectedCardID = .hermes(second.id)
+        let currentDetail = Task { await model.loadSelectedDetail() }
+        await hermes.waitForDetailRequest(second.id)
+        await hermes.resolveDetail(second.id, with: .success(.fixture(task: second)))
+        _ = await currentDetail.value
+        await hermes.resolveDetail(first.id, with: .failure(.incompatibleJSON(command: "show")))
+        _ = await staleDetail.value
+
+        XCTAssertEqual(model.selectedHermesDetail?.task.id, second.id)
+        XCTAssertNil(model.errorMessage)
+
+        model.selectedCardID = .hermes(first.id)
+        let staleLog = Task { await model.loadSelectedLog() }
+        await hermes.waitForLogRequest(first.id)
+        model.selectedCardID = .hermes(second.id)
+        let currentLog = Task { await model.loadSelectedLog() }
+        await hermes.waitForLogRequest(second.id)
+        await hermes.resolveLog(second.id, with: .success("current log"))
+        _ = await currentLog.value
+        await hermes.resolveLog(first.id, with: .failure(.incompatibleJSON(command: "log")))
+        _ = await staleLog.value
+
+        XCTAssertEqual(model.selectedLog, "current log")
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testCancelledDetailAndLogRequestsDoNotPublishAfterCompletion() async {
+        let (first, _) = externalTasks()
+        let hermes = DeferredViewModelHermesStub(tasks: [first])
+        let model = KanbanViewModel(hermes: hermes, coordinator: ViewModelCoordinatorStub(workflows: []))
+        await model.refresh()
+        model.selectedCardID = .hermes(first.id)
+
+        let detail = Task { await model.loadSelectedDetail() }
+        await hermes.waitForDetailRequest(first.id)
+        detail.cancel()
+        await hermes.resolveDetail(first.id, with: .success(.fixture(task: first)))
+        _ = await detail.value
+
+        XCTAssertNil(model.selectedHermesDetail)
+        XCTAssertNil(model.errorMessage)
+
+        let log = Task { await model.loadSelectedLog() }
+        await hermes.waitForLogRequest(first.id)
+        log.cancel()
+        await hermes.resolveLog(first.id, with: .failure(.incompatibleJSON(command: "log")))
+        _ = await log.value
+
+        XCTAssertNil(model.selectedLog)
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testAutoRefreshStopsAfterCancellationAndRefreshGuardPreventsOverlap() async {
         let hermes = ViewModelHermesStub(tasks: [], listDelayNanoseconds: 100_000_000)
         let coordinator = ViewModelCoordinatorStub(workflows: [])
@@ -169,6 +230,18 @@ final class KanbanViewModelTests: XCTestCase {
 @MainActor
 private func actions(for workflowID: UUID, in model: KanbanViewModel) -> Set<KanbanAvailableAction>? {
     model.snapshot?.cards.first(where: { $0.id == .workflow(workflowID) })?.availableActions
+}
+
+private func externalTasks() -> (HermesKanbanTask, HermesKanbanTask) {
+    let first = HermesKanbanTask.fixture(
+        id: "t_first",
+        request: .init(title: "First", body: "", assignee: "developer", workspacePath: "/tmp/first", priority: 1, idempotencyKey: "first")
+    )
+    let second = HermesKanbanTask.fixture(
+        id: "t_second",
+        request: .init(title: "Second", body: "", assignee: "developer", workspacePath: "/tmp/second", priority: 1, idempotencyKey: "second")
+    )
+    return (first, second)
 }
 
 private actor ViewModelHermesStub: HermesKanbanServicing {
@@ -216,6 +289,64 @@ private actor ViewModelHermesStub: HermesKanbanServicing {
     func listCallCount() -> Int { listCalls }
     func waitForListCalls(atLeast expected: Int) async {
         while listCalls < expected { await Task.yield() }
+    }
+}
+
+private actor DeferredViewModelHermesStub: HermesKanbanServicing {
+    private var tasks: [HermesKanbanTask]
+    private var detailRequests: [String: [CheckedContinuation<Result<HermesKanbanTaskDetail, KanbanCommandError>, Never>]] = [:]
+    private var logRequests: [String: [CheckedContinuation<Result<String, KanbanCommandError>, Never>]] = [:]
+
+    init(tasks: [HermesKanbanTask]) {
+        self.tasks = tasks
+    }
+
+    func listTasks() async throws -> [HermesKanbanTask] { tasks }
+
+    func taskDetail(id: String) async throws -> HermesKanbanTaskDetail {
+        let result = await withCheckedContinuation { continuation in
+            detailRequests[id, default: []].append(continuation)
+        }
+        return try result.get()
+    }
+
+    func runs(taskID: String) async throws -> [HermesKanbanRun] { [] }
+
+    func log(taskID: String, tailBytes: Int) async throws -> String {
+        let result = await withCheckedContinuation { continuation in
+            logRequests[taskID, default: []].append(continuation)
+        }
+        return try result.get()
+    }
+
+    func isAvailable() async -> Bool { true }
+    func profileExists(_ profile: String) async -> Bool { true }
+    func isGatewayRunning() async -> Bool { true }
+    func createTask(_ request: HermesTaskCreateRequest) async throws -> HermesKanbanTask { tasks[0] }
+    func reclaim(taskID: String, reason: String) async throws {}
+    func block(taskID: String, reason: String) async throws {}
+    func unblock(taskID: String, reason: String) async throws {}
+
+    func waitForDetailRequest(_ taskID: String) async {
+        while detailRequests[taskID]?.isEmpty ?? true { await Task.yield() }
+    }
+
+    func waitForLogRequest(_ taskID: String) async {
+        while logRequests[taskID]?.isEmpty ?? true { await Task.yield() }
+    }
+
+    func resolveDetail(_ taskID: String, with result: Result<HermesKanbanTaskDetail, KanbanCommandError>) {
+        guard var requests = detailRequests[taskID], !requests.isEmpty else { return }
+        let continuation = requests.removeFirst()
+        detailRequests[taskID] = requests
+        continuation.resume(returning: result)
+    }
+
+    func resolveLog(_ taskID: String, with result: Result<String, KanbanCommandError>) {
+        guard var requests = logRequests[taskID], !requests.isEmpty else { return }
+        let continuation = requests.removeFirst()
+        logRequests[taskID] = requests
+        continuation.resume(returning: result)
     }
 }
 
