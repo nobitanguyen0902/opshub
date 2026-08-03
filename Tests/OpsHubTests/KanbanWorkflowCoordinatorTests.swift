@@ -154,6 +154,25 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(requests.count, 0)
     }
 
+    func testConcurrentStartsCreateOnlyOneArchitectTask() async throws {
+        let harness = makeCoordinatorHarness()
+        let draft = try await harness.coordinator.createDraft(makeDraftInput())
+        await harness.hermes.suspendNextCreate()
+
+        let firstStart = Task { try await harness.coordinator.start(workflowID: draft.id) }
+        await harness.hermes.waitForCreateRequest()
+        let secondStart = Task { try await harness.coordinator.start(workflowID: draft.id) }
+        await harness.hermes.releaseSuspendedCreate()
+
+        _ = try await firstStart.value
+        await XCTAssertThrowsErrorAsync(try await secondStart.value) { error in
+            XCTAssertEqual(error as? KanbanWorkflowError, .invalidPhase(.active))
+        }
+        let requests = await harness.hermes.createdRequests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.assignee, "architect")
+    }
+
     func testRefreshAdvancesArchitectDeveloperReviewerAndMarksDone() async throws {
         let workflow = makeActiveWorkflow()
         let hermes = StubHermesKanbanService()
@@ -195,6 +214,32 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         await hermes.setDetail(detail(for: afterFirstRefresh[0], stage: .developer, endedAt: nil))
         _ = try await harness.coordinator.refresh()
 
+        let requests = await hermes.createdRequests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.assignee, "developer")
+    }
+
+    func testConcurrentRefreshesCreateOnlyOneDeveloperTask() async throws {
+        let workflow = makeActiveWorkflow()
+        let hermes = StubHermesKanbanService()
+        let harness = makeCoordinatorHarness(workflows: [workflow], hermes: hermes)
+        await hermes.setDetail(detail(for: workflow, stage: .architect, handoff: .architectReady))
+        await hermes.suspendNextCreate()
+
+        let firstRefresh = Task { try await harness.coordinator.refresh() }
+        await hermes.waitForCreateRequest()
+        let secondRefresh = Task { try await harness.coordinator.refresh() }
+        let developerWorkflow = workflowWithStage(
+            workflow,
+            stage: .developer,
+            taskID: "task-1",
+            idempotencyKey: stageKey(workflowID: workflow.id, stage: .developer, attempt: 0)
+        )
+        await hermes.setDetail(detail(for: developerWorkflow, stage: .developer, endedAt: nil))
+        await hermes.releaseSuspendedCreate()
+
+        _ = try await firstRefresh.value
+        _ = try await secondRefresh.value
         let requests = await hermes.createdRequests
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(requests.first?.assignee, "developer")
@@ -298,6 +343,24 @@ private func makeActiveWorkflow(workspacePath: String = "/tmp/repo") -> KanbanWo
     return workflow
 }
 
+private func workflowWithStage(
+    _ workflow: KanbanWorkflow,
+    stage: KanbanStage,
+    taskID: String,
+    idempotencyKey: String
+) -> KanbanWorkflow {
+    var updated = workflow
+    updated.currentStage = stage
+    updated.stageReferences.append(KanbanStageReference(
+        stage: stage,
+        attempt: 0,
+        hermesTaskID: taskID,
+        idempotencyKey: idempotencyKey,
+        createdAt: Date(timeIntervalSince1970: 1)
+    ))
+    return updated
+}
+
 private actor InMemoryWorkflowStore: KanbanWorkflowStoring {
     private var value: [KanbanWorkflow]
 
@@ -340,6 +403,9 @@ private actor StubHermesKanbanService: HermesKanbanServicing {
     private(set) var createdRequests: [HermesTaskCreateRequest] = []
     private(set) var profileChecks: [String] = []
     private var details: [String: HermesKanbanTaskDetail] = [:]
+    private var suspendNextCreateRequest = false
+    private var suspendedCreate: CheckedContinuation<Void, Never>?
+    private var createRequestWaiters: [CheckedContinuation<Void, Never>] = []
     private let available: Bool
     private let profiles: Set<String>
     private let gatewayRunning: Bool
@@ -366,12 +432,32 @@ private actor StubHermesKanbanService: HermesKanbanServicing {
     func isGatewayRunning() async -> Bool { gatewayRunning }
     func createTask(_ request: HermesTaskCreateRequest) async throws -> HermesKanbanTask {
         createdRequests.append(request)
+        let waiters = createRequestWaiters
+        createRequestWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if suspendNextCreateRequest {
+            suspendNextCreateRequest = false
+            await withCheckedContinuation { continuation in
+                suspendedCreate = continuation
+            }
+        }
         return HermesKanbanTask.fixture(id: "task-\(createdRequests.count)", request: request)
     }
     func reclaim(taskID: String, reason: String) async throws {}
     func block(taskID: String, reason: String) async throws {}
     func unblock(taskID: String, reason: String) async throws {}
     func setDetail(_ detail: HermesKanbanTaskDetail) { details[detail.task.id] = detail }
+    func suspendNextCreate() { suspendNextCreateRequest = true }
+    func releaseSuspendedCreate() {
+        suspendedCreate?.resume()
+        suspendedCreate = nil
+    }
+    func waitForCreateRequest() async {
+        guard createdRequests.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            createRequestWaiters.append(continuation)
+        }
+    }
 }
 
 private extension HermesKanbanTask {

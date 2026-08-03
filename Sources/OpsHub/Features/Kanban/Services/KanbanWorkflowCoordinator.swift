@@ -38,6 +38,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     private let hermes: any HermesKanbanServicing
     private let workspaceValidator: any KanbanWorkspaceValidating
     private let now: @Sendable () -> Date
+    private let mutationGate = KanbanWorkflowMutationGate()
 
     init(
         store: any KanbanWorkflowStoring,
@@ -94,6 +95,12 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     }
 
     func start(workflowID: UUID) async throws -> KanbanWorkflow {
+        try await mutationGate.run { [self] in
+            try await startLocked(workflowID: workflowID)
+        }
+    }
+
+    private func startLocked(workflowID: UUID) async throws -> KanbanWorkflow {
         let current = try await store.load()
         guard let index = current.firstIndex(where: { $0.id == workflowID }) else {
             throw KanbanWorkflowError.workflowNotFound(workflowID)
@@ -141,6 +148,12 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     }
 
     func refresh() async throws -> [KanbanWorkflow] {
+        try await mutationGate.run { [self] in
+            try await refreshLocked()
+        }
+    }
+
+    private func refreshLocked() async throws -> [KanbanWorkflow] {
         var current = try await store.load()
         for index in current.indices {
             let workflow = current[index]
@@ -319,6 +332,57 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
 
     private static func canonicalPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
+private actor KanbanWorkflowMutationGate {
+    private var isRunning = false
+    private var waiters: [(UUID, CheckedContinuation<Bool, Never>)] = []
+
+    func run<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        guard await acquire() else {
+            throw CancellationError()
+        }
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async -> Bool {
+        guard !isRunning else {
+            let waiterID = UUID()
+            return await withTaskCancellationHandler(operation: {
+                await withCheckedContinuation { continuation in
+                    guard !Task.isCancelled else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    waiters.append((waiterID, continuation))
+                }
+            }, onCancel: {
+                Task { await self.cancelWaiter(id: waiterID) }
+            })
+        }
+        isRunning = true
+        return true
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            isRunning = false
+            return
+        }
+        let waiter = waiters.removeFirst()
+        waiter.1.resume(returning: true)
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.0 == id }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        waiter.1.resume(returning: false)
     }
 }
 
