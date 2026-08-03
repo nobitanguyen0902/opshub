@@ -6,6 +6,7 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
     case brew
     case gitLab
     case terminal
+    case kanban
     case settings
 
     var id: Self { self }
@@ -22,6 +23,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
             return "GitLab"
         case .terminal:
             return "Terminal"
+        case .kanban:
+            return "Kanban"
         case .settings:
             return "Settings"
         }
@@ -39,6 +42,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
             return "arrow.triangle.branch"
         case .terminal:
             return "terminal"
+        case .kanban:
+            return "rectangle.split.3x1"
         case .settings:
             return "gearshape"
         }
@@ -116,6 +121,8 @@ struct ContentView: View {
                 GitLabDashboardView(viewModel: gitLabViewModel)
             case .terminal:
                 CodexTerminalView(viewModel: codexTerminalViewModel)
+            case .kanban:
+                KanbanView()
             case .dashboard:
                 DashboardView(viewModel: sprintDashboardViewModel)
             case .settings:

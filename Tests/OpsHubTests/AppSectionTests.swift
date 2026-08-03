@@ -9,7 +9,7 @@ final class AppSectionTests: XCTestCase {
     func testTerminalAppearsBeforeSettingsWithoutRemovingExistingSections() {
         XCTAssertEqual(
             AppSection.allCases,
-            [.dashboard, .devRoom, .brew, .gitLab, .terminal, .settings]
+            [.dashboard, .devRoom, .brew, .gitLab, .terminal, .kanban, .settings]
         )
         XCTAssertEqual(AppSection.terminal.title, "Terminal")
         XCTAssertEqual(AppSection.terminal.systemImage, "terminal")
