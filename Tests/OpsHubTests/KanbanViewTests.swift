@@ -63,11 +63,13 @@ final class KanbanViewTests: XCTestCase {
         XCTAssertEqual(reduced.kind, .fade)
         XCTAssertEqual(reduced.duration, 0.12)
         XCTAssertFalse(reduced.animatesBoardSurface)
+        XCTAssertTrue(reduced.appliesAnimationToStableContainer)
 
         let normal = KanbanInspectorTransitionPolicy.policy(reduceMotion: false)
         XCTAssertEqual(normal.kind, .slideAndFade)
         XCTAssertEqual(normal.duration, 0.20)
         XCTAssertFalse(normal.animatesBoardSurface)
+        XCTAssertTrue(normal.appliesAnimationToStableContainer)
     }
 
     func testNewTaskFocusReturnsToHeaderOpenerAfterCloseOrSuccess() {

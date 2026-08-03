@@ -19,6 +19,7 @@ struct KanbanView: View {
     }
 
     var body: some View {
+        let inspectorPolicy = KanbanInspectorTransitionPolicy.policy(reduceMotion: reduceMotion)
         ZStack(alignment: .trailing) {
             VStack(alignment: .leading, spacing: 16) {
                 header
@@ -35,9 +36,11 @@ struct KanbanView: View {
             .padding(20)
 
             if let card = model.selectedCardViewData {
-                inspectorOverlay(for: card)
+                inspectorOverlay(for: card, policy: inspectorPolicy)
             }
         }
+        // This stable container owns the transaction, so transitions animate for both insertion and removal.
+        .animation(.easeOut(duration: inspectorPolicy.duration), value: model.selectedCardID)
         .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Kanban")
         .sheet(isPresented: $model.isPresentingNewTask) {
@@ -144,8 +147,10 @@ struct KanbanView: View {
         }
     }
 
-    private func inspectorOverlay(for card: KanbanCardViewData) -> some View {
-        let policy = KanbanInspectorTransitionPolicy.policy(reduceMotion: reduceMotion)
+    private func inspectorOverlay(
+        for card: KanbanCardViewData,
+        policy: KanbanInspectorTransitionPolicy
+    ) -> some View {
         return GeometryReader { proxy in
             let placement = KanbanInspectorLayout.placement(for: proxy.size.width)
             ZStack(alignment: .trailing) {
@@ -165,7 +170,6 @@ struct KanbanView: View {
             }
         }
         .transition(policy.transition)
-        .animation(.easeOut(duration: policy.duration), value: model.selectedCardID)
         .zIndex(1)
     }
 

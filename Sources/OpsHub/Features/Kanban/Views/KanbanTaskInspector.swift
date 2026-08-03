@@ -55,11 +55,12 @@ struct KanbanInspectorTransitionPolicy: Equatable {
     let kind: KanbanInspectorTransitionKind
     let duration: Double
     let animatesBoardSurface: Bool
+    let appliesAnimationToStableContainer: Bool
 
     static func policy(reduceMotion: Bool) -> KanbanInspectorTransitionPolicy {
         reduceMotion
-            ? .init(kind: .fade, duration: 0.12, animatesBoardSurface: false)
-            : .init(kind: .slideAndFade, duration: 0.20, animatesBoardSurface: false)
+            ? .init(kind: .fade, duration: 0.12, animatesBoardSurface: false, appliesAnimationToStableContainer: true)
+            : .init(kind: .slideAndFade, duration: 0.20, animatesBoardSurface: false, appliesAnimationToStableContainer: true)
     }
 
     var transition: AnyTransition {
