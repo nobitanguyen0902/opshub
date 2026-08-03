@@ -26,6 +26,42 @@ final class KanbanSQLiteReaderTests: XCTestCase {
         }
     }
 
+    func testLoadsWALDatabaseWhenSidecarFilesDoNotExist() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kanban-wal-\(UUID().uuidString).db")
+        let walURL = URL(fileURLWithPath: url.path + "-wal")
+        let shmURL = URL(fileURLWithPath: url.path + "-shm")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            walURL.withUnsafeFileSystemRepresentation { path in
+                if let path { _ = unlink(path) }
+            }
+            shmURL.withUnsafeFileSystemRepresentation { path in
+                if let path { _ = unlink(path) }
+            }
+        }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil), SQLITE_OK)
+        let sql = "CREATE TABLE tasks (id TEXT, title TEXT, body TEXT, assignee TEXT, status TEXT, priority INTEGER, created_at REAL, result TEXT); INSERT INTO tasks VALUES ('wal-task','WAL Task','','','todo',1,1.0,NULL);"
+        XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_close(db), SQLITE_OK)
+
+        shmURL.withUnsafeFileSystemRepresentation { path in
+            if let path { _ = unlink(path) }
+        }
+        walURL.withUnsafeFileSystemRepresentation { path in
+            if let path { _ = unlink(path) }
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: walURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shmURL.path))
+
+        let snapshot = try KanbanSQLiteReader(url: url).loadBoard()
+        XCTAssertEqual(snapshot.tasks.map(\.id), ["wal-task"])
+    }
+
     func testLoadsTasksInPriorityOrder() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("kanban-\(UUID().uuidString).db")
         defer { try? FileManager.default.removeItem(at: url) }
