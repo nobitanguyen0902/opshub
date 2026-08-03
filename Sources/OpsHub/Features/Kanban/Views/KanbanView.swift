@@ -5,6 +5,7 @@ struct KanbanView: View {
     @State private var collapsedColumns: Set<KanbanColumn>
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AccessibilityFocusState private var focusedCardID: KanbanCardID?
+    @AccessibilityFocusState private var focusedHeaderControl: KanbanNewTaskFocusTarget?
 
     private let columnPreferences: KanbanColumnPreferences
 
@@ -52,6 +53,12 @@ struct KanbanView: View {
                 displayedCardIDs: Set(model.snapshot?.cards.map(\.id) ?? [])
             )
         }
+        .onChange(of: model.isPresentingNewTask) { previousValue, currentValue in
+            focusedHeaderControl = KanbanNewTaskFocusRouter.target(
+                previousIsPresenting: previousValue,
+                isPresenting: currentValue
+            )
+        }
         .task {
             await model.autoRefresh()
         }
@@ -84,6 +91,7 @@ struct KanbanView: View {
                         .contentShape(Rectangle())
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                .accessibilityFocused($focusedHeaderControl, equals: .newTaskButton)
             }
             .buttonStyle(.plain)
             .opsHubTerminalControlGroup()
@@ -137,7 +145,8 @@ struct KanbanView: View {
     }
 
     private func inspectorOverlay(for card: KanbanCardViewData) -> some View {
-        GeometryReader { proxy in
+        let policy = KanbanInspectorTransitionPolicy.policy(reduceMotion: reduceMotion)
+        return GeometryReader { proxy in
             let placement = KanbanInspectorLayout.placement(for: proxy.size.width)
             ZStack(alignment: .trailing) {
                 KanbanInspectorBackdrop(onDismiss: closeInspector)
@@ -155,7 +164,8 @@ struct KanbanView: View {
                     .padding(.trailing, placement.trailingInset)
             }
         }
-        .transition(KanbanInspectorTransitionPolicy.policy(reduceMotion: reduceMotion).transition)
+        .transition(policy.transition)
+        .animation(.easeOut(duration: policy.duration), value: model.selectedCardID)
         .zIndex(1)
     }
 

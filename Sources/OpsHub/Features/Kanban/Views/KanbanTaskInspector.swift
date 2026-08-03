@@ -102,6 +102,7 @@ struct KanbanTaskInspector: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AccessibilityFocusState private var isHeadingFocused: Bool
     @State private var selectedTab: Tab = .overview
+    @State private var detailLoadTask: Task<Void, Never>?
     @State private var logPollTask: Task<Void, Never>?
     @State private var distanceFromBottom: CGFloat = 0
 
@@ -126,11 +127,19 @@ struct KanbanTaskInspector: View {
         .accessibilityElement(children: .contain)
         .onAppear {
             isHeadingFocused = true
-            Task { await model.loadSelectedDetail() }
+            loadDetails()
             updateLogPolling()
         }
         .onChange(of: selectedTab) { _, _ in updateLogPolling() }
-        .onDisappear { stopLogPolling() }
+        .onChange(of: model.selectedHermesTaskID) { _, _ in
+            loadDetails()
+            updateLogPolling()
+        }
+        .onDisappear {
+            detailLoadTask?.cancel()
+            detailLoadTask = nil
+            stopLogPolling()
+        }
         .onExitCommand(perform: close)
         .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.20), value: selectedTab)
     }
@@ -328,6 +337,11 @@ struct KanbanTaskInspector: View {
                 }
             }
         }
+    }
+
+    private func loadDetails() {
+        detailLoadTask?.cancel()
+        detailLoadTask = Task { await model.loadSelectedDetail() }
     }
 
     private func stopLogPolling() {

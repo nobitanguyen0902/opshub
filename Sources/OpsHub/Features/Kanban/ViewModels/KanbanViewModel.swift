@@ -5,9 +5,12 @@ import Foundation
     @Published private(set) var errorMessage: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var activeAction: KanbanAction?
-    @Published var selectedCardID: KanbanCardID?
+    @Published var selectedCardID: KanbanCardID? {
+        didSet { updateSelectedHermesTaskID() }
+    }
     @Published var isPresentingNewTask = false
     @Published var selectedDetail: KanbanTaskDetail?
+    @Published private(set) var selectedHermesTaskID: String?
     @Published private(set) var selectedHermesDetail: HermesKanbanTaskDetail?
     @Published private(set) var selectedLog: String?
 
@@ -56,6 +59,7 @@ import Foundation
                 cards: makeCards(workflows: try await workflows, hermesTasks: try await hermesTasks),
                 loadedAt: Date()
             )
+            updateSelectedHermesTaskID()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -68,19 +72,12 @@ import Foundation
         }
     }
 
-    func validateDraftWorkspacePath(_ path: String) async -> String? {
+    func validateDraftWorkspacePath(_ path: String) async throws -> String {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPath.isEmpty else { return nil }
-        do {
-            let canonicalPath = try await workspaceValidator.validateDraftPath(
-                URL(fileURLWithPath: trimmedPath)
-            ).path
-            errorMessage = nil
-            return canonicalPath
-        } catch {
-            errorMessage = error.localizedDescription
-            return nil
-        }
+        guard !trimmedPath.isEmpty else { throw KanbanStartGuardError.missingDirectory }
+        return try await workspaceValidator.validateDraftPath(
+            URL(fileURLWithPath: trimmedPath)
+        ).path
     }
 
     func startSelected() async {
@@ -191,7 +188,7 @@ import Foundation
         do {
             try await operation()
             await refresh()
-            return errorMessage == nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
             await reconcilePartialFailure(preserving: error.localizedDescription)
@@ -224,7 +221,7 @@ import Foundation
         !Task.isCancelled && logRequestID == requestID && selectedHermesTaskID == taskID
     }
 
-    private var selectedHermesTaskID: String? {
+    private func resolvedSelectedHermesTaskID() -> String? {
         guard let selectedCardID else { return nil }
         switch selectedCardID {
         case let .hermes(taskID):
@@ -237,6 +234,18 @@ import Foundation
             }
             return workflow.stageReferences.last?.hermesTaskID
         }
+    }
+
+    private func updateSelectedHermesTaskID() {
+        let taskID = resolvedSelectedHermesTaskID()
+        guard taskID != selectedHermesTaskID else { return }
+        // Request IDs ensure completions from the old Hermes task cannot overwrite the Inspector.
+        detailRequestID = UUID()
+        logRequestID = UUID()
+        selectedHermesTaskID = taskID
+        selectedHermesDetail = nil
+        selectedDetail = nil
+        selectedLog = nil
     }
 
     private var lastWorkflows: [KanbanWorkflow] = []

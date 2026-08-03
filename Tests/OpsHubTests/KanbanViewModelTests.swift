@@ -3,6 +3,83 @@ import XCTest
 
 @MainActor
 final class KanbanViewModelTests: XCTestCase {
+    func testCreateDraftSucceedsWhenFollowUpRefreshFails() async {
+        let workflow = makeTriageWorkflow()
+        let coordinator = ViewModelCoordinatorStub(workflows: [workflow])
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(taskResults: [.failure(.incompatibleJSON(command: "list"))]),
+            coordinator: coordinator
+        )
+
+        let created = await model.createDraft(
+            .init(
+                title: "Task",
+                objective: "Objective",
+                acceptanceCriteria: ["Criterion"],
+                workspacePath: "/tmp/repo",
+                priority: .normal
+            )
+        )
+
+        XCTAssertTrue(created)
+        let createCalls = await coordinator.createDraftCallCount()
+        XCTAssertEqual(createCalls, 1)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    func testWorkspaceValidationFailureStaysLocalToNewTaskSheet() async {
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: ViewModelCoordinatorStub(workflows: []),
+            workspaceValidator: ViewModelWorkspaceValidator(error: .notGitRepository)
+        )
+
+        do {
+            _ = try await model.validateDraftWorkspacePath("/not-a-repository")
+            XCTFail("Expected workspace validation to fail")
+        } catch {
+            XCTAssertEqual(error as? KanbanStartGuardError, .notGitRepository)
+        }
+
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testWorkflowStageChangeClearsStaleInspectorDetailBeforeReloading() async {
+        let workflowID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+        let architectWorkflow = activeWorkflow(
+            id: workflowID,
+            stage: .architect,
+            taskID: "t_architect"
+        )
+        let developerWorkflow = activeWorkflow(
+            id: workflowID,
+            stage: .developer,
+            taskID: "t_developer"
+        )
+        let coordinator = ViewModelCoordinatorStub(workflows: [architectWorkflow])
+        let hermes = DeferredViewModelHermesStub(tasks: [])
+        let model = KanbanViewModel(hermes: hermes, coordinator: coordinator)
+
+        await model.refresh()
+        model.selectedCardID = .workflow(workflowID)
+        XCTAssertEqual(model.selectedHermesTaskID, "t_architect")
+
+        let staleDetail = Task { await model.loadSelectedDetail() }
+        await hermes.waitForDetailRequest("t_architect")
+        await coordinator.setWorkflows([developerWorkflow])
+        await model.refresh()
+        await hermes.resolveDetail(
+            "t_architect",
+            with: .success(.fixture(task: task(id: "t_architect")))
+        )
+        _ = await staleDetail.value
+
+        XCTAssertEqual(model.selectedHermesTaskID, "t_developer")
+        XCTAssertNil(model.selectedHermesDetail)
+        XCTAssertNil(model.selectedDetail)
+        XCTAssertNil(model.selectedLog)
+    }
+
     func testCreateDraftReportsSuccessForValidatedSheetDismissal() async {
         let workflow = makeTriageWorkflow()
         let model = KanbanViewModel(
@@ -374,6 +451,7 @@ private actor ViewModelCoordinatorStub: KanbanWorkflowCoordinating {
     private var value: [KanbanWorkflow]
     private let startDelayNanoseconds: UInt64
     private(set) var startCalls = 0
+    private(set) var createDraftCalls = 0
 
     init(workflows: [KanbanWorkflow], startDelayNanoseconds: UInt64 = 0) {
         value = workflows
@@ -381,7 +459,10 @@ private actor ViewModelCoordinatorStub: KanbanWorkflowCoordinating {
     }
 
     func workflows() async throws -> [KanbanWorkflow] { value }
-    func createDraft(_ input: KanbanDraftInput) async throws -> KanbanWorkflow { value[0] }
+    func createDraft(_ input: KanbanDraftInput) async throws -> KanbanWorkflow {
+        createDraftCalls += 1
+        return value[0]
+    }
     func start(workflowID: UUID) async throws -> KanbanWorkflow {
         startCalls += 1
         if startDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: startDelayNanoseconds) }
@@ -393,6 +474,15 @@ private actor ViewModelCoordinatorStub: KanbanWorkflowCoordinating {
     func retry(workflowID: UUID) async throws -> KanbanWorkflow { value[0] }
     func resumePendingTransitions() async throws -> [KanbanWorkflow] { value }
     func startCallCount() -> Int { startCalls }
+    func createDraftCallCount() -> Int { createDraftCalls }
+    func setWorkflows(_ workflows: [KanbanWorkflow]) { value = workflows }
+}
+
+private struct ViewModelWorkspaceValidator: KanbanWorkspaceValidating {
+    let error: KanbanStartGuardError
+
+    func validateDraftPath(_ url: URL) async throws -> URL { throw error }
+    func validateStart(_ url: URL) async throws -> URL { throw error }
 }
 
 private extension HermesKanbanTask {
@@ -430,5 +520,35 @@ private func makeTriageWorkflow(id: String = "00000000-0000-0000-0000-0000000000
         cancellationReason: nil,
         createdAt: Date(timeIntervalSince1970: 1),
         updatedAt: Date(timeIntervalSince1970: 1)
+    )
+}
+
+private func activeWorkflow(id: UUID, stage: KanbanStage, taskID: String) -> KanbanWorkflow {
+    var workflow = makeTriageWorkflow(id: id.uuidString)
+    workflow.phase = .active
+    workflow.currentStage = stage
+    workflow.stageReferences = [
+        .init(
+            stage: stage,
+            attempt: 0,
+            hermesTaskID: taskID,
+            idempotencyKey: "opshub:workflow:\(stage.rawValue):0",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+    ]
+    return workflow
+}
+
+private func task(id: String) -> HermesKanbanTask {
+    .fixture(
+        id: id,
+        request: .init(
+            title: id,
+            body: "",
+            assignee: "architect",
+            workspacePath: "/tmp/repo",
+            priority: 1,
+            idempotencyKey: id
+        )
     )
 }

@@ -23,6 +23,19 @@ struct KanbanDraftFormState: Equatable {
     }
 }
 
+enum KanbanNewTaskFocusTarget: Equatable {
+    case newTaskButton
+}
+
+enum KanbanNewTaskFocusRouter {
+    static func target(
+        previousIsPresenting: Bool,
+        isPresenting: Bool
+    ) -> KanbanNewTaskFocusTarget? {
+        previousIsPresenting && !isPresenting ? .newTaskButton : nil
+    }
+}
+
 struct KanbanNewTaskSheet: View {
     @ObservedObject var model: KanbanViewModel
     let onClose: () -> Void
@@ -30,6 +43,8 @@ struct KanbanNewTaskSheet: View {
     @State private var state = KanbanDraftFormState()
     @State private var isValidating = false
     @State private var isSubmitting = false
+    @State private var workspaceValidationMessage: String?
+    @AccessibilityFocusState private var isHeadingFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -37,6 +52,8 @@ struct KanbanNewTaskSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("New Task")
                         .font(.system(.title2, design: .monospaced).bold())
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityFocused($isHeadingFocused)
                     Text("Creates a workflow in Triage. Starting it is a separate action.")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -67,13 +84,6 @@ struct KanbanNewTaskSheet: View {
             }
             .formStyle(.grouped)
 
-            if let message = model.errorMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .accessibilityLabel("Task validation error: \(message)")
-            }
-
             HStack {
                 Spacer()
                 Button("Cancel", action: onClose)
@@ -99,26 +109,36 @@ struct KanbanNewTaskSheet: View {
             if state.validatedWorkspacePath != state.workspacePath {
                 state.validatedWorkspacePath = nil
             }
+            workspaceValidationMessage = nil
         }
+        .onAppear { isHeadingFocused = true }
         .onExitCommand(perform: onClose)
     }
 
     private var workspaceField: some View {
-        HStack(spacing: 8) {
-            TextField("Workspace Path", text: $state.workspacePath)
-            Button("Browse") { browse() }
-                .disabled(isValidating || isSubmitting)
-            Button {
-                Task { await validateWorkspace() }
-            } label: {
-                if isValidating {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("Validate")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                TextField("Workspace Path", text: $state.workspacePath)
+                Button("Browse") { browse() }
+                    .disabled(isValidating || isSubmitting)
+                Button {
+                    Task { await validateWorkspace() }
+                } label: {
+                    if isValidating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Validate")
+                    }
                 }
+                .disabled(state.workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidating || isSubmitting)
+                .accessibilityLabel("Validate workspace path")
             }
-            .disabled(state.workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidating || isSubmitting)
-            .accessibilityLabel("Validate workspace path")
+            if let workspaceValidationMessage {
+                Label(workspaceValidationMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("Workspace validation error: \(workspaceValidationMessage)")
+            }
         }
     }
 
@@ -137,12 +157,17 @@ struct KanbanNewTaskSheet: View {
         let pathBeingValidated = state.workspacePath
         isValidating = true
         defer { isValidating = false }
-        guard let canonicalPath = await model.validateDraftWorkspacePath(pathBeingValidated),
-              state.workspacePath == pathBeingValidated else {
+        do {
+            let canonicalPath = try await model.validateDraftWorkspacePath(pathBeingValidated)
+            guard state.workspacePath == pathBeingValidated else { return }
+            state.workspacePath = canonicalPath
+            state.validatedWorkspacePath = canonicalPath
+            workspaceValidationMessage = nil
+        } catch {
+            guard state.workspacePath == pathBeingValidated else { return }
+            workspaceValidationMessage = error.localizedDescription
             return
         }
-        state.workspacePath = canonicalPath
-        state.validatedWorkspacePath = canonicalPath
     }
 
     private func createTask() async {

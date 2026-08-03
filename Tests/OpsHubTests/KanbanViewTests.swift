@@ -61,11 +61,29 @@ final class KanbanViewTests: XCTestCase {
     func testInspectorTransitionHonorsReduceMotionAndDoesNotMoveBoard() {
         let reduced = KanbanInspectorTransitionPolicy.policy(reduceMotion: true)
         XCTAssertEqual(reduced.kind, .fade)
+        XCTAssertEqual(reduced.duration, 0.12)
         XCTAssertFalse(reduced.animatesBoardSurface)
 
         let normal = KanbanInspectorTransitionPolicy.policy(reduceMotion: false)
         XCTAssertEqual(normal.kind, .slideAndFade)
+        XCTAssertEqual(normal.duration, 0.20)
         XCTAssertFalse(normal.animatesBoardSurface)
+    }
+
+    func testNewTaskFocusReturnsToHeaderOpenerAfterCloseOrSuccess() {
+        XCTAssertEqual(
+            KanbanNewTaskFocusRouter.target(
+                previousIsPresenting: true,
+                isPresenting: false
+            ),
+            .newTaskButton
+        )
+        XCTAssertNil(
+            KanbanNewTaskFocusRouter.target(
+                previousIsPresenting: false,
+                isPresenting: true
+            )
+        )
     }
     func testCollapsedColumnKeepsCompactWidthAndCount() {
         XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: true), 48)
