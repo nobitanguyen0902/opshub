@@ -2,57 +2,105 @@ import SwiftUI
 
 struct KanbanView: View {
     @StateObject private var model: KanbanViewModel
-    init(model: KanbanViewModel = KanbanViewModel()) { _model = StateObject(wrappedValue: model) }
+    @State private var collapsedColumns: Set<KanbanColumn>
+
+    private let columnPreferences: KanbanColumnPreferences
+
+    init(
+        model: KanbanViewModel = KanbanViewModel(),
+        columnPreferences: KanbanColumnPreferences = KanbanColumnPreferences()
+    ) {
+        _model = StateObject(wrappedValue: model)
+        self.columnPreferences = columnPreferences
+        _collapsedColumns = State(initialValue: columnPreferences.collapsedColumns)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Kanban").font(.title2.bold())
-                    Text("Work in progress").font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if model.isLoading { ProgressView().controlSize(.small) }
-                Button("Refresh") { Task { await model.refresh() } }
-            }
+            header
+
             if let message = model.errorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .font(.callout)
+                    .accessibilityLabel("Kanban error: \(message)")
             }
-            if !model.isLoading, model.snapshot?.tasks.isEmpty == true {
-                ContentUnavailableView("No tasks yet", systemImage: "checklist", description: Text("Tasks will appear here when they are added to the board."))
+
+            board
+        }
+        .padding(20)
+        .background(OpsHubTerminalTheme.surfaceSecondary)
+        .navigationTitle("Kanban")
+        .task {
+            await model.autoRefresh()
+        }
+    }
+
+    private var header: some View {
+        OpsHubFeatureHeader(
+            eyebrow: "OPSHUB / KANBAN",
+            title: "Kanban",
+            metadata: model.headerMetadata
+        ) {
+            HStack(spacing: 8) {
+                Button("Refresh", systemImage: "arrow.clockwise") {
+                    Task { await model.refresh() }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(model.isLoading)
+
+                Button("New Task", systemImage: "plus") {
+                    model.isPresentingNewTask = true
+                }
+                .keyboardShortcut("n", modifiers: .command)
             }
-            ScrollView(.horizontal) {
-                HStack(alignment: .top) {
-                    ForEach(KanbanStatus.allCases) { status in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text(status.title).font(.headline)
-                                Spacer()
-                                Text("\(model.snapshot?.tasks.filter { $0.status == status }.count ?? 0)")
-                                    .font(.caption.monospacedDigit().bold())
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 4)
-                            ForEach(model.snapshot?.tasks.filter { $0.status == status } ?? []) { task in
-                                Button { Task { await model.select(task) } } label: {
-                                    VStack(alignment: .leading) { Text(task.title).lineLimit(2); Text(task.id).font(.caption).foregroundStyle(.secondary) }
-                                        .padding(8).frame(width: 220, alignment: .leading).background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 8))
-                                }.buttonStyle(.plain)
-                            }
+            .buttonStyle(.plain)
+            .opsHubTerminalControlGroup()
+        }
+    }
+
+    private var board: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(KanbanColumn.allCases) { column in
+                    KanbanColumnView(
+                        column: column,
+                        cards: cards(in: column),
+                        isCollapsed: collapsedColumns.contains(column),
+                        selectedCardID: model.selectedCardID,
+                        onToggleCollapsed: { toggle(column) },
+                        onSelect: { card in
+                            model.selectedCardID = card.id
                         }
-                        .padding(12)
-                        .frame(width: 264, alignment: .leading)
-                        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
-                    }
-                }.padding()
+                    )
+                }
             }
-        }.padding().task {
-            await model.refresh()
-            while !Task.isCancelled { try? await Task.sleep(for: .seconds(5)); await model.refresh() }
-        }.sheet(item: $model.selectedDetail) { detail in
-            ScrollView { VStack(alignment: .leading, spacing: 12) { Text(detail.task.title).font(.title); Text(detail.task.body); if let result = detail.task.result { Text(result) }; ForEach(detail.comments) { Text("\($0.author): \($0.body)") }; ForEach(detail.events) { event in Text(event.kind).font(.caption.monospaced()) } }.padding() }
+            .padding(.vertical, 2)
+            .padding(.horizontal, 1)
+        }
+        .accessibilityLabel("Kanban board")
+        .overlay {
+            if !model.isLoading, model.snapshot?.cards.isEmpty == true {
+                ContentUnavailableView(
+                    "No tasks yet",
+                    systemImage: "checklist",
+                    description: Text("Tasks will appear in their workflow column when they are added to the board."))
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func cards(in column: KanbanColumn) -> [KanbanCardViewData] {
+        model.snapshot?.cards.filter { $0.column == column } ?? []
+    }
+
+    private func toggle(_ column: KanbanColumn) {
+        let isCollapsed = columnPreferences.toggle(column: column)
+        if isCollapsed {
+            collapsedColumns.insert(column)
+        } else {
+            collapsedColumns.remove(column)
         }
     }
 }

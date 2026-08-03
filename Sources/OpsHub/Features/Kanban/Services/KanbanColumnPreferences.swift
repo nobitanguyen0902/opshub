@@ -22,4 +22,11 @@ final class KanbanColumnPreferences {
         }
         userDefaults.set(value.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
     }
+
+    @discardableResult
+    func toggle(column: KanbanColumn) -> Bool {
+        let isNowCollapsed = !collapsedColumns.contains(column)
+        setCollapsed(isNowCollapsed, column: column)
+        return isNowCollapsed
+    }
 }

@@ -13,6 +13,13 @@ import Foundation
 
     var isLoading: Bool { isRefreshing }
 
+    var headerMetadata: String {
+        guard let snapshot else {
+            return isRefreshing ? "source=Hermes · loading" : "source=Hermes · awaiting refresh"
+        }
+        return "source=Hermes · tasks=\(snapshot.cards.count)"
+    }
+
     private let hermes: any HermesKanbanServicing
     private let coordinator: any KanbanWorkflowCoordinating
     private let sleeper: @Sendable (Duration) async throws -> Void
