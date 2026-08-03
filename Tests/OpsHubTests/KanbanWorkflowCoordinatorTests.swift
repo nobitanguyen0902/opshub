@@ -745,6 +745,55 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(blockCalls, ["architect-task", "architect-task"])
     }
 
+    func testAutomaticResumeAfterReclaimSideEffectDoesNotReclaimTwice() async throws {
+        var workflow = makeActiveWorkflow()
+        workflow.phase = .blocked
+        workflow.pendingTransition = KanbanPendingTransition(
+            kind: .cancel, stage: .architect, attempt: 0, idempotencyKey: "cancel",
+            previousPhase: .active, cancelReclaimAttempted: true, cancelReclaimed: false,
+            cancelPreReclaimStatus: .running, startedAt: Date(timeIntervalSince1970: 1)
+        )
+        workflow.cancellationReason = "Cancelled by user"
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        let afterReclaim = runningDetail(for: workflow, stage: .architect)
+        await harness.hermes.setDetail(.init(
+            task: afterReclaim.task.replacing(status: .ready), latestSummary: nil,
+            parents: [], children: [], comments: [], events: [], runs: []
+        ))
+
+        let resumed = try await harness.coordinator.resumePendingTransitions()
+
+        XCTAssertEqual(resumed[0].phase, .blocked)
+        XCTAssertNil(resumed[0].pendingTransition)
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertTrue(reclaimCalls.isEmpty)
+        XCTAssertEqual(blockCalls, ["architect-task"])
+    }
+
+    func testAutomaticResumeDoesNotRepeatAmbiguousReclaimAttempt() async throws {
+        var workflow = makeActiveWorkflow()
+        workflow.phase = .blocked
+        workflow.pendingTransition = KanbanPendingTransition(
+            kind: .cancel, stage: .architect, attempt: 0, idempotencyKey: "cancel",
+            previousPhase: .active, cancelReclaimAttempted: true, cancelReclaimed: false,
+            cancelPreReclaimStatus: .running, startedAt: Date(timeIntervalSince1970: 1)
+        )
+        workflow.cancellationReason = "Cancelled by user"
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        await harness.hermes.setDetail(runningDetail(for: workflow, stage: .architect))
+
+        let resumed = try await harness.coordinator.resumePendingTransitions()
+
+        XCTAssertEqual(resumed[0].phase, .needsAttention)
+        XCTAssertEqual(resumed[0].pendingTransition?.cancelReclaimAttempted, true)
+        XCTAssertEqual(resumed[0].pendingTransition?.cancelReclaimed, false)
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertTrue(reclaimCalls.isEmpty)
+        XCTAssertTrue(blockCalls.isEmpty)
+    }
+
     func testCancellationRecoveryRejectsWorkflowWithoutPendingCancelMutation() async throws {
         let workflow = makeActiveWorkflow()
         let harness = makeCoordinatorHarness(workflows: [workflow])
@@ -773,6 +822,26 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(stored.phase, .active)
         XCTAssertEqual(stored.pendingTransition?.kind, .createStage)
         XCTAssertTrue(stored.stageReferences.isEmpty)
+    }
+
+    func testStartAllowedAfterTerminalMalformedHandoffNeedsAttention() async throws {
+        let malformedID = UUID(uuidString: "00000000-0000-0000-0000-000000000031")!
+        let draftID = UUID(uuidString: "00000000-0000-0000-0000-000000000032")!
+        let malformedWorkflow = makeActiveWorkflow(id: malformedID)
+        let draft = makeTriageWorkflow(id: draftID)
+        let harness = makeCoordinatorHarness(workflows: [malformedWorkflow, draft])
+        let malformed = HermesRunMetadata(
+            schemaVersion: 1, outcome: "ready", summary: "Missing risks", risks: nil,
+            changedFiles: nil, verification: nil, findings: nil
+        )
+        await harness.hermes.setDetail(detail(for: malformedWorkflow, stage: .architect, metadata: malformed))
+
+        let refreshed = try await harness.coordinator.refresh()
+        XCTAssertEqual(refreshed[0].phase, .needsAttention)
+
+        let started = try await harness.coordinator.start(workflowID: draft.id)
+        XCTAssertEqual(started.phase, .active)
+        XCTAssertEqual(started.currentStage, .architect)
     }
 }
 

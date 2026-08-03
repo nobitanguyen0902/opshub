@@ -226,7 +226,9 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 pending.pendingTransition = Self.cancelTransition(
                     workflow: workflow,
                     previousPhase: workflow.phase,
+                    reclaimAttempted: false,
                     reclaimed: false,
+                    preReclaimStatus: detail.task.status,
                     startedAt: now()
                 )
                 pending.cancellationReason = "Cancelled by user"
@@ -237,6 +239,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 return try await executeCancellation(
                     pending,
                     reference: reference,
+                    observedStatus: detail.task.status,
+                    allowAmbiguousReclaimRetry: false,
                     replacingAt: index,
                     in: workflows
                 )
@@ -272,6 +276,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             }
             return try await recoverCancellationTransition(
                 workflow: workflow,
+                allowAmbiguousReclaimRetry: true,
                 replacingAt: index,
                 in: workflows
             )
@@ -307,6 +312,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                     case .cancel:
                         recovered = try await recoverCancellationTransition(
                             workflow: workflow,
+                            allowAmbiguousReclaimRetry: false,
                             replacingAt: index,
                             in: workflows
                         )
@@ -323,7 +329,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                     let latest = try await store.load()
                     var needsAttention = latest[index]
                     needsAttention.phase = .needsAttention
-                    needsAttention.attentionReason = "Pending transition recovery failed: \(error.localizedDescription)"
+                    needsAttention.attentionReason = needsAttention.attentionReason ??
+                        "Pending transition recovery failed: \(error.localizedDescription)"
                     needsAttention.updatedAt = now()
                     try await persist(needsAttention, replacingAt: index, in: latest)
                     workflows[index] = needsAttention
@@ -625,6 +632,7 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
 
     private func recoverCancellationTransition(
         workflow: KanbanWorkflow,
+        allowAmbiguousReclaimRetry: Bool,
         replacingAt index: Int,
         in workflows: [KanbanWorkflow]
     ) async throws -> KanbanWorkflow {
@@ -654,6 +662,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             return try await executeCancellation(
                 workflow,
                 reference: reference,
+                observedStatus: detail.task.status,
+                allowAmbiguousReclaimRetry: allowAmbiguousReclaimRetry,
                 replacingAt: index,
                 in: workflows
             )
@@ -671,6 +681,8 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     private func executeCancellation(
         _ workflow: KanbanWorkflow,
         reference: KanbanStageReference,
+        observedStatus: HermesKanbanStatus,
+        allowAmbiguousReclaimRetry: Bool,
         replacingAt index: Int,
         in workflows: [KanbanWorkflow]
     ) async throws -> KanbanWorkflow {
@@ -680,11 +692,65 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         let previousPhase = transition.previousPhase ?? workflow.cancellationPreviousPhase ?? .active
         var checkpoint = workflow
         if transition.cancelReclaimed != true {
-            try await hermes.reclaim(taskID: reference.hermesTaskID, reason: "Cancelled by user")
+            if transition.cancelReclaimAttempted == true {
+                if Self.reclaimEffectIsObservable(transition: transition, observedStatus: observedStatus) {
+                    checkpoint.pendingTransition = Self.cancelTransition(
+                        workflow: workflow,
+                        previousPhase: previousPhase,
+                        reclaimAttempted: true,
+                        reclaimed: true,
+                        preReclaimStatus: transition.cancelPreReclaimStatus,
+                        startedAt: transition.startedAt
+                    )
+                } else if !allowAmbiguousReclaimRetry {
+                    var needsAttention = checkpoint
+                    needsAttention.phase = .needsAttention
+                    needsAttention.attentionReason = "Reclaim was attempted but its external effect could not be proven."
+                    needsAttention.updatedAt = now()
+                    try await persist(needsAttention, replacingAt: index, in: workflows)
+                    throw KanbanWorkflowError.unsafeRecovery
+                } else {
+                    do {
+                        try await hermes.reclaim(taskID: reference.hermesTaskID, reason: "Cancelled by user")
+                    } catch {
+                        try await persistReclaimFailure(
+                            checkpoint,
+                            error: error,
+                            replacingAt: index,
+                            in: workflows
+                        )
+                        throw error
+                    }
+                }
+            } else {
+                checkpoint.pendingTransition = Self.cancelTransition(
+                    workflow: workflow,
+                    previousPhase: previousPhase,
+                    reclaimAttempted: true,
+                    reclaimed: false,
+                    preReclaimStatus: observedStatus,
+                    startedAt: transition.startedAt
+                )
+                checkpoint.updatedAt = now()
+                try await persist(checkpoint, replacingAt: index, in: workflows)
+                do {
+                    try await hermes.reclaim(taskID: reference.hermesTaskID, reason: "Cancelled by user")
+                } catch {
+                    try await persistReclaimFailure(
+                        checkpoint,
+                        error: error,
+                        replacingAt: index,
+                        in: workflows
+                    )
+                    throw error
+                }
+            }
             checkpoint.pendingTransition = Self.cancelTransition(
                 workflow: workflow,
                 previousPhase: previousPhase,
+                reclaimAttempted: true,
                 reclaimed: true,
+                preReclaimStatus: transition.cancelPreReclaimStatus ?? observedStatus,
                 startedAt: transition.startedAt
             )
             checkpoint.updatedAt = now()
@@ -710,6 +776,19 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             try await persist(needsAttention, replacingAt: index, in: workflows)
             throw error
         }
+    }
+
+    private func persistReclaimFailure(
+        _ workflow: KanbanWorkflow,
+        error: Error,
+        replacingAt index: Int,
+        in workflows: [KanbanWorkflow]
+    ) async throws {
+        var needsAttention = workflow
+        needsAttention.phase = .needsAttention
+        needsAttention.attentionReason = "Reclaim attempt could not be confirmed: \(error.localizedDescription)"
+        needsAttention.updatedAt = now()
+        try await persist(needsAttention, replacingAt: index, in: workflows)
     }
 
     private func finishCancellation(
@@ -798,7 +877,9 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     private static func cancelTransition(
         workflow: KanbanWorkflow,
         previousPhase: KanbanPhase,
+        reclaimAttempted: Bool,
         reclaimed: Bool,
+        preReclaimStatus: HermesKanbanStatus?,
         startedAt: Date
     ) -> KanbanPendingTransition {
         KanbanPendingTransition(
@@ -808,9 +889,21 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             idempotencyKey: "opshub:\(workflow.id.uuidString.lowercased()):cancel:\(workflow.repairCount)",
             previousPhase: previousPhase,
             previousHandoffSummary: nil,
+            cancelReclaimAttempted: reclaimAttempted,
             cancelReclaimed: reclaimed,
+            cancelPreReclaimStatus: preReclaimStatus,
             startedAt: startedAt
         )
+    }
+
+    private static func reclaimEffectIsObservable(
+        transition: KanbanPendingTransition,
+        observedStatus: HermesKanbanStatus
+    ) -> Bool {
+        switch (transition.cancelPreReclaimStatus, observedStatus) {
+        case (.running?, .ready), (.review?, .ready): true
+        default: false
+        }
     }
 
     private static func currentTerminalRun(
@@ -857,8 +950,6 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
     private static func reservesWorkspace(_ workflow: KanbanWorkflow) -> Bool {
         workflow.phase == .active ||
             workflow.phase == .approvalRequired ||
-            (workflow.phase == .blocked && workflow.cancellationReason == nil) ||
-            (workflow.phase == .needsAttention && workflow.currentStage != nil) ||
             workflow.pendingTransition != nil
     }
 

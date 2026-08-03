@@ -23,7 +23,9 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
     let idempotencyKey: String
     let previousPhase: KanbanPhase?
     let previousHandoffSummary: String?
+    let cancelReclaimAttempted: Bool?
     let cancelReclaimed: Bool?
+    let cancelPreReclaimStatus: HermesKanbanStatus?
     let startedAt: Date
 
     init(
@@ -33,7 +35,9 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
         idempotencyKey: String,
         previousPhase: KanbanPhase?,
         previousHandoffSummary: String? = nil,
+        cancelReclaimAttempted: Bool? = nil,
         cancelReclaimed: Bool? = nil,
+        cancelPreReclaimStatus: HermesKanbanStatus? = nil,
         startedAt: Date
     ) {
         self.kind = kind
@@ -42,7 +46,9 @@ struct KanbanPendingTransition: Codable, Equatable, Sendable {
         self.idempotencyKey = idempotencyKey
         self.previousPhase = previousPhase
         self.previousHandoffSummary = previousHandoffSummary
+        self.cancelReclaimAttempted = cancelReclaimAttempted
         self.cancelReclaimed = cancelReclaimed
+        self.cancelPreReclaimStatus = cancelPreReclaimStatus
         self.startedAt = startedAt
     }
 }
