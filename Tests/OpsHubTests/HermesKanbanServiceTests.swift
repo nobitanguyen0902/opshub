@@ -139,6 +139,31 @@ final class HermesKanbanServiceTests: XCTestCase {
         }
     }
 
+    func testFailedCreateRedactsTitleBodyAndWorkspacePathFromError() async {
+        let title = "Confidential project launch"
+        let body = "Secret objective and acceptance criteria"
+        let workspacePath = "/private/secret customer/project"
+        let runner = RecordingShellRunner(responses: [
+            ["kanban", "create", title, "--body", body, "--assignee", "architect", "--workspace", "dir:\(workspacePath)", "--priority", "2", "--idempotency-key", "key", "--created-by", "opshub", "--json"]: .result(stdout: "", stderr: "request failed", exitCode: 1)
+        ])
+        let service = HermesKanbanService(runner: runner)
+
+        await XCTAssertThrowsErrorAsync(try await service.createTask(.init(
+            title: title,
+            body: body,
+            assignee: "architect",
+            workspacePath: workspacePath,
+            priority: 2,
+            idempotencyKey: "key"
+        ))) { error in
+            let description = error.localizedDescription
+            XCTAssertEqual(error as? KanbanCommandError, .failed(command: "hermes kanban create <redacted>", exitCode: 1, stderr: "request failed"))
+            XCTAssertFalse(description.contains(title))
+            XCTAssertFalse(description.contains(body))
+            XCTAssertFalse(description.contains(workspacePath))
+        }
+    }
+
     func testCapabilitiesDependOnlyOnCommandSuccess() async {
         let runner = RecordingShellRunner(responses: [
             ["--version"]: .success(stdout: "Hermes 1.0"),

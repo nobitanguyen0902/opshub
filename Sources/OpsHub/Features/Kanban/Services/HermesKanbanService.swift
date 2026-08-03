@@ -153,6 +153,23 @@ struct HermesKanbanService: HermesKanbanServicing {
     }
 
     private func commandDescription(_ arguments: [String]) -> String {
-        (["hermes"] + arguments).joined(separator: " ")
+        guard arguments.first == "kanban", let action = arguments.dropFirst().first else {
+            return "hermes"
+        }
+
+        switch action {
+        case "list":
+            return "hermes kanban list --json"
+        case "show":
+            return "hermes kanban show <task-id> --json"
+        case "runs":
+            return "hermes kanban runs <task-id> --json"
+        case "log":
+            return "hermes kanban log <task-id> --tail <bytes>"
+        case "create", "reclaim", "block", "unblock":
+            return "hermes kanban \(action) <redacted>"
+        default:
+            return "hermes kanban \(action)"
+        }
     }
 }
