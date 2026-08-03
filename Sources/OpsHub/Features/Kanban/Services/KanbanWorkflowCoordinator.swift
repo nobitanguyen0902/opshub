@@ -722,13 +722,52 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                         throw error
                     }
                 }
-            } else {
+            } else if transition.cancelReclaimAttempted == false {
                 checkpoint.pendingTransition = Self.cancelTransition(
                     workflow: workflow,
                     previousPhase: previousPhase,
                     reclaimAttempted: true,
                     reclaimed: false,
                     preReclaimStatus: observedStatus,
+                    startedAt: transition.startedAt
+                )
+                checkpoint.updatedAt = now()
+                try await persist(checkpoint, replacingAt: index, in: workflows)
+                do {
+                    try await hermes.reclaim(taskID: reference.hermesTaskID, reason: "Cancelled by user")
+                } catch {
+                    try await persistReclaimFailure(
+                        checkpoint,
+                        error: error,
+                        replacingAt: index,
+                        in: workflows
+                    )
+                    throw error
+                }
+            } else if Self.reclaimEffectIsObservable(transition: transition, observedStatus: observedStatus) {
+                checkpoint.pendingTransition = Self.cancelTransition(
+                    workflow: workflow,
+                    previousPhase: previousPhase,
+                    reclaimAttempted: true,
+                    reclaimed: true,
+                    preReclaimStatus: transition.cancelPreReclaimStatus,
+                    startedAt: transition.startedAt
+                )
+            } else if !allowAmbiguousReclaimRetry {
+                var needsAttention = checkpoint
+                needsAttention.phase = .needsAttention
+                needsAttention.attentionReason =
+                    "Legacy cancellation has no reclaim-attempt checkpoint; its external effect could not be proven."
+                needsAttention.updatedAt = now()
+                try await persist(needsAttention, replacingAt: index, in: workflows)
+                throw KanbanWorkflowError.unsafeRecovery
+            } else {
+                checkpoint.pendingTransition = Self.cancelTransition(
+                    workflow: workflow,
+                    previousPhase: previousPhase,
+                    reclaimAttempted: true,
+                    reclaimed: false,
+                    preReclaimStatus: transition.cancelPreReclaimStatus ?? observedStatus,
                     startedAt: transition.startedAt
                 )
                 checkpoint.updatedAt = now()

@@ -540,7 +540,8 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         workflow.phase = .blocked
         workflow.pendingTransition = KanbanPendingTransition(
             kind: .cancel, stage: .architect, attempt: 0, idempotencyKey: "opshub:test:cancel:0",
-            previousPhase: .active, startedAt: Date(timeIntervalSince1970: 1)
+            previousPhase: .active, cancelReclaimAttempted: false, cancelReclaimed: false,
+            cancelPreReclaimStatus: .running, startedAt: Date(timeIntervalSince1970: 1)
         )
         let harness = makeCoordinatorHarness(workflows: [workflow])
         await harness.hermes.setDetail(runningDetail(for: workflow, stage: .architect))
@@ -792,6 +793,59 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         let blockCalls = await harness.hermes.blockCalls
         XCTAssertTrue(reclaimCalls.isEmpty)
         XCTAssertTrue(blockCalls.isEmpty)
+    }
+
+    func testAutomaticResumeTreatsLegacyCancellationWithoutAttemptMetadataAsAmbiguous() async throws {
+        let historicalTransitionJSON = #"""
+        {
+          "kind": "cancel",
+          "stage": "architect",
+          "attempt": 0,
+          "idempotencyKey": "cancel",
+          "previousPhase": "active",
+          "cancelReclaimed": false,
+          "startedAt": "1970-01-01T00:00:01Z"
+        }
+        """#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let legacyTransition = try decoder.decode(
+            KanbanPendingTransition.self,
+            from: try XCTUnwrap(historicalTransitionJSON.data(using: .utf8))
+        )
+        XCTAssertNil(legacyTransition.cancelReclaimAttempted)
+
+        let cancellingID = UUID(uuidString: "00000000-0000-0000-0000-000000000041")!
+        var cancelling = makeActiveWorkflow(id: cancellingID)
+        cancelling.phase = .blocked
+        cancelling.pendingTransition = legacyTransition
+        cancelling.cancellationReason = "Cancelled by user"
+        let draft = makeTriageWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000042")!
+        )
+        let harness = makeCoordinatorHarness(workflows: [cancelling, draft])
+        await harness.hermes.setDetail(runningDetail(for: cancelling, stage: .architect))
+
+        let resumed = try await harness.coordinator.resumePendingTransitions()
+
+        XCTAssertEqual(resumed[0].phase, .needsAttention)
+        XCTAssertNil(resumed[0].pendingTransition?.cancelReclaimAttempted)
+        XCTAssertEqual(resumed[0].pendingTransition?.cancelReclaimed, false)
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertTrue(reclaimCalls.isEmpty)
+        XCTAssertTrue(blockCalls.isEmpty)
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.start(workflowID: draft.id)) { error in
+            XCTAssertEqual(error as? KanbanStartGuardError, .workspaceAlreadyActive(cancelling.id))
+        }
+
+        let recovered = try await harness.coordinator.recoverCancellation(workflowID: cancelling.id)
+        XCTAssertEqual(recovered.phase, .blocked)
+        XCTAssertNil(recovered.pendingTransition)
+        let recoveredReclaimCalls = await harness.hermes.reclaimCalls
+        let recoveredBlockCalls = await harness.hermes.blockCalls
+        XCTAssertEqual(recoveredReclaimCalls, ["architect-task"])
+        XCTAssertEqual(recoveredBlockCalls, ["architect-task"])
     }
 
     func testCancellationRecoveryRejectsWorkflowWithoutPendingCancelMutation() async throws {
