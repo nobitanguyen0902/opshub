@@ -57,4 +57,29 @@ final class KanbanDomainTests: XCTestCase {
         XCTAssertEqual(task.createdAt, 1_700_000_000)
         XCTAssertEqual(task.createdAtDate, Date(timeIntervalSince1970: 1_700_000_000))
     }
+
+    func testColumnPreferencesRestorePersistedColumns() throws {
+        let suiteName = "KanbanColumnPreferencesTests.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        userDefaults.set([KanbanColumn.blocked.rawValue, KanbanColumn.triage.rawValue], forKey: KanbanColumnPreferences.collapsedKey)
+
+        let preferences = KanbanColumnPreferences(userDefaults: userDefaults)
+
+        XCTAssertEqual(preferences.collapsedColumns, [.blocked, .triage])
+    }
+
+    func testColumnPreferencesTogglingOneColumnPreservesOthers() throws {
+        let suiteName = "KanbanColumnPreferencesTests.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let preferences = KanbanColumnPreferences(userDefaults: userDefaults)
+
+        preferences.setCollapsed(true, column: .triage)
+        preferences.setCollapsed(true, column: .blocked)
+        preferences.setCollapsed(false, column: .triage)
+
+        XCTAssertEqual(preferences.collapsedColumns, [.blocked])
+        XCTAssertEqual(userDefaults.stringArray(forKey: KanbanColumnPreferences.collapsedKey), [KanbanColumn.blocked.rawValue])
+    }
 }
