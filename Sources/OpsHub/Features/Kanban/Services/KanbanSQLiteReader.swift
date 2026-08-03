@@ -37,9 +37,13 @@ struct KanbanSQLiteReader: KanbanDatabaseReading {
 
         var db: OpaquePointer?
         let rc = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil)
+        let errorMessage = db.map { String(cString: sqlite3_errmsg($0)) } ?? String(cString: sqlite3_errstr(rc))
+        if rc != SQLITE_OK {
+            Self.logger.error("sqlite3_open_v2 failed: code=\(rc, privacy: .public), message=\(errorMessage, privacy: .public)")
+        }
         guard rc == SQLITE_OK, let db else {
             if let db { sqlite3_close(db) }
-            throw KanbanReadError.open(String(cString: sqlite3_errstr(rc)))
+            throw KanbanReadError.open(errorMessage)
         }
         return db
     }

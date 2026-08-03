@@ -14,6 +14,7 @@
 - `swift build` — passed
 - `swift test --filter KanbanSQLiteReaderTests` — 4 tests passed
 - `swift test` — 221 tests passed
+- `swift build -c release` — passed
 - `git diff --check` — passed
 
 ## Sandbox / Entitlements
@@ -31,4 +32,5 @@ The packaged app’s signing/sandbox configuration is outside the Swift Package 
 - `swift build`
 - `swift test --filter KanbanSQLiteReaderTests`
 - `swift test`
+- `swift build -c release`
 - `git diff --check`
