@@ -305,6 +305,10 @@ Board và detail chuyển sang dùng Hermes CLI JSON thay vì truy vấn SQLite 
 
 Mutation dùng command Hermes tương ứng với argument array. Không ghép title, body hoặc path trực tiếp thành shell command. `HermesKanbanCommandService` map lỗi shell hiện có sang `KanbanCommandError` để không hiển thị thông báo Homebrew sai ngữ cảnh.
 
+### Điều kiện vận hành
+
+OpsHub cần Hermes CLI trong `PATH`, ba profile `architect`, `developer`, `reviewer` và Gateway đang chạy (`hermes gateway status` thành công) trước khi người dùng Start workflow. Board/detail chỉ đọc structured JSON từ Hermes CLI; log text chỉ phục vụ hiển thị. Không cấp quyền hay cấu hình truy cập trực tiếp `~/.hermes/kanban.db` cho OpsHub.
+
 ## Xử lý lỗi
 
 - Refresh lỗi giữ snapshot gần nhất và hiển thị banner.
