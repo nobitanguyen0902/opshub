@@ -11,6 +11,7 @@ struct KanbanColumnView: View {
     let cards: [KanbanCardViewData]
     let isCollapsed: Bool
     let selectedCardID: KanbanCardID?
+    let focusedCardID: AccessibilityFocusState<KanbanCardID?>.Binding
     let onToggleCollapsed: () -> Void
     let onSelect: (KanbanCardViewData) -> Void
 
@@ -92,6 +93,7 @@ struct KanbanColumnView: View {
                         KanbanCardView(
                             card: card,
                             isSelected: selectedCardID == card.id,
+                            focusedCardID: focusedCardID,
                             onSelect: { onSelect(card) }
                         )
                     }
@@ -113,6 +115,7 @@ struct KanbanColumnView: View {
 private struct KanbanCardView: View {
     let card: KanbanCardViewData
     let isSelected: Bool
+    let focusedCardID: AccessibilityFocusState<KanbanCardID?>.Binding
     let onSelect: () -> Void
 
     var body: some View {
@@ -170,6 +173,7 @@ private struct KanbanCardView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(cardAccessibilityLabel)
         .accessibilityHint("Select to inspect this task")
+        .accessibilityFocused(focusedCardID, equals: card.id)
     }
 
     private var prioritySymbol: String {

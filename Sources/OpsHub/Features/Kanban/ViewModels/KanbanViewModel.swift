@@ -22,6 +22,7 @@ import Foundation
 
     private let hermes: any HermesKanbanServicing
     private let coordinator: any KanbanWorkflowCoordinating
+    private let workspaceValidator: any KanbanWorkspaceValidating
     private let sleeper: @Sendable (Duration) async throws -> Void
     private var detailRequestID: UUID?
     private var logRequestID: UUID?
@@ -29,11 +30,13 @@ import Foundation
     init(
         hermes: any HermesKanbanServicing = HermesKanbanService(),
         coordinator: (any KanbanWorkflowCoordinating)? = nil,
+        workspaceValidator: any KanbanWorkspaceValidating = KanbanWorkspaceValidator(),
         sleeper: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         }
     ) {
         self.hermes = hermes
+        self.workspaceValidator = workspaceValidator
         self.coordinator = coordinator ?? KanbanWorkflowCoordinator(
             store: FileKanbanWorkflowStore(),
             hermes: hermes,
@@ -59,9 +62,24 @@ import Foundation
         }
     }
 
-    func createDraft(_ input: KanbanDraftInput) async {
+    func createDraft(_ input: KanbanDraftInput) async -> Bool {
         await performMutation(.createDraft) {
             _ = try await self.coordinator.createDraft(input)
+        }
+    }
+
+    func validateDraftWorkspacePath(_ path: String) async -> String? {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return nil }
+        do {
+            let canonicalPath = try await workspaceValidator.validateDraftPath(
+                URL(fileURLWithPath: trimmedPath)
+            ).path
+            errorMessage = nil
+            return canonicalPath
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -162,19 +180,22 @@ import Foundation
         }
     }
 
+    @discardableResult
     private func performMutation(
         _ action: KanbanAction,
         operation: @escaping @MainActor () async throws -> Void
-    ) async {
-        guard activeAction == nil else { return }
+    ) async -> Bool {
+        guard activeAction == nil else { return false }
         activeAction = action
         defer { activeAction = nil }
         do {
             try await operation()
             await refresh()
+            return errorMessage == nil
         } catch {
             errorMessage = error.localizedDescription
             await reconcilePartialFailure(preserving: error.localizedDescription)
+            return false
         }
     }
 
@@ -188,10 +209,12 @@ import Foundation
         }
     }
 
-    private var selectedCard: KanbanCardViewData? {
+    var selectedCardViewData: KanbanCardViewData? {
         guard let selectedCardID else { return nil }
         return snapshot?.cards.first(where: { $0.id == selectedCardID })
     }
+
+    private var selectedCard: KanbanCardViewData? { selectedCardViewData }
 
     private func shouldPublishDetail(requestID: UUID, taskID: String) -> Bool {
         !Task.isCancelled && detailRequestID == requestID && selectedHermesTaskID == taskID

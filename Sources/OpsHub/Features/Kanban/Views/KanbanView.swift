@@ -3,6 +3,8 @@ import SwiftUI
 struct KanbanView: View {
     @StateObject private var model: KanbanViewModel
     @State private var collapsedColumns: Set<KanbanColumn>
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AccessibilityFocusState private var focusedCardID: KanbanCardID?
 
     private let columnPreferences: KanbanColumnPreferences
 
@@ -16,21 +18,40 @@ struct KanbanView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
+        ZStack(alignment: .trailing) {
+            VStack(alignment: .leading, spacing: 16) {
+                header
 
-            if let message = model.errorMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.callout)
-                    .accessibilityLabel("Kanban error: \(message)")
+                if let message = model.errorMessage {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                        .accessibilityLabel("Kanban error: \(message)")
+                }
+
+                board
             }
+            .padding(20)
 
-            board
+            if let card = model.selectedCardViewData {
+                inspectorOverlay(for: card)
+            }
         }
-        .padding(20)
         .background(OpsHubTerminalTheme.surfaceSecondary)
         .navigationTitle("Kanban")
+        .sheet(isPresented: $model.isPresentingNewTask) {
+            KanbanNewTaskSheet(model: model) {
+                model.isPresentingNewTask = false
+            }
+        }
+        .onExitCommand(perform: closeInspector)
+        .onChange(of: model.selectedCardID) { previousID, currentID in
+            focusedCardID = KanbanInspectorFocusRouter.target(
+                previousCardID: previousID,
+                selectedCardID: currentID,
+                displayedCardIDs: Set(model.snapshot?.cards.map(\.id) ?? [])
+            )
+        }
         .task {
             await model.autoRefresh()
         }
@@ -78,6 +99,7 @@ struct KanbanView: View {
                         cards: cards(in: column),
                         isCollapsed: collapsedColumns.contains(column),
                         selectedCardID: model.selectedCardID,
+                        focusedCardID: $focusedCardID,
                         onToggleCollapsed: { toggle(column) },
                         onSelect: { card in
                             model.selectedCardID = card.id
@@ -112,6 +134,33 @@ struct KanbanView: View {
         } else {
             collapsedColumns.remove(column)
         }
+    }
+
+    private func inspectorOverlay(for card: KanbanCardViewData) -> some View {
+        GeometryReader { proxy in
+            let placement = KanbanInspectorLayout.placement(for: proxy.size.width)
+            ZStack(alignment: .trailing) {
+                KanbanInspectorBackdrop(onDismiss: closeInspector)
+
+                KanbanTaskInspector(model: model, card: card, onClose: closeInspector)
+                    .id(card.id)
+                    .frame(width: placement.width)
+                    .frame(maxHeight: .infinity)
+                    .background(OpsHubTerminalTheme.surfacePrimary)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(OpsHubTerminalTheme.accent)
+                            .frame(width: 2)
+                    }
+                    .padding(.trailing, placement.trailingInset)
+            }
+        }
+        .transition(KanbanInspectorTransitionPolicy.policy(reduceMotion: reduceMotion).transition)
+        .zIndex(1)
+    }
+
+    private func closeInspector() {
+        model.selectedCardID = nil
     }
 }
 

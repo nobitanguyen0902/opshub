@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class KanbanViewModelTests: XCTestCase {
+    func testCreateDraftReportsSuccessForValidatedSheetDismissal() async {
+        let workflow = makeTriageWorkflow()
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: ViewModelCoordinatorStub(workflows: [workflow])
+        )
+
+        let created = await model.createDraft(
+            .init(
+                title: "Task",
+                objective: "Objective",
+                acceptanceCriteria: ["Criterion"],
+                workspacePath: "/tmp/repo",
+                priority: .normal
+            )
+        )
+
+        XCTAssertTrue(created)
+    }
+
     func testRefreshMergesLogicalWorkflowsAndExternalHermesTasks() async {
         var workflow = makeTriageWorkflow()
         workflow.title = "OpsHub workflow"
