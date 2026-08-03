@@ -344,6 +344,37 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertTrue(requests.last?.body.contains("Architect handoff: Breaking API") == true)
     }
 
+    func testApprovalRejectsMismatchedTerminalProfileWithoutCreatingDeveloper() async throws {
+        var workflow = makeActiveWorkflow()
+        workflow.phase = .approvalRequired
+        workflow.currentStage = nil
+        let harness = makeCoordinatorHarness(workflows: [workflow])
+        let metadata = HermesRunMetadata(
+            schemaVersion: 1, outcome: "approval_required", summary: "Breaking API", risks: ["breaking API"],
+            changedFiles: nil, verification: nil, findings: nil
+        )
+        let reference = try XCTUnwrap(workflow.stageReferences.last)
+        let task = HermesKanbanTask(
+            id: reference.hermesTaskID, title: workflow.title, body: nil, assignee: "architect", status: .done,
+            priority: workflow.priority.hermesValue, tenant: nil, workspaceKind: "dir", workspacePath: workflow.workspacePath,
+            branchName: nil, projectID: nil, createdBy: "opshub", createdAt: 1, startedAt: 1, completedAt: 2, result: nil
+        )
+        await harness.hermes.setDetail(HermesKanbanTaskDetail(
+            task: task, latestSummary: nil, parents: [], children: [], comments: [], events: [], runs: [.init(
+                id: 1, profile: "developer", stepKey: nil, status: "completed", outcome: "completed", summary: nil,
+                error: nil, metadata: metadata, workerPID: nil, startedAt: 1, endedAt: 2
+            )]
+        ))
+
+        await XCTAssertThrowsErrorAsync(try await harness.coordinator.approve(workflowID: workflow.id)) { error in
+            XCTAssertEqual(error as? KanbanWorkflowError, .unsafeRecovery)
+        }
+        let requests = await harness.hermes.createdRequests
+        let stored = await harness.store.load()
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertEqual(stored, [workflow])
+    }
+
     func testTerminalArchitectBlockedMovesToNeedsAttentionAndCannotRetry() async throws {
         let workflow = makeActiveWorkflow()
         let harness = makeCoordinatorHarness(workflows: [workflow])

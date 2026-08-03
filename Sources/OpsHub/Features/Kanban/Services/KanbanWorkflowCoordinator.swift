@@ -179,7 +179,11 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 throw KanbanWorkflowError.missingCurrentTask
             }
             let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
-            guard let run = Self.latestTerminalRun(in: detail.runs), let metadata = run.metadata else {
+            guard
+                let run = Self.latestTerminalRun(in: detail.runs),
+                run.profile == KanbanStage.architect.rawValue,
+                let metadata = run.metadata
+            else {
                 throw KanbanWorkflowError.unsafeRecovery
             }
             let handoff = try architectHandoff(from: metadata)
