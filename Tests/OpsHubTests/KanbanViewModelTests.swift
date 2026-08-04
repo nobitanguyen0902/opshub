@@ -168,6 +168,64 @@ final class KanbanViewModelTests: XCTestCase {
         )
     }
 
+    func testRefreshSortsMissingCreatedAtAfterPopulatedAndUsesStableIDAndKindTies() async {
+        let sharedID = "00000000-0000-0000-0000-000000000020"
+        var managedTie = makeTriageWorkflow(
+            id: sharedID,
+            createdAt: Date(timeIntervalSince1970: 20)
+        )
+        managedTie.title = "Managed kind tie"
+        managedTie.priority = .high
+
+        let externalKindTie = task(
+            id: sharedID,
+            title: "External kind tie",
+            status: .triage,
+            priority: .high,
+            createdAt: 20
+        )
+        let populatedExternal = task(
+            id: "t_populated",
+            title: "Populated external",
+            status: .triage,
+            priority: .high,
+            createdAt: 30
+        )
+        let missingExternalB = task(
+            id: "t_missing_b",
+            title: "Missing B",
+            status: .triage,
+            priority: .high,
+            createdAt: nil
+        )
+        let missingExternalA = task(
+            id: "t_missing_a",
+            title: "Missing A",
+            status: .triage,
+            priority: .high,
+            createdAt: nil
+        )
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(
+                tasks: [missingExternalB, populatedExternal, externalKindTie, missingExternalA]
+            ),
+            coordinator: ViewModelCoordinatorStub(workflows: [managedTie])
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(
+            model.snapshot?.cards.map(\.title),
+            [
+                "Managed kind tie",
+                "External kind tie",
+                "Populated external",
+                "Missing A",
+                "Missing B",
+            ]
+        )
+    }
+
     func testTriageDraftExposesLogicalContentWithoutCallingHermesDetailOrLog() async {
         let workflow = makeTriageWorkflow()
         let hermes = ViewModelHermesStub(tasks: [])
@@ -776,7 +834,7 @@ private func task(
     title: String,
     status: HermesKanbanStatus,
     priority: KanbanPriority,
-    createdAt: Int
+    createdAt: Int?
 ) -> HermesKanbanTask {
     .init(
         id: id,
