@@ -142,6 +142,113 @@ final class BrewServiceTests: XCTestCase {
         XCTAssertEqual(result.stderr.utf8.count, bytesPerStream)
     }
 
+    func testShellCommandRunnerTimeoutTerminatesDescendantsHoldingOutputPipes() async throws {
+        let fixture = try LongLivedChildFixture()
+        defer { fixture.cleanUp() }
+        let runner = ShellCommandRunner(timeout: 2)
+        let command = fixture.command
+        let task = Task<ShellCommandResult, Error> {
+            try await runner.run(command)
+        }
+        let childPID: pid_t
+        do {
+            childPID = try await fixture.waitForChildPID()
+        } catch {
+            task.cancel()
+            _ = try? await task.value
+            throw error
+        }
+        let childExit = expectation(description: "Timeout terminates the original child process")
+        let childExitSource = DispatchSource.makeProcessSource(
+            identifier: childPID,
+            eventMask: .exit,
+            queue: .global(qos: .userInitiated)
+        )
+        childExitSource.setEventHandler { childExit.fulfill() }
+        childExitSource.resume()
+        defer { childExitSource.cancel() }
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected command to time out")
+        } catch let ShellCommandError.timedOut(result) {
+            XCTAssertNotEqual(result.exitCode, 0)
+            XCTAssertTrue(result.stdout.contains("child-out"))
+            XCTAssertTrue(result.stderr.contains("child-err"))
+            XCTAssertLessThan(start.duration(to: clock.now), .seconds(3))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        await fulfillment(of: [childExit], timeout: 1)
+    }
+
+    func testShellCommandRunnerCancellationBeforeLaunchDoesNotSpawnCommand() async throws {
+        let markerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opshub-shell-runner-marker-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let runner = ShellCommandRunner(timeout: 10)
+        let task = Task<ShellCommandResult, Error> {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return try await runner.run("/usr/bin/touch", arguments: [markerURL.path])
+        }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testShellCommandRunnerCancellationTerminatesDescendantsHoldingOutputPipes() async throws {
+        let fixture = try LongLivedChildFixture()
+        defer { fixture.cleanUp() }
+        let runner = ShellCommandRunner(timeout: 10)
+        let command = fixture.command
+        let task = Task<ShellCommandResult, Error> {
+            try await runner.run(command)
+        }
+        let childPID: pid_t
+        do {
+            childPID = try await fixture.waitForChildPID()
+        } catch {
+            task.cancel()
+            _ = try? await task.value
+            throw error
+        }
+        let childExit = expectation(description: "Cancellation terminates the original child process")
+        let childExitSource = DispatchSource.makeProcessSource(
+            identifier: childPID,
+            eventMask: .exit,
+            queue: .global(qos: .userInitiated)
+        )
+        childExitSource.setEventHandler { childExit.fulfill() }
+        childExitSource.resume()
+        defer { childExitSource.cancel() }
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            XCTAssertLessThan(start.duration(to: clock.now), .seconds(2))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        await fulfillment(of: [childExit], timeout: 1)
+    }
+
     func testShellCommandRunnerIdentifiesPermissionDeniedOutput() async {
         let runner = ShellCommandRunner()
 
@@ -217,6 +324,72 @@ final class BrewServiceTests: XCTestCase {
             status: .outdated
         )
     }
+}
+
+private final class LongLivedChildFixture {
+    private let directoryURL: URL
+    private let pidFileURL: URL
+    private let scriptFileURL: URL
+    private let identity = "opshub-shell-runner-test-\(UUID().uuidString)"
+
+    var command: String {
+        let arguments = [scriptFileURL.path, pidFileURL.path, identity]
+            .map(Self.shellEscape)
+            .joined(separator: " ")
+        return "/bin/sh \(arguments) & wait"
+    }
+
+    init() throws {
+        directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opshub-shell-runner-\(UUID().uuidString)", isDirectory: true)
+        pidFileURL = directoryURL.appendingPathComponent("child.pid")
+        scriptFileURL = directoryURL.appendingPathComponent("child.sh")
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: false)
+        let script = """
+        echo $$ > "$1"
+        trap '' TERM
+        count=0
+        while [ "$count" -lt 500 ]; do
+            printf child-out
+            printf child-err >&2
+            count=$((count + 1))
+            sleep 0.02
+        done
+        """
+        try Data(script.utf8).write(to: scriptFileURL)
+    }
+
+    func waitForChildPID() async throws -> pid_t {
+        for _ in 0..<200 {
+            if let processID = try? childPID() {
+                return processID
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw LongLivedChildFixtureError.pidWasNotWritten
+    }
+
+    func childPID() throws -> pid_t {
+        let contents = try String(contentsOf: pidFileURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let processID = pid_t(contents) else {
+            throw LongLivedChildFixtureError.invalidPID(contents)
+        }
+        return processID
+    }
+
+    func cleanUp() {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    private static func shellEscape(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\\"'\\\"'"))'"
+    }
+}
+
+private enum LongLivedChildFixtureError: Error {
+    case pidWasNotWritten
+    case invalidPID(String)
 }
 
 private struct StubShellCommandRunner: ShellCommandRunning {
