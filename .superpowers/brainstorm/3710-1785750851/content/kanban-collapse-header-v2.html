@@ -1,0 +1,42 @@
+<h2>Kanban · Bố cục đã chỉnh</h2>
+<p class="subtitle">Phương án A với thao tác tạo task được đặt trong feature header.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Preview · Kanban</div>
+  <div class="mockup-body" style="padding:0;background:#0f172a;color:#e5e7eb;min-height:440px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 22px 16px;border-bottom:1px solid #293548;background:#111827">
+      <div>
+        <div style="font-size:22px;font-weight:750;letter-spacing:-.2px">Kanban</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:3px">Hermes task orchestration</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <button style="border:1px solid #374151;background:#1f2937;color:#d1d5db;padding:8px 11px;border-radius:7px">↻ Refresh</button>
+        <button style="border:1px solid #4f8cff;background:#3979e6;color:white;padding:8px 13px;border-radius:7px;font-weight:650">+ New Task</button>
+      </div>
+    </div>
+
+    <div style="padding:14px 22px 5px;display:flex;justify-content:space-between;align-items:center;color:#94a3b8;font-size:11px">
+      <span>6 columns · 14 tasks</span><span>Updated just now</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:42px 42px 1fr 1fr 42px 1fr;gap:8px;padding:10px 22px 22px;font-size:10px;min-height:280px">
+      <div style="background:#1f2937;border:1px solid #2f3b4d;border-radius:9px;padding:7px;display:flex;flex-direction:column;align-items:center"><span style="color:#94a3b8">›</span><b style="writing-mode:vertical-rl;margin-top:8px">Triage</b><span style="margin-top:8px;background:#374151;padding:3px 5px;border-radius:9px">2</span></div>
+      <div style="background:#1f2937;border:1px solid #2f3b4d;border-radius:9px;padding:7px;display:flex;flex-direction:column;align-items:center"><span style="color:#94a3b8">›</span><b style="writing-mode:vertical-rl;margin-top:8px">Todo</b><span style="margin-top:8px;color:#94a3b8">0</span></div>
+      <div style="background:#1f2937;border:1px solid #2f3b4d;border-radius:9px;padding:9px"><div style="display:flex;justify-content:space-between"><b>Ready · 1</b><span style="color:#94a3b8">⌄</span></div><div style="margin-top:9px;background:#303b4c;padding:9px;border-radius:7px"><b>Fix login timeout</b><br><small style="color:#94a3b8">Ready to start</small></div></div>
+      <div style="background:#1f2937;border:1px solid #2f3b4d;border-radius:9px;padding:9px"><div style="display:flex;justify-content:space-between"><b>Running · 2</b><span style="color:#94a3b8">⌄</span></div><div style="margin-top:9px;background:#303b4c;padding:9px;border-radius:7px"><b>Add report API</b><br><small style="color:#93c5fd">🧠 Architect</small></div><div style="margin-top:7px;background:#303b4c;padding:9px;border-radius:7px"><b>Tag migration</b><br><small style="color:#93c5fd">🛠 Developer</small></div></div>
+      <div style="background:#2d2023;border:1px solid #61323b;border-radius:9px;padding:7px;display:flex;flex-direction:column;align-items:center"><span style="color:#fca5a5">›</span><b style="writing-mode:vertical-rl;margin-top:8px">Blocked</b><span style="margin-top:8px;background:#7f1d1d;padding:3px 5px;border-radius:9px">1</span></div>
+      <div style="background:#1f2937;border:1px solid #2f3b4d;border-radius:9px;padding:9px"><div style="display:flex;justify-content:space-between"><b>Done · 8</b><span style="color:#94a3b8">⌄</span></div><div style="margin-top:9px;background:#254336;padding:9px;border-radius:7px"><b>Pipeline filter</b><br><small style="color:#86efac">✓ Reviewer approved</small></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:18px">
+  <h3>Hành vi đã chốt</h3>
+  <ul>
+    <li><strong>New Task</strong> là primary action trong header; không di chuyển theo board khi cuộn ngang.</li>
+    <li>Mỗi cột có nút collapse riêng và OpsHub ghi nhớ lựa chọn.</li>
+    <li>Cột thu gọn vẫn hiển thị tên, số task và màu cảnh báo.</li>
+  </ul>
+</div>
+
+<p class="subtitle">Hãy xem lại baseline này; nếu ổn, phản hồi trong Codex để chốt bố cục.</p>

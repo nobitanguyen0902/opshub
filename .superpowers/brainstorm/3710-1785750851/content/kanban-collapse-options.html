@@ -1,0 +1,51 @@
+<h2>Collapse cột Kanban</h2>
+<p class="subtitle">Giữ nguyên 6 trạng thái, nhưng thu gọn các cột ít cần quan sát. Cột thu gọn vẫn hiển thị tên, số task và trạng thái cần chú ý.</p>
+
+<div class="cards">
+  <div class="card" data-choice="manual-remember" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px;min-height:250px;background:#111827;color:#e5e7eb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><strong>Kanban</strong><button class="mock-button">+ New task</button></div>
+      <div style="display:grid;grid-template-columns:42px 42px 1fr 1fr 42px 1fr;gap:7px;font-size:10px;min-height:175px">
+        <div style="background:#1f2937;border-radius:8px;padding:7px;display:flex;flex-direction:column;align-items:center"><span>›</span><b style="writing-mode:vertical-rl;margin-top:8px">Triage</b><span style="margin-top:8px;background:#374151;padding:3px 5px;border-radius:9px">2</span></div>
+        <div style="background:#1f2937;border-radius:8px;padding:7px;display:flex;flex-direction:column;align-items:center"><span>›</span><b style="writing-mode:vertical-rl;margin-top:8px">Todo</b><span style="margin-top:8px">0</span></div>
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>⌄ Ready · 1</b><div style="margin-top:8px;background:#374151;padding:8px;border-radius:6px">Fix login timeout<br><small>Ready to start</small></div></div>
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>⌄ Running · 2</b><div style="margin-top:8px;background:#374151;padding:8px;border-radius:6px">Report API<br><small>🧠 Architect</small></div><div style="margin-top:6px;background:#374151;padding:8px;border-radius:6px">Tag migration<br><small>🛠 Developer</small></div></div>
+        <div style="background:#2d2023;border-radius:8px;padding:7px;display:flex;flex-direction:column;align-items:center"><span>›</span><b style="writing-mode:vertical-rl;margin-top:8px">Blocked</b><span style="margin-top:8px;background:#7f1d1d;padding:3px 5px;border-radius:9px">1</span></div>
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>⌄ Done · 8</b><div style="margin-top:8px;background:#254336;padding:8px;border-radius:6px">Pipeline filter<br><small>✓ Approved</small></div></div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A · Thu gọn thủ công, ghi nhớ lựa chọn</h3><p>Người dùng bấm chevron từng cột; OpsHub nhớ bố cục cho lần sau. Ổn định, không tự nhảy layout. <strong>Khuyến nghị.</strong></p></div>
+  </div>
+
+  <div class="card" data-choice="auto-empty" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px;min-height:250px;background:#111827;color:#e5e7eb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><strong>Kanban</strong><small>Auto-collapse empty columns</small></div>
+      <div style="display:grid;grid-template-columns:1fr 34px 1fr 1fr 1fr 1fr;gap:6px;font-size:10px;min-height:175px">
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>Triage · 2</b><div style="margin-top:8px;background:#374151;padding:8px;border-radius:6px">New task</div></div>
+        <div style="background:#1f2937;border-radius:8px;padding:6px"><b style="writing-mode:vertical-rl">Todo · 0</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>Ready · 1</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>Running · 2</b><div style="margin-top:8px;background:#374151;padding:8px;border-radius:6px">Developer</div></div>
+        <div style="background:#2d2023;border-radius:8px;padding:8px"><b>Blocked · 1</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:8px"><b>Done · 8</b></div>
+      </div>
+    </div>
+    <div class="card-body"><h3>B · Tự thu gọn cột rỗng</h3><p>Tiết kiệm diện tích mà không cần thao tác, nhưng board có thể thay đổi bề ngang khi task chuyển trạng thái.</p></div>
+  </div>
+
+  <div class="card" data-choice="focus-mode" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px;min-height:250px;background:#111827;color:#e5e7eb">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><strong>Kanban</strong><small>Focus: Running</small></div>
+      <div style="display:grid;grid-template-columns:34px 34px 34px 1fr 34px 34px;gap:6px;font-size:10px;min-height:175px">
+        <div style="background:#1f2937;border-radius:8px;padding:6px"><b style="writing-mode:vertical-rl">Triage · 2</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:6px"><b style="writing-mode:vertical-rl">Todo · 0</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:6px"><b style="writing-mode:vertical-rl">Ready · 1</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:10px"><b>Running · 2</b><div style="margin-top:8px;background:#374151;padding:9px;border-radius:6px">Add report API <span style="float:right">🧠 Architect</span></div><div style="margin-top:7px;background:#374151;padding:9px;border-radius:6px">Tag migration <span style="float:right">🛠 Developer</span></div></div>
+        <div style="background:#2d2023;border-radius:8px;padding:6px"><b style="writing-mode:vertical-rl">Blocked · 1</b></div>
+        <div style="background:#1f2937;border-radius:8px;padding:6px"><b style="writing-mode:vertical-rl">Done · 8</b></div>
+      </div>
+    </div>
+    <div class="card-body"><h3>C · Focus mode</h3><p>Mỗi lúc chỉ mở một cột. Rất gọn nhưng khó so sánh nhiều trạng thái cùng lúc.</p></div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">Bấm chọn A, B hoặc C, rồi quay lại Codex cho mình biết nếu muốn ghép hành vi giữa hai phương án.</p>
