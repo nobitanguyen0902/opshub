@@ -49,8 +49,35 @@ struct KanbanCardViewData: Identifiable, Equatable, Sendable {
     let workspacePath: String?
     let stageLabel: String?
     let elapsed: TimeInterval?
+    let createdAt: Date?
     let isWorkflowOwned: Bool
     let availableActions: Set<KanbanAvailableAction>
+
+    init(
+        id: KanbanCardID,
+        title: String,
+        column: KanbanColumn,
+        priority: KanbanPriority,
+        displayID: String,
+        workspacePath: String?,
+        stageLabel: String?,
+        elapsed: TimeInterval?,
+        createdAt: Date? = nil,
+        isWorkflowOwned: Bool,
+        availableActions: Set<KanbanAvailableAction>
+    ) {
+        self.id = id
+        self.title = title
+        self.column = column
+        self.priority = priority
+        self.displayID = displayID
+        self.workspacePath = workspacePath
+        self.stageLabel = stageLabel
+        self.elapsed = elapsed
+        self.createdAt = createdAt
+        self.isWorkflowOwned = isWorkflowOwned
+        self.availableActions = availableActions
+    }
 
     var workspaceName: String? {
         workspacePath.map { URL(fileURLWithPath: $0).lastPathComponent }
@@ -83,6 +110,7 @@ struct KanbanBoardSnapshot: Equatable, Sendable {
                 workspacePath: nil,
                 stageLabel: task.assignee,
                 elapsed: nil,
+                createdAt: task.createdAt,
                 isWorkflowOwned: false,
                 availableActions: []
             )

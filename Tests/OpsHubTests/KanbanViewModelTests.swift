@@ -119,6 +119,79 @@ final class KanbanViewModelTests: XCTestCase {
         XCTAssertFalse(model.snapshot?.cards.last?.isWorkflowOwned == true)
     }
 
+    func testRefreshSortsMixedCardsByDescendingPriorityThenCreatedTimeAndID() async {
+        var olderManaged = makeTriageWorkflow(
+            id: "00000000-0000-0000-0000-000000000002",
+            createdAt: Date(timeIntervalSince1970: 10)
+        )
+        olderManaged.title = "Older managed"
+        olderManaged.priority = .high
+
+        var urgentManaged = makeTriageWorkflow(
+            id: "00000000-0000-0000-0000-000000000003",
+            createdAt: Date(timeIntervalSince1970: 30)
+        )
+        urgentManaged.title = "Urgent managed"
+        urgentManaged.priority = .urgent
+
+        let tiedExternalB = task(
+            id: "t_external_b",
+            title: "External B",
+            status: .triage,
+            priority: .high,
+            createdAt: 20
+        )
+        let tiedExternalA = task(
+            id: "t_external_a",
+            title: "External A",
+            status: .triage,
+            priority: .high,
+            createdAt: 20
+        )
+        let lowExternal = task(
+            id: "t_external_low",
+            title: "External low",
+            status: .triage,
+            priority: .low,
+            createdAt: 1
+        )
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: [lowExternal, tiedExternalB, tiedExternalA]),
+            coordinator: ViewModelCoordinatorStub(workflows: [olderManaged, urgentManaged])
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(
+            model.snapshot?.cards.map(\.title),
+            ["Urgent managed", "Older managed", "External A", "External B", "External low"]
+        )
+    }
+
+    func testTriageDraftExposesLogicalContentWithoutCallingHermesDetailOrLog() async {
+        let workflow = makeTriageWorkflow()
+        let hermes = ViewModelHermesStub(tasks: [])
+        let model = KanbanViewModel(
+            hermes: hermes,
+            coordinator: ViewModelCoordinatorStub(workflows: [workflow])
+        )
+
+        await model.refresh()
+        model.selectedCardID = .workflow(workflow.id)
+        await model.loadSelectedDetail()
+        await model.loadSelectedLog()
+
+        XCTAssertNil(model.selectedHermesTaskID)
+        XCTAssertEqual(model.selectedLogicalWorkflow?.objective, "Objective")
+        XCTAssertEqual(model.selectedLogicalWorkflow?.acceptanceCriteria, ["Criterion"])
+        XCTAssertNil(model.selectedHermesDetail)
+        XCTAssertNil(model.selectedLog)
+        let detailCalls = await hermes.detailCallCount()
+        let logCalls = await hermes.logCallCount()
+        XCTAssertEqual(detailCalls, 0)
+        XCTAssertEqual(logCalls, 0)
+    }
+
     func testRefreshFailureKeepsPreviousSnapshot() async {
         let hermes = ViewModelHermesStub(
             taskResults: [.success([]), .failure(.incompatibleJSON(command: "list"))]
@@ -440,6 +513,8 @@ private actor ViewModelHermesStub: HermesKanbanServicing {
     private var logs: [String: String] = [:]
     private let listDelayNanoseconds: UInt64
     private(set) var listCalls = 0
+    private(set) var detailCalls = 0
+    private(set) var logCalls = 0
 
     init(tasks: [HermesKanbanTask], listDelayNanoseconds: UInt64 = 0) {
         taskResults = [.success(tasks)]
@@ -459,6 +534,7 @@ private actor ViewModelHermesStub: HermesKanbanServicing {
     }
 
     func taskDetail(id: String) async throws -> HermesKanbanTaskDetail {
+        detailCalls += 1
         guard let detail = details[id] else {
             throw KanbanCommandError.failed(command: "show", exitCode: 1, stderr: "missing fixture")
         }
@@ -466,7 +542,10 @@ private actor ViewModelHermesStub: HermesKanbanServicing {
     }
 
     func runs(taskID: String) async throws -> [HermesKanbanRun] { [] }
-    func log(taskID: String, tailBytes: Int) async throws -> String { logs[taskID] ?? "" }
+    func log(taskID: String, tailBytes: Int) async throws -> String {
+        logCalls += 1
+        return logs[taskID] ?? ""
+    }
     func isAvailable() async -> Bool { true }
     func profileExists(_ profile: String) async -> Bool { true }
     func isGatewayRunning() async -> Bool { true }
@@ -477,6 +556,8 @@ private actor ViewModelHermesStub: HermesKanbanServicing {
     func setDetail(_ detail: HermesKanbanTaskDetail) { details[detail.task.id] = detail }
     func setLog(_ value: String, for taskID: String) { logs[taskID] = value }
     func listCallCount() -> Int { listCalls }
+    func detailCallCount() -> Int { detailCalls }
+    func logCallCount() -> Int { logCalls }
     func waitForListCalls(atLeast expected: Int) async {
         while listCalls < expected { await Task.yield() }
     }
@@ -615,7 +696,10 @@ private extension HermesKanbanTaskDetail {
     }
 }
 
-private func makeTriageWorkflow(id: String = "00000000-0000-0000-0000-000000000001") -> KanbanWorkflow {
+private func makeTriageWorkflow(
+    id: String = "00000000-0000-0000-0000-000000000001",
+    createdAt: Date = Date(timeIntervalSince1970: 1)
+) -> KanbanWorkflow {
     .init(
         schemaVersion: 1,
         id: UUID(uuidString: id)!,
@@ -630,7 +714,7 @@ private func makeTriageWorkflow(id: String = "00000000-0000-0000-0000-0000000000
         stageReferences: [],
         pendingTransition: nil,
         cancellationReason: nil,
-        createdAt: Date(timeIntervalSince1970: 1),
+        createdAt: createdAt,
         updatedAt: Date(timeIntervalSince1970: 1)
     )
 }
@@ -684,5 +768,32 @@ private func task(id: String) -> HermesKanbanTask {
             priority: 1,
             idempotencyKey: id
         )
+    )
+}
+
+private func task(
+    id: String,
+    title: String,
+    status: HermesKanbanStatus,
+    priority: KanbanPriority,
+    createdAt: Int
+) -> HermesKanbanTask {
+    .init(
+        id: id,
+        title: title,
+        body: "",
+        assignee: "developer",
+        status: status,
+        priority: priority.hermesValue,
+        tenant: nil,
+        workspaceKind: "dir",
+        workspacePath: "/tmp/\(id)",
+        branchName: nil,
+        projectID: nil,
+        createdBy: "fixture",
+        createdAt: createdAt,
+        startedAt: nil,
+        completedAt: nil,
+        result: nil
     )
 }

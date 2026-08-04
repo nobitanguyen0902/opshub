@@ -84,6 +84,35 @@ enum KanbanCancellationRecoveryPresentation {
     static let accessibilityHint = "Retries the interrupted cancellation recovery for this managed workflow"
 }
 
+enum KanbanInspectorStageContentState: Equatable {
+    case noHermesStage, loading, available
+
+    var showsLoadingIndicator: Bool { self == .loading }
+}
+
+enum KanbanInspectorContentPolicy {
+    static let noHermesStageTitle = "No Hermes stage yet"
+    static let noHermesStageDescription = "Start this workflow to create its first Hermes stage."
+    static let noHermesStageAccessibilityLabel =
+        "\(noHermesStageTitle). \(noHermesStageDescription)"
+
+    static func stageState(
+        hermesTaskID: String?,
+        hasLoadedDetail: Bool
+    ) -> KanbanInspectorStageContentState {
+        guard hermesTaskID != nil else { return .noHermesStage }
+        return hasLoadedDetail ? .available : .loading
+    }
+
+    static func shouldRequestDetails(hermesTaskID: String?) -> Bool {
+        hermesTaskID != nil
+    }
+
+    static func shouldPollLog(isLiveLogSelected: Bool, hermesTaskID: String?) -> Bool {
+        isLiveLogSelected && hermesTaskID != nil
+    }
+}
+
 private struct KanbanLogBottomOffsetPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
@@ -222,76 +251,123 @@ struct KanbanTaskInspector: View {
                 inspectorMetadata("Status", value: card.stageLabel ?? card.column.rawValue.capitalized)
                 inspectorMetadata("Priority", value: card.priority.title)
 
-                if let detail = model.selectedHermesDetail {
-                    if let summary = detail.latestSummary, !summary.isEmpty {
-                        inspectorMetadata("Latest summary", value: summary)
+                if let workflow = model.selectedLogicalWorkflow {
+                    inspectorMetadata("Objective", value: workflow.objective)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Acceptance Criteria")
+                            .font(.system(.caption, design: .monospaced).weight(.bold))
+                            .foregroundStyle(.secondary)
+                        ForEach(Array(workflow.acceptanceCriteria.enumerated()), id: \.offset) { _, criterion in
+                            Label(criterion, systemImage: "checkmark.circle")
+                                .font(.system(.callout, design: .monospaced))
+                        }
                     }
-                    if !detail.comments.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Comments").font(.system(.headline, design: .monospaced))
-                            ForEach(Array(detail.comments.enumerated()), id: \.offset) { _, comment in
-                                Text("\(comment.author): \(comment.body)")
-                                    .font(.system(.caption, design: .monospaced))
+                }
+
+                switch stageContentState {
+                case .available:
+                    if let detail = model.selectedHermesDetail {
+                        if let summary = detail.latestSummary, !summary.isEmpty {
+                            inspectorMetadata("Latest summary", value: summary)
+                        }
+                        if !detail.comments.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Comments").font(.system(.headline, design: .monospaced))
+                                ForEach(Array(detail.comments.enumerated()), id: \.offset) { _, comment in
+                                    Text("\(comment.author): \(comment.body)")
+                                        .font(.system(.caption, design: .monospaced))
+                                }
                             }
                         }
                     }
-                } else {
+                case .loading:
                     ProgressView("Loading task details…")
+                case .noHermesStage:
+                    Label(KanbanInspectorContentPolicy.noHermesStageTitle, systemImage: "hourglass")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    @ViewBuilder
     private var runs: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                let attempts = model.selectedHermesDetail?.runs ?? []
-                if attempts.isEmpty {
-                    ContentUnavailableView("No runs yet", systemImage: "play.circle")
-                        .frame(maxWidth: .infinity, minHeight: 180)
-                } else {
-                    ForEach(attempts) { run in runRow(run) }
+        if stageContentState == .noHermesStage {
+            noHermesStage
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    let attempts = model.selectedHermesDetail?.runs ?? []
+                    if attempts.isEmpty {
+                        ContentUnavailableView("No runs yet", systemImage: "play.circle")
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    } else {
+                        ForEach(attempts) { run in runRow(run) }
+                    }
                 }
             }
         }
     }
 
+    @ViewBuilder
     private var liveLog: some View {
-        GeometryReader { viewport in
-            ScrollViewReader { reader in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Text(model.selectedLog ?? "Waiting for live log…")
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(OpsHubTerminalTheme.surfaceSecondary, in: RoundedRectangle(cornerRadius: 8))
+        if stageContentState == .noHermesStage {
+            noHermesStage
+        } else {
+            GeometryReader { viewport in
+                ScrollViewReader { reader in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            Text(model.selectedLog ?? "Waiting for live log…")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(OpsHubTerminalTheme.surfaceSecondary, in: RoundedRectangle(cornerRadius: 8))
 
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: KanbanLogBottomOffsetPreferenceKey.self,
-                                value: proxy.frame(in: .named("kanban-live-log")).maxY
-                            )
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: KanbanLogBottomOffsetPreferenceKey.self,
+                                    value: proxy.frame(in: .named("kanban-live-log")).maxY
+                                )
+                            }
+                            .frame(height: 1)
+                            .id("log-bottom")
                         }
-                        .frame(height: 1)
-                        .id("log-bottom")
                     }
-                }
-                .coordinateSpace(name: "kanban-live-log")
-                .onPreferenceChange(KanbanLogBottomOffsetPreferenceKey.self) { bottomOffset in
-                    distanceFromBottom = max(0, bottomOffset - viewport.size.height)
-                }
-                .onChange(of: model.selectedLog) { _, _ in
-                    guard KanbanLogFollowPolicy.shouldFollow(distanceFromBottom: distanceFromBottom) else { return }
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
-                        reader.scrollTo("log-bottom", anchor: .bottom)
+                    .coordinateSpace(name: "kanban-live-log")
+                    .onPreferenceChange(KanbanLogBottomOffsetPreferenceKey.self) { bottomOffset in
+                        distanceFromBottom = max(0, bottomOffset - viewport.size.height)
                     }
+                    .onChange(of: model.selectedLog) { _, _ in
+                        guard KanbanLogFollowPolicy.shouldFollow(distanceFromBottom: distanceFromBottom) else { return }
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                            reader.scrollTo("log-bottom", anchor: .bottom)
+                        }
+                    }
+                    .accessibilityLabel("Live task log")
                 }
-                .accessibilityLabel("Live task log")
             }
         }
+    }
+
+    private var stageContentState: KanbanInspectorStageContentState {
+        KanbanInspectorContentPolicy.stageState(
+            hermesTaskID: model.selectedHermesTaskID,
+            hasLoadedDetail: model.selectedHermesDetail != nil
+        )
+    }
+
+    private var noHermesStage: some View {
+        ContentUnavailableView(
+            KanbanInspectorContentPolicy.noHermesStageTitle,
+            systemImage: "hourglass",
+            description: Text(KanbanInspectorContentPolicy.noHermesStageDescription)
+        )
+        .frame(maxWidth: .infinity, minHeight: 180)
+        .accessibilityLabel(KanbanInspectorContentPolicy.noHermesStageAccessibilityLabel)
     }
 
     private func inspectorMetadata(_ label: String, value: String) -> some View {
@@ -342,7 +418,10 @@ struct KanbanTaskInspector: View {
 
     private func updateLogPolling() {
         stopLogPolling()
-        guard selectedTab == .liveLog else { return }
+        guard KanbanInspectorContentPolicy.shouldPollLog(
+            isLiveLogSelected: selectedTab == .liveLog,
+            hermesTaskID: model.selectedHermesTaskID
+        ) else { return }
         logPollTask = Task {
             while !Task.isCancelled {
                 await model.loadSelectedLog()
@@ -359,6 +438,12 @@ struct KanbanTaskInspector: View {
 
     private func loadDetails() {
         detailLoadTask?.cancel()
+        guard KanbanInspectorContentPolicy.shouldRequestDetails(
+            hermesTaskID: model.selectedHermesTaskID
+        ) else {
+            detailLoadTask = nil
+            return
+        }
         detailLoadTask = Task { await model.loadSelectedDetail() }
     }
 

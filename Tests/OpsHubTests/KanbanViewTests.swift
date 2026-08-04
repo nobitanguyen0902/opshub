@@ -120,6 +120,34 @@ final class KanbanViewTests: XCTestCase {
         )
     }
 
+    func testTriageDraftInspectorShowsNoHermesStageWithoutLoadingOrPolling() {
+        let state = KanbanInspectorContentPolicy.stageState(
+            hermesTaskID: nil,
+            hasLoadedDetail: false
+        )
+
+        XCTAssertEqual(state, .noHermesStage)
+        XCTAssertFalse(state.showsLoadingIndicator)
+        XCTAssertEqual(KanbanInspectorContentPolicy.noHermesStageTitle, "No Hermes stage yet")
+        XCTAssertTrue(
+            KanbanInspectorContentPolicy.noHermesStageAccessibilityLabel.contains("No Hermes stage yet")
+        )
+        XCTAssertFalse(KanbanInspectorContentPolicy.shouldRequestDetails(hermesTaskID: nil))
+        XCTAssertFalse(
+            KanbanInspectorContentPolicy.shouldPollLog(
+                isLiveLogSelected: true,
+                hermesTaskID: nil
+            )
+        )
+        XCTAssertTrue(KanbanInspectorContentPolicy.shouldRequestDetails(hermesTaskID: "t_stage"))
+        XCTAssertTrue(
+            KanbanInspectorContentPolicy.shouldPollLog(
+                isLiveLogSelected: true,
+                hermesTaskID: "t_stage"
+            )
+        )
+    }
+
     func testCardPresentationShowsWorkspaceBasename() {
         let value = KanbanCardViewData(
             id: .hermes("t_1"),

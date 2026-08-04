@@ -220,6 +220,11 @@ import Foundation
         return snapshot?.cards.first(where: { $0.id == selectedCardID })
     }
 
+    var selectedLogicalWorkflow: KanbanWorkflow? {
+        guard case let .workflow(workflowID)? = selectedCardID else { return nil }
+        return lastWorkflows.first(where: { $0.id == workflowID })
+    }
+
     private var selectedCard: KanbanCardViewData? { selectedCardViewData }
 
     private func shouldPublishDetail(requestID: UUID, taskID: String) -> Bool {
@@ -284,11 +289,12 @@ import Foundation
                 workspacePath: task.workspacePath,
                 stageLabel: task.assignee,
                 elapsed: elapsed(since: task.startedAtDate),
+                createdAt: task.createdAtDate,
                 isWorkflowOwned: false,
                 availableActions: []
             )
         }
-        return workflowCards + externalCards
+        return sortCards(workflowCards + externalCards)
     }
 
     private func workflowCard(_ workflow: KanbanWorkflow, task: HermesKanbanTask?) -> KanbanCardViewData {
@@ -336,9 +342,34 @@ import Foundation
             workspacePath: workflow.workspacePath,
             stageLabel: stageLabel,
             elapsed: elapsed(since: task?.startedAtDate),
+            createdAt: workflow.createdAt,
             isWorkflowOwned: true,
             availableActions: actions
         )
+    }
+
+    private func sortCards(_ cards: [KanbanCardViewData]) -> [KanbanCardViewData] {
+        return cards.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority.rawValue > rhs.priority.rawValue }
+            switch (lhs.createdAt, rhs.createdAt) {
+            case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+                return lhsDate < rhsDate
+            case (.some, .none):
+                return true
+            case (.none, .some):
+                return false
+            default:
+                if lhs.displayID != rhs.displayID { return lhs.displayID < rhs.displayID }
+                return cardKindSortOrder(lhs.id) < cardKindSortOrder(rhs.id)
+            }
+        }
+    }
+
+    private func cardKindSortOrder(_ id: KanbanCardID) -> Int {
+        switch id {
+        case .workflow: 0
+        case .hermes: 1
+        }
     }
 
     private func elapsed(since start: Date?) -> TimeInterval? {
