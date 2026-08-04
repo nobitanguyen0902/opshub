@@ -57,6 +57,9 @@ struct ShellCommandRunner: ShellCommandRunning {
                 let process = Process()
                 let stdout = Pipe()
                 let stderr = Pipe()
+                let stdoutCollector = PipeOutputCollector()
+                let stderrCollector = PipeOutputCollector()
+                let outputDrains = DispatchGroup()
                 let start = Date()
 
                 process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -65,6 +68,8 @@ struct ShellCommandRunner: ShellCommandRunning {
                 process.standardError = stderr
 
                 do {
+                    Self.drain(stdout.fileHandleForReading, into: stdoutCollector, completing: outputDrains)
+                    Self.drain(stderr.fileHandleForReading, into: stderrCollector, completing: outputDrains)
                     try process.run()
 
                     let timeoutState = TimeoutState()
@@ -78,10 +83,11 @@ struct ShellCommandRunner: ShellCommandRunning {
                     timer.resume()
                     process.waitUntilExit()
                     timer.cancel()
+                    outputDrains.wait()
 
                     let result = ShellCommandResult(
-                        stdout: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
-                        stderr: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+                        stdout: String(decoding: stdoutCollector.data, as: UTF8.self),
+                        stderr: String(decoding: stderrCollector.data, as: UTF8.self),
                         exitCode: process.terminationStatus,
                         duration: Date().timeIntervalSince(start)
                     )
@@ -116,6 +122,24 @@ struct ShellCommandRunner: ShellCommandRunning {
     private static func shellEscape(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\\"'\\\"'"))'"
     }
+
+    private static func drain(
+        _ handle: FileHandle,
+        into collector: PipeOutputCollector,
+        completing group: DispatchGroup
+    ) {
+        let completion = PipeDrainCompletion(group: group)
+        group.enter()
+        handle.readabilityHandler = { readableHandle in
+            let data = readableHandle.availableData
+            if data.isEmpty {
+                readableHandle.readabilityHandler = nil
+                completion.finish()
+            } else {
+                collector.append(data)
+            }
+        }
+    }
 }
 
 private final class TimeoutState: @unchecked Sendable {
@@ -128,5 +152,39 @@ private final class TimeoutState: @unchecked Sendable {
 
     func markTimedOut() {
         lock.withLock { isTimedOut = true }
+    }
+}
+
+private final class PipeOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    var data: Data {
+        lock.withLock { buffer }
+    }
+
+    func append(_ data: Data) {
+        lock.withLock { buffer.append(data) }
+    }
+}
+
+private final class PipeDrainCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private let group: DispatchGroup
+    private var isFinished = false
+
+    init(group: DispatchGroup) {
+        self.group = group
+    }
+
+    func finish() {
+        let shouldLeave = lock.withLock {
+            guard !isFinished else { return false }
+            isFinished = true
+            return true
+        }
+        if shouldLeave {
+            group.leave()
+        }
     }
 }

@@ -126,6 +126,22 @@ final class BrewServiceTests: XCTestCase {
         }
     }
 
+    func testShellCommandRunnerDrainsLargeStdoutAndStderrBeforeProcessExit() async throws {
+        let runner = ShellCommandRunner(timeout: 2)
+        let bytesPerStream = 256 * 1024
+        let command = """
+        (yes O | head -c 262144) &
+        (yes E | head -c 262144 >&2) &
+        wait
+        """
+
+        let result = try await runner.run("/bin/zsh", arguments: ["-c", command])
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdout.utf8.count, bytesPerStream)
+        XCTAssertEqual(result.stderr.utf8.count, bytesPerStream)
+    }
+
     func testShellCommandRunnerIdentifiesPermissionDeniedOutput() async {
         let runner = ShellCommandRunner()
 
