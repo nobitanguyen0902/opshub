@@ -203,6 +203,46 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(workflows.first(where: { $0.id == draft.id })?.phase, .triage)
     }
 
+    func testCancelledQueuedMutationDoesNotRunAfterOwnershipHandoffAndGateRemainsUsable() async throws {
+        let ownershipProbe = MutationGateOwnershipProbe()
+        let firstOperation = SuspendedMutationOperation()
+        let sideEffects = MutationSideEffectRecorder()
+        let gate = KanbanWorkflowMutationGate(afterOwnershipAcquired: {
+            await ownershipProbe.pauseSecondAcquisition()
+        })
+
+        let firstMutation = Task {
+            try await gate.run {
+                await firstOperation.suspend()
+                return 1
+            }
+        }
+        await firstOperation.waitUntilStarted()
+
+        let cancelledMutation = Task {
+            try await gate.run {
+                await sideEffects.record()
+                return 2
+            }
+        }
+        await gate.waitForQueuedMutation()
+        await firstOperation.release()
+        let firstResult = try await firstMutation.value
+        XCTAssertEqual(firstResult, 1)
+        await ownershipProbe.waitForSecondAcquisition()
+
+        cancelledMutation.cancel()
+        await ownershipProbe.releaseSecondAcquisition()
+
+        await XCTAssertThrowsErrorAsync(try await cancelledMutation.value) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        let sideEffectCount = await sideEffects.count
+        XCTAssertEqual(sideEffectCount, 0)
+        let thirdResult = try await gate.run { 3 }
+        XCTAssertEqual(thirdResult, 3)
+    }
+
     func testRefreshAdvancesArchitectDeveloperReviewerAndMarksDone() async throws {
         let workflow = makeActiveWorkflow()
         let hermes = StubHermesKanbanService()
@@ -705,6 +745,83 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(cancelled.cancellationRequiresHermesUnblock, true)
     }
 
+    func testCancelImmediatelyAfterStartBlocksReadyTaskWithoutReclaim() async throws {
+        let harness = makeCoordinatorHarness()
+        let draft = try await harness.coordinator.createDraft(makeDraftInput())
+        let started = try await harness.coordinator.start(workflowID: draft.id)
+
+        let cancelled = try await harness.coordinator.cancel(workflowID: started.id)
+
+        XCTAssertEqual(cancelled.phase, .blocked)
+        XCTAssertNil(cancelled.pendingTransition)
+        let reclaimCalls = await harness.hermes.reclaimCalls
+        let blockCalls = await harness.hermes.blockCalls
+        XCTAssertTrue(reclaimCalls.isEmpty)
+        XCTAssertEqual(blockCalls, ["task-1"])
+    }
+
+    func testCancelReclaimsOnlyWhenLatestRunProvesActiveClaim() async throws {
+        let activeArchitectRun = HermesKanbanRun(
+            id: 2, profile: "architect", stepKey: nil, status: "running", outcome: nil,
+            summary: nil, error: nil, metadata: nil, workerPID: 123, startedAt: 2, endedAt: nil
+        )
+        let completedArchitectRun = HermesKanbanRun(
+            id: 3, profile: "architect", stepKey: nil, status: "completed", outcome: "ready",
+            summary: nil, error: nil, metadata: nil, workerPID: 123, startedAt: 3, endedAt: 4
+        )
+        let activeDeveloperRun = HermesKanbanRun(
+            id: 4, profile: "developer", stepKey: nil, status: "running", outcome: nil,
+            summary: nil, error: nil, metadata: nil, workerPID: 124, startedAt: 4, endedAt: nil
+        )
+        let cases: [(HermesKanbanStatus, [HermesKanbanRun], Bool)] = [
+            (.ready, [], false),
+            (.running, [], false),
+            (.review, [completedArchitectRun], false),
+            (.ready, [activeArchitectRun], true),
+            (.running, [activeArchitectRun], true),
+            (.review, [activeArchitectRun], true),
+            (.running, [activeArchitectRun, completedArchitectRun], false),
+            (.review, [activeDeveloperRun], false)
+        ]
+
+        for (offset, value) in cases.enumerated() {
+            let workflow = makeActiveWorkflow(id: UUID(uuidString: String(
+                format: "00000000-0000-0000-0000-%012d", 60 + offset
+            ))!)
+            let harness = makeCoordinatorHarness(workflows: [workflow])
+            await harness.hermes.setDetail(cancellationDetail(
+                for: workflow,
+                stage: .architect,
+                status: value.0,
+                runs: value.1
+            ))
+            await harness.hermes.failNextBlock()
+
+            await XCTAssertThrowsErrorAsync(try await harness.coordinator.cancel(workflowID: workflow.id)) { error in
+                XCTAssertTrue(error is StubHermesFailure, "case \(offset)")
+            }
+
+            let checkpointValues = await harness.store.load()
+            let checkpoint = try XCTUnwrap(checkpointValues.first)
+            XCTAssertEqual(checkpoint.phase, .needsAttention, "case \(offset)")
+            XCTAssertEqual(checkpoint.pendingTransition?.cancelReclaimAttempted, value.2, "case \(offset)")
+            XCTAssertEqual(checkpoint.pendingTransition?.cancelReclaimed, true, "case \(offset)")
+            XCTAssertEqual(checkpoint.pendingTransition?.cancelPreReclaimStatus, value.0, "case \(offset)")
+            let reclaimCalls = await harness.hermes.reclaimCalls
+            let blockCalls = await harness.hermes.blockCalls
+            XCTAssertEqual(reclaimCalls, value.2 ? ["architect-task"] : [], "case \(offset)")
+            XCTAssertEqual(blockCalls, ["architect-task"], "case \(offset)")
+
+            let recovered = try await harness.coordinator.recoverCancellation(workflowID: workflow.id)
+            XCTAssertEqual(recovered.phase, .blocked, "case \(offset)")
+            XCTAssertNil(recovered.pendingTransition, "case \(offset)")
+            let recoveredReclaimCalls = await harness.hermes.reclaimCalls
+            let recoveredBlockCalls = await harness.hermes.blockCalls
+            XCTAssertEqual(recoveredReclaimCalls, reclaimCalls, "case \(offset)")
+            XCTAssertEqual(recoveredBlockCalls, ["architect-task", "architect-task"], "case \(offset)")
+        }
+    }
+
     func testStartRejectsWorkspaceReservedByUnfinishedCancellation() async throws {
         let cancellingID = UUID(uuidString: "00000000-0000-0000-0000-000000000021")!
         var cancelling = makeActiveWorkflow(id: cancellingID)
@@ -721,6 +838,51 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         }
         let requests = await harness.hermes.createdRequests
         XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testRetryRejectsWorkspaceClaimedAfterCancellationWithoutHermesSideEffects() async throws {
+        for (offset, previousPhase) in [KanbanPhase.active, .approvalRequired].enumerated() {
+            let cancelledID = UUID(uuidString: String(
+                format: "00000000-0000-0000-0000-%012d", 51 + (offset * 2)
+            ))!
+            let replacementID = UUID(uuidString: String(
+                format: "00000000-0000-0000-0000-%012d", 52 + (offset * 2)
+            ))!
+            var cancelledWorkflow = makeActiveWorkflow(id: cancelledID)
+            cancelledWorkflow.phase = previousPhase
+            if previousPhase == .approvalRequired {
+                cancelledWorkflow.currentStage = nil
+            }
+            let replacementDraft = makeTriageWorkflow(id: replacementID)
+            let harness = makeCoordinatorHarness(workflows: [cancelledWorkflow, replacementDraft])
+            if previousPhase == .active {
+                await harness.hermes.setDetail(runningDetail(for: cancelledWorkflow, stage: .architect))
+            }
+
+            let cancelled = try await harness.coordinator.cancel(workflowID: cancelledID)
+            XCTAssertEqual(cancelled.phase, .blocked, "case \(offset)")
+            _ = try await harness.coordinator.start(workflowID: replacementID)
+            let beforeRetry = await harness.store.load()
+            let createdBeforeRetry = await harness.hermes.createdRequests
+            let reclaimBeforeRetry = await harness.hermes.reclaimCalls
+            let blockBeforeRetry = await harness.hermes.blockCalls
+            let unblockBeforeRetry = await harness.hermes.unblockCalls
+
+            await XCTAssertThrowsErrorAsync(try await harness.coordinator.retry(workflowID: cancelledID)) { error in
+                XCTAssertEqual(error as? KanbanStartGuardError, .workspaceAlreadyActive(replacementID))
+            }
+
+            let afterRetry = await harness.store.load()
+            let createdAfterRetry = await harness.hermes.createdRequests
+            let reclaimAfterRetry = await harness.hermes.reclaimCalls
+            let blockAfterRetry = await harness.hermes.blockCalls
+            let unblockAfterRetry = await harness.hermes.unblockCalls
+            XCTAssertEqual(afterRetry, beforeRetry, "case \(offset)")
+            XCTAssertEqual(createdAfterRetry, createdBeforeRetry, "case \(offset)")
+            XCTAssertEqual(reclaimAfterRetry, reclaimBeforeRetry, "case \(offset)")
+            XCTAssertEqual(blockAfterRetry, blockBeforeRetry, "case \(offset)")
+            XCTAssertEqual(unblockAfterRetry, unblockBeforeRetry, "case \(offset)")
+        }
     }
 
     func testPartialCancellationRecoveryDoesNotReclaimTwice() async throws {
@@ -1001,6 +1163,71 @@ private actor InMemoryWorkflowStore: KanbanWorkflowStoring {
     func save(_ workflows: [KanbanWorkflow]) { value = workflows }
 }
 
+private actor MutationGateOwnershipProbe {
+    private var acquisitionCount = 0
+    private var secondAcquisitionReached = false
+    private var secondAcquisitionObservers: [CheckedContinuation<Void, Never>] = []
+    private var secondAcquisitionRelease: CheckedContinuation<Void, Never>?
+
+    func pauseSecondAcquisition() async {
+        acquisitionCount += 1
+        guard acquisitionCount == 2 else { return }
+        secondAcquisitionReached = true
+        let observers = secondAcquisitionObservers
+        secondAcquisitionObservers.removeAll()
+        observers.forEach { $0.resume() }
+        await withCheckedContinuation { continuation in
+            secondAcquisitionRelease = continuation
+        }
+    }
+
+    func waitForSecondAcquisition() async {
+        guard !secondAcquisitionReached else { return }
+        await withCheckedContinuation { continuation in
+            secondAcquisitionObservers.append(continuation)
+        }
+    }
+
+    func releaseSecondAcquisition() {
+        secondAcquisitionRelease?.resume()
+        secondAcquisitionRelease = nil
+    }
+}
+
+private actor SuspendedMutationOperation {
+    private var started = false
+    private var startObservers: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        started = true
+        let observers = startObservers
+        startObservers.removeAll()
+        observers.forEach { $0.resume() }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startObservers.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
+private actor MutationSideEffectRecorder {
+    private(set) var count = 0
+
+    func record() { count += 1 }
+}
+
 private struct StubWorkspaceValidator: KanbanWorkspaceValidating {
     let draftResult: URL
     let startResult: URL
@@ -1204,15 +1431,28 @@ private func detail(
 }
 
 private func runningDetail(for workflow: KanbanWorkflow, stage: KanbanStage) -> HermesKanbanTaskDetail {
+    let run = HermesKanbanRun(
+        id: 1, profile: stage.rawValue, stepKey: nil, status: "running", outcome: nil,
+        summary: nil, error: nil, metadata: nil, workerPID: 123, startedAt: 1, endedAt: nil
+    )
+    return cancellationDetail(for: workflow, stage: stage, status: .running, runs: [run])
+}
+
+private func cancellationDetail(
+    for workflow: KanbanWorkflow,
+    stage: KanbanStage,
+    status: HermesKanbanStatus,
+    runs: [HermesKanbanRun]
+) -> HermesKanbanTaskDetail {
     let reference = workflow.stageReferences.last { $0.stage == stage }!
     return HermesKanbanTaskDetail(
         task: HermesKanbanTask(
             id: reference.hermesTaskID, title: workflow.title, body: nil, assignee: stage.rawValue,
-            status: .running, priority: workflow.priority.hermesValue, tenant: nil, workspaceKind: "dir",
+            status: status, priority: workflow.priority.hermesValue, tenant: nil, workspaceKind: "dir",
             workspacePath: workflow.workspacePath, branchName: nil, projectID: nil, createdBy: "opshub",
             createdAt: 1, startedAt: 1, completedAt: nil, result: nil
         ),
-        latestSummary: nil, parents: [], children: [], comments: [], events: [], runs: []
+        latestSummary: nil, parents: [], children: [], comments: [], events: [], runs: runs
     )
 }
 

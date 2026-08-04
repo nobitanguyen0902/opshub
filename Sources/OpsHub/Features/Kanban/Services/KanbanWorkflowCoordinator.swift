@@ -127,10 +127,11 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             URL(fileURLWithPath: workflow.workspacePath)
         )
         let canonicalPath = canonicalWorkspace.standardizedFileURL.resolvingSymlinksInPath().path
-        if let activeWorkflow = current.first(where: {
-            $0.id != workflowID && Self.reservesWorkspace($0) &&
-                Self.canonicalPath($0.workspacePath) == canonicalPath
-        }) {
+        if let activeWorkflow = Self.workspaceReservationConflict(
+            excluding: workflowID,
+            canonicalPath: canonicalPath,
+            in: current
+        ) {
             throw KanbanStartGuardError.workspaceAlreadyActive(activeWorkflow.id)
         }
 
@@ -221,13 +222,17 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
             let detail = try await hermes.taskDetail(id: reference.hermesTaskID)
             switch detail.task.status {
             case .ready, .running, .review:
+                let reclaimRequired = Self.hasActiveClaimedExecution(
+                    in: detail,
+                    stage: reference.stage
+                )
                 var pending = workflow
                 pending.phase = .blocked
                 pending.pendingTransition = Self.cancelTransition(
                     workflow: workflow,
                     previousPhase: workflow.phase,
                     reclaimAttempted: false,
-                    reclaimed: false,
+                    reclaimed: !reclaimRequired,
                     preReclaimStatus: detail.task.status,
                     startedAt: now()
                 )
@@ -538,6 +543,13 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         guard workflow.phase == .blocked else {
             throw KanbanWorkflowError.invalidPhase(workflow.phase)
         }
+        if let activeWorkflow = Self.workspaceReservationConflict(
+            excluding: workflow.id,
+            canonicalPath: Self.canonicalPath(workflow.workspacePath),
+            in: workflows
+        ) {
+            throw KanbanStartGuardError.workspaceAlreadyActive(activeWorkflow.id)
+        }
         let previousPhase = workflow.cancellationPreviousPhase ?? workflow.pendingTransition?.previousPhase ?? .active
         let isLocalCancellation = workflow.cancellationPreviousPhase != nil &&
             workflow.cancellationRequiresHermesUnblock != true
@@ -659,6 +671,29 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
                 in: workflows
             )
         case .ready, .running, .review:
+            if transition.cancelReclaimAttempted == false,
+               transition.cancelReclaimed != true,
+               !Self.hasActiveClaimedExecution(in: detail, stage: reference.stage) {
+                var reclaimSatisfied = workflow
+                reclaimSatisfied.pendingTransition = Self.cancelTransition(
+                    workflow: workflow,
+                    previousPhase: transition.previousPhase ?? workflow.cancellationPreviousPhase ?? .active,
+                    reclaimAttempted: false,
+                    reclaimed: true,
+                    preReclaimStatus: transition.cancelPreReclaimStatus ?? detail.task.status,
+                    startedAt: transition.startedAt
+                )
+                reclaimSatisfied.updatedAt = now()
+                try await persist(reclaimSatisfied, replacingAt: index, in: workflows)
+                return try await executeCancellation(
+                    reclaimSatisfied,
+                    reference: reference,
+                    observedStatus: detail.task.status,
+                    allowAmbiguousReclaimRetry: allowAmbiguousReclaimRetry,
+                    replacingAt: index,
+                    in: workflows
+                )
+            }
             return try await executeCancellation(
                 workflow,
                 reference: reference,
@@ -945,6 +980,20 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         }
     }
 
+    private static func hasActiveClaimedExecution(
+        in detail: HermesKanbanTaskDetail,
+        stage: KanbanStage
+    ) -> Bool {
+        guard let latestRun = detail.runs.max(by: { lhs, rhs in
+            (lhs.startedAt, lhs.id) < (rhs.startedAt, rhs.id)
+        }) else {
+            return false
+        }
+        return latestRun.profile == stage.rawValue &&
+            latestRun.status == "running" &&
+            latestRun.endedAt == nil
+    }
+
     private static func currentTerminalRun(
         in detail: HermesKanbanTaskDetail,
         stage: KanbanStage
@@ -990,6 +1039,17 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
         workflow.phase == .active ||
             workflow.phase == .approvalRequired ||
             workflow.pendingTransition != nil
+    }
+
+    private static func workspaceReservationConflict(
+        excluding workflowID: UUID,
+        canonicalPath: String,
+        in workflows: [KanbanWorkflow]
+    ) -> KanbanWorkflow? {
+        workflows.first {
+            $0.id != workflowID && reservesWorkspace($0) &&
+                self.canonicalPath($0.workspacePath) == canonicalPath
+        }
     }
 
     private func stagePrompt(
@@ -1042,6 +1102,11 @@ actor KanbanWorkflowMutationGate {
     private var isRunning = false
     private var waiters: [(UUID, CheckedContinuation<Bool, Never>)] = []
     private var queueObservers: [CheckedContinuation<Void, Never>] = []
+    private let afterOwnershipAcquired: @Sendable () async -> Void
+
+    init(afterOwnershipAcquired: @escaping @Sendable () async -> Void = {}) {
+        self.afterOwnershipAcquired = afterOwnershipAcquired
+    }
 
     func run<T: Sendable>(
         _ operation: @escaping @Sendable () async throws -> T
@@ -1050,6 +1115,8 @@ actor KanbanWorkflowMutationGate {
             throw CancellationError()
         }
         defer { release() }
+        await afterOwnershipAcquired()
+        try Task.checkCancellation()
         return try await operation()
     }
 
