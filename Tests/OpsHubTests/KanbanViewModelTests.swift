@@ -296,6 +296,70 @@ final class KanbanViewModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot?.cards.map(\.displayID), [workflow.id.uuidString, "t_external"])
     }
 
+    func testRefreshHidesBlockedAndNeedsAttentionWorkflowsWhenAllReferencedTasksAreMissing() async {
+        var blocked = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
+            stage: .architect,
+            taskID: "t_missing_blocked"
+        )
+        blocked.phase = .blocked
+        var needsAttention = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000022")!,
+            stage: .developer,
+            taskID: "t_missing_attention"
+        )
+        needsAttention.phase = .needsAttention
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: ViewModelCoordinatorStub(workflows: [blocked, needsAttention])
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(model.snapshot?.cards, [])
+    }
+
+    func testRefreshKeepsDraftWithNoReferencesWhenHermesListIsEmpty() async {
+        let draft = makeTriageWorkflow()
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: ViewModelCoordinatorStub(workflows: [draft])
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(model.snapshot?.cards.map(\.id), [.workflow(draft.id)])
+        XCTAssertEqual(model.snapshot?.cards.first?.column, .triage)
+    }
+
+    func testRefreshKeepsWorkflowWhenAnyReferencedTaskExists() async {
+        var workflow = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000023")!,
+            stage: .developer,
+            taskID: "t_missing_current"
+        )
+        workflow.stageReferences.insert(
+            .init(
+                stage: .architect,
+                attempt: 0,
+                hermesTaskID: "t_existing_previous",
+                idempotencyKey: "opshub:workflow:architect:0",
+                createdAt: Date(timeIntervalSince1970: 0)
+            ),
+            at: 0
+        )
+        let existingTask = task(id: "t_existing_previous")
+        let unrelatedTask = task(id: "t_external")
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: [existingTask, unrelatedTask]),
+            coordinator: ViewModelCoordinatorStub(workflows: [workflow])
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(model.snapshot?.cards.map(\.id), [.workflow(workflow.id), .hermes(unrelatedTask.id)])
+    }
+
     func testExternalTaskHasNoWorkflowActionsButLoadsDetailAndLog() async {
         let task = HermesKanbanTask.fixture(
             id: "t_external",

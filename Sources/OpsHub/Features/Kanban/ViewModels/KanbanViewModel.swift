@@ -271,8 +271,14 @@ import Foundation
         lastWorkflows = workflows
         let internalTaskIDs = Set(workflows.flatMap(\.stageReferences).map(\.hermesTaskID))
         let tasksByID = Dictionary(uniqueKeysWithValues: hermesTasks.map { ($0.id, $0) })
-        let workflowCards = workflows.map { workflow in
-            workflowCard(workflow, task: workflow.currentStage.flatMap { stage in
+        let hermesTaskIDs = Set(tasksByID.keys)
+        let workflowCards = workflows.compactMap { workflow -> KanbanCardViewData? in
+            guard workflow.stageReferences.isEmpty
+                || workflow.stageReferences.contains(where: { hermesTaskIDs.contains($0.hermesTaskID) })
+            else {
+                return nil
+            }
+            return workflowCard(workflow, task: workflow.currentStage.flatMap { stage in
                 workflow.stageReferences.last(where: { $0.stage == stage }).flatMap { tasksByID[$0.hermesTaskID] }
             })
         }
