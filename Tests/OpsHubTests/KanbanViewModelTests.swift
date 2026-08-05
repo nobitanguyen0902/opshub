@@ -332,7 +332,25 @@ final class KanbanViewModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot?.cards.first?.column, .triage)
     }
 
-    func testRefreshKeepsWorkflowWhenAnyReferencedTaskExists() async {
+    func testRefreshHidesNeedsAttentionWorkflowWhenStageCreationNeverProducedATask() async {
+        var workflow = makeTriageWorkflow(
+            id: "00000000-0000-0000-0000-000000000024"
+        )
+        workflow.phase = .needsAttention
+        workflow.currentStage = .architect
+        workflow.pendingTransition = pendingTransition(kind: .createStage)
+
+        let model = KanbanViewModel(
+            hermes: ViewModelHermesStub(tasks: []),
+            coordinator: ViewModelCoordinatorStub(workflows: [workflow])
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(model.snapshot?.cards, [])
+    }
+
+    func testRefreshHidesWorkflowWhenCurrentTaskIsMissingEvenIfPreviousTaskExists() async {
         var workflow = activeWorkflow(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000023")!,
             stage: .developer,
@@ -357,7 +375,7 @@ final class KanbanViewModelTests: XCTestCase {
 
         await model.refresh()
 
-        XCTAssertEqual(model.snapshot?.cards.map(\.id), [.workflow(workflow.id), .hermes(unrelatedTask.id)])
+        XCTAssertEqual(model.snapshot?.cards.map(\.id), [.hermes(unrelatedTask.id)])
     }
 
     func testExternalTaskHasNoWorkflowActionsButLoadsDetailAndLog() async {
@@ -386,13 +404,21 @@ final class KanbanViewModelTests: XCTestCase {
 
     func testWorkflowActionsMatchPhase() async {
         let triage = makeTriageWorkflow()
-        var approval = makeTriageWorkflow(id: "00000000-0000-0000-0000-000000000002")
+        var approval = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            stage: .architect,
+            taskID: "t_approval"
+        )
         approval.phase = .approvalRequired
-        var blocked = makeTriageWorkflow(id: "00000000-0000-0000-0000-000000000003")
+        var blocked = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+            stage: .architect,
+            taskID: "t_blocked"
+        )
         blocked.phase = .blocked
 
         let model = KanbanViewModel(
-            hermes: ViewModelHermesStub(tasks: []),
+            hermes: ViewModelHermesStub(tasks: [task(id: "t_approval"), task(id: "t_blocked")]),
             coordinator: ViewModelCoordinatorStub(workflows: [triage, approval, blocked])
         )
         await model.refresh()
@@ -406,17 +432,23 @@ final class KanbanViewModelTests: XCTestCase {
         let recoverable = cancellationRecoveryWorkflow(
             id: "00000000-0000-0000-0000-000000000010"
         )
-        var genericAttention = makeTriageWorkflow(
-            id: "00000000-0000-0000-0000-000000000011"
+        var genericAttention = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
+            stage: .architect,
+            taskID: "t_generic_attention"
         )
         genericAttention.phase = .needsAttention
-        var unrelatedAttention = makeTriageWorkflow(
-            id: "00000000-0000-0000-0000-000000000012"
+        var unrelatedAttention = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
+            stage: .architect,
+            taskID: "t_unrelated_attention"
         )
         unrelatedAttention.phase = .needsAttention
         unrelatedAttention.pendingTransition = pendingTransition(kind: .createStage)
-        var otherPhase = makeTriageWorkflow(
-            id: "00000000-0000-0000-0000-000000000015"
+        var otherPhase = activeWorkflow(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000015")!,
+            stage: .architect,
+            taskID: "t_other_phase"
         )
         otherPhase.phase = .blocked
         otherPhase.pendingTransition = pendingTransition(kind: .cancel)
@@ -432,7 +464,13 @@ final class KanbanViewModelTests: XCTestCase {
             )
         )
         let model = KanbanViewModel(
-            hermes: ViewModelHermesStub(tasks: [externalTask]),
+            hermes: ViewModelHermesStub(tasks: [
+                task(id: representativeTaskID(for: recoverable)),
+                task(id: "t_generic_attention"),
+                task(id: "t_unrelated_attention"),
+                task(id: "t_other_phase"),
+                externalTask,
+            ]),
             coordinator: ViewModelCoordinatorStub(
                 workflows: [recoverable, genericAttention, unrelatedAttention, otherPhase]
             )
@@ -459,7 +497,7 @@ final class KanbanViewModelTests: XCTestCase {
             recoveryDelayNanoseconds: 100_000_000
         )
         let model = KanbanViewModel(
-            hermes: ViewModelHermesStub(tasks: []),
+            hermes: ViewModelHermesStub(tasks: [task(id: representativeTaskID(for: workflow))]),
             coordinator: coordinator
         )
         await model.refresh()
@@ -482,7 +520,7 @@ final class KanbanViewModelTests: XCTestCase {
             recoveryFails: true
         )
         let model = KanbanViewModel(
-            hermes: ViewModelHermesStub(tasks: []),
+            hermes: ViewModelHermesStub(tasks: [task(id: representativeTaskID(for: workflow))]),
             coordinator: coordinator
         )
         await model.refresh()
@@ -842,11 +880,19 @@ private func makeTriageWorkflow(
 }
 
 private func cancellationRecoveryWorkflow(id: String) -> KanbanWorkflow {
-    var workflow = makeTriageWorkflow(id: id)
+    var workflow = activeWorkflow(
+        id: UUID(uuidString: id)!,
+        stage: .architect,
+        taskID: "t_cancel_\(id)"
+    )
     workflow.phase = .needsAttention
     workflow.pendingTransition = pendingTransition(kind: .cancel)
     workflow.attentionReason = "Cancellation recovery requires confirmation."
     return workflow
+}
+
+private func representativeTaskID(for workflow: KanbanWorkflow) -> String {
+    workflow.stageReferences.last!.hermesTaskID
 }
 
 private func pendingTransition(kind: KanbanPendingTransition.Kind) -> KanbanPendingTransition {

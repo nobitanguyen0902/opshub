@@ -242,11 +242,7 @@ import Foundation
             return taskID
         case let .workflow(workflowID):
             guard let workflow = lastWorkflows.first(where: { $0.id == workflowID }) else { return nil }
-            if let currentStage = workflow.currentStage,
-               let reference = workflow.stageReferences.last(where: { $0.stage == currentStage }) {
-                return reference.hermesTaskID
-            }
-            return workflow.stageReferences.last?.hermesTaskID
+            return representativeHermesTaskID(for: workflow)
         }
     }
 
@@ -273,14 +269,13 @@ import Foundation
         let tasksByID = Dictionary(uniqueKeysWithValues: hermesTasks.map { ($0.id, $0) })
         let hermesTaskIDs = Set(tasksByID.keys)
         let workflowCards = workflows.compactMap { workflow -> KanbanCardViewData? in
-            guard workflow.stageReferences.isEmpty
-                || workflow.stageReferences.contains(where: { hermesTaskIDs.contains($0.hermesTaskID) })
+            let representativeTaskID = representativeHermesTaskID(for: workflow)
+            guard (workflow.phase == .triage && representativeTaskID == nil)
+                || representativeTaskID.map(hermesTaskIDs.contains) == true
             else {
                 return nil
             }
-            return workflowCard(workflow, task: workflow.currentStage.flatMap { stage in
-                workflow.stageReferences.last(where: { $0.stage == stage }).flatMap { tasksByID[$0.hermesTaskID] }
-            })
+            return workflowCard(workflow, task: representativeTaskID.flatMap { tasksByID[$0] })
         }
         let externalCards = hermesTasks.compactMap { task -> KanbanCardViewData? in
             guard !internalTaskIDs.contains(task.id), let column = KanbanColumn(status: task.status) else {
@@ -301,6 +296,14 @@ import Foundation
             )
         }
         return sortCards(workflowCards + externalCards)
+    }
+
+    private func representativeHermesTaskID(for workflow: KanbanWorkflow) -> String? {
+        if let currentStage = workflow.currentStage,
+           let reference = workflow.stageReferences.last(where: { $0.stage == currentStage }) {
+            return reference.hermesTaskID
+        }
+        return workflow.stageReferences.last?.hermesTaskID
     }
 
     private func workflowCard(_ workflow: KanbanWorkflow, task: HermesKanbanTask?) -> KanbanCardViewData {

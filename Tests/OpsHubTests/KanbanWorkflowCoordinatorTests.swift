@@ -87,7 +87,8 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(request.priority, KanbanPriority.normal.hermesValue)
         let body = request.body
         XCTAssertTrue(body.contains("read-only"))
-        XCTAssertTrue(body.contains("Complete this Hermes task with metadata JSON schemaVersion=1."))
+        XCTAssertTrue(body.contains("metadata JSON schemaVersion=1"))
+        assertOpsHubOwnedStageContract(in: body)
     }
 
     func testStartDoesNotCreateTaskWhenWorkspaceValidationFails() async throws {
@@ -255,6 +256,7 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         let developerRequest = try XCTUnwrap(architectRequests.last)
         XCTAssertEqual(developerRequest.assignee, "developer")
         XCTAssertTrue(developerRequest.body.contains("Architect handoff: Architecture is ready."))
+        assertOpsHubOwnedStageContract(in: developerRequest.body)
 
         let developerWorkflow = try XCTUnwrap(afterArchitect.first)
         await hermes.setDetail(detail(for: developerWorkflow, stage: .developer, handoff: .developerCompleted))
@@ -264,6 +266,7 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         let reviewerRequest = try XCTUnwrap(developerRequests.last)
         XCTAssertEqual(reviewerRequest.assignee, "reviewer")
         XCTAssertTrue(reviewerRequest.body.contains("Developer handoff: Implementation completed."))
+        assertOpsHubOwnedStageContract(in: reviewerRequest.body)
 
         let reviewerWorkflow = try XCTUnwrap(afterDeveloper.first)
         await hermes.setDetail(detail(for: reviewerWorkflow, stage: .reviewer, handoff: .reviewerApproved))
@@ -1467,12 +1470,26 @@ private func developerPromptBody(for workflow: KanbanWorkflow, handoff: String) 
 
     Architect handoff: \(handoff)
 
-    Complete this Hermes task with metadata JSON schemaVersion=1.
+    OpsHub owns the logical workflow and all role routing. Completing this Hermes task closes only the current stage; it does not mark the logical workflow done.
+    Do not create, assign, reassign, or unblock another Hermes task for a later role. OpsHub will create the next stage after reconciling this handoff.
+    Do not use the review-required convention or call kanban_block for a stage outcome. Report approval_required, blocked, failed, and changes_requested as structured outcomes so OpsHub can apply the matching logical transition.
+    Call kanban_complete exactly once with a concise summary and metadata JSON schemaVersion=1 before returning your final response.
     Architect outcomes: ready | approval_required | blocked; include risks[].
     Developer outcomes: completed | blocked | failed; include changedFiles[] and verification[].
     Reviewer outcomes: approved | changes_requested | blocked; include findings[].
     Do not claim success unless the required work and verification are complete.
     """
+}
+
+private func assertOpsHubOwnedStageContract(
+    in body: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertTrue(body.contains("OpsHub owns the logical workflow and all role routing."), file: file, line: line)
+    XCTAssertTrue(body.contains("Do not create, assign, reassign, or unblock another Hermes task"), file: file, line: line)
+    XCTAssertTrue(body.contains("Do not use the review-required convention or call kanban_block for a stage outcome."), file: file, line: line)
+    XCTAssertTrue(body.contains("Call kanban_complete exactly once"), file: file, line: line)
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

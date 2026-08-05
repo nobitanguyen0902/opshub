@@ -1077,7 +1077,10 @@ actor KanbanWorkflowCoordinator: KanbanWorkflowCoordinating {
 
         \(roleInstruction)\(previous)
 
-        Complete this Hermes task with metadata JSON schemaVersion=1.
+        OpsHub owns the logical workflow and all role routing. Completing this Hermes task closes only the current stage; it does not mark the logical workflow done.
+        Do not create, assign, reassign, or unblock another Hermes task for a later role. OpsHub will create the next stage after reconciling this handoff.
+        Do not use the review-required convention or call kanban_block for a stage outcome. Report approval_required, blocked, failed, and changes_requested as structured outcomes so OpsHub can apply the matching logical transition.
+        Call kanban_complete exactly once with a concise summary and metadata JSON schemaVersion=1 before returning your final response.
         Architect outcomes: ready | approval_required | blocked; include risks[].
         Developer outcomes: completed | blocked | failed; include changedFiles[] and verification[].
         Reviewer outcomes: approved | changes_requested | blocked; include findings[].
