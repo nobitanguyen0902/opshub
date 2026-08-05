@@ -92,20 +92,25 @@ final class KanbanViewTests: XCTestCase {
         XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: false), 264)
     }
 
+    func testExpandedColumnCardsUseIndependentVerticalScrolling() {
+        XCTAssertTrue(KanbanColumnLayout.cardScrollAxes.contains(.vertical))
+        XCTAssertFalse(KanbanColumnLayout.cardScrollAxes.contains(.horizontal))
+    }
+
     func testHeaderAndCollapseControlsKeepMinimumHitTargets() {
         XCTAssertEqual(KanbanControlLayout.headerHitTarget, 42)
         XCTAssertEqual(KanbanControlLayout.collapseHitTarget, 34)
     }
 
     func testColumnCollapseAnimationHonorsReduceMotionWithoutChangingLayout() {
-        XCTAssertEqual(
-            KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: true).kind,
-            .none
-        )
-        XCTAssertEqual(
-            KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: false).kind,
-            .standard
-        )
+        let reduced = KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: true)
+        XCTAssertEqual(reduced.kind, .none)
+        XCTAssertTrue(reduced.appliesAnimationToStableContainer)
+
+        let normal = KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: false)
+        XCTAssertEqual(normal.kind, .standard)
+        XCTAssertTrue(normal.appliesAnimationToStableContainer)
+
         XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: true), 48)
         XCTAssertEqual(KanbanColumnLayout.width(isCollapsed: false), 264)
     }

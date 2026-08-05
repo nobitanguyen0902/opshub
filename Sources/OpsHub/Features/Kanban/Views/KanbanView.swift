@@ -103,7 +103,8 @@ struct KanbanView: View {
 
     private var board: some View {
         ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: 12) {
+            // Keep the finite set of columns in one stable layout transaction while their widths change.
+            HStack(alignment: .top, spacing: 12) {
                 ForEach(KanbanColumn.allCases) { column in
                     KanbanColumnView(
                         column: column,
@@ -118,9 +119,15 @@ struct KanbanView: View {
                     )
                 }
             }
+            .animation(
+                KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: reduceMotion).animation,
+                value: collapsedColumns
+            )
+            .frame(maxHeight: .infinity, alignment: .top)
             .padding(.vertical, 2)
             .padding(.horizontal, 1)
         }
+        .frame(maxHeight: .infinity)
         .accessibilityLabel("Kanban board")
         .overlay {
             if !model.isLoading, model.snapshot?.cards.isEmpty == true {

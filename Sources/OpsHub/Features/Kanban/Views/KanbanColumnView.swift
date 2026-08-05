@@ -1,6 +1,8 @@
 import SwiftUI
 
 enum KanbanColumnLayout {
+    static let cardScrollAxes: Axis.Set = .vertical
+
     static func width(isCollapsed: Bool) -> CGFloat {
         isCollapsed ? 48 : 264
     }
@@ -12,6 +14,8 @@ enum KanbanColumnCollapseAnimationKind: Equatable {
 
 struct KanbanColumnCollapseAnimationPolicy: Equatable {
     let kind: KanbanColumnCollapseAnimationKind
+
+    let appliesAnimationToStableContainer = true
 
     static func policy(reduceMotion: Bool) -> KanbanColumnCollapseAnimationPolicy {
         .init(kind: reduceMotion ? .none : .standard)
@@ -34,8 +38,6 @@ struct KanbanColumnView: View {
     let onToggleCollapsed: () -> Void
     let onSelect: (KanbanCardViewData) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         Group {
             if isCollapsed {
@@ -45,10 +47,7 @@ struct KanbanColumnView: View {
             }
         }
         .frame(width: KanbanColumnLayout.width(isCollapsed: isCollapsed), alignment: .topLeading)
-        .animation(
-            KanbanColumnCollapseAnimationPolicy.policy(reduceMotion: reduceMotion).animation,
-            value: isCollapsed
-        )
+        .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var collapsedColumn: some View {
@@ -112,20 +111,23 @@ struct KanbanColumnView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 88, alignment: .center)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(cards) { card in
-                        KanbanCardView(
-                            card: card,
-                            isSelected: selectedCardID == card.id,
-                            focusedCardID: focusedCardID,
-                            onSelect: { onSelect(card) }
-                        )
+                ScrollView(KanbanColumnLayout.cardScrollAxes) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(cards) { card in
+                            KanbanCardView(
+                                card: card,
+                                isSelected: selectedCardID == card.id,
+                                focusedCardID: focusedCardID,
+                                onSelect: { onSelect(card) }
+                            )
+                        }
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(OpsHubTerminalTheme.surfacePrimary, in: RoundedRectangle(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
