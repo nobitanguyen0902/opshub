@@ -89,6 +89,7 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertTrue(body.contains("read-only"))
         XCTAssertTrue(body.contains("metadata JSON schemaVersion=1"))
         assertOpsHubOwnedStageContract(in: body)
+        XCTAssertTrue(body.contains(#"metadata={"schemaVersion":1,"outcome":"ready","summary":"<summary>","risks":[]}"#))
     }
 
     func testStartDoesNotCreateTaskWhenWorkspaceValidationFails() async throws {
@@ -257,6 +258,7 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(developerRequest.assignee, "developer")
         XCTAssertTrue(developerRequest.body.contains("Architect handoff: Architecture is ready."))
         assertOpsHubOwnedStageContract(in: developerRequest.body)
+        XCTAssertTrue(developerRequest.body.contains(#"metadata={"schemaVersion":1,"outcome":"completed","summary":"<summary>","changedFiles":[],"verification":[]}"#))
 
         let developerWorkflow = try XCTUnwrap(afterArchitect.first)
         await hermes.setDetail(detail(for: developerWorkflow, stage: .developer, handoff: .developerCompleted))
@@ -267,6 +269,7 @@ final class KanbanWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(reviewerRequest.assignee, "reviewer")
         XCTAssertTrue(reviewerRequest.body.contains("Developer handoff: Implementation completed."))
         assertOpsHubOwnedStageContract(in: reviewerRequest.body)
+        XCTAssertTrue(reviewerRequest.body.contains(#"metadata={"schemaVersion":1,"outcome":"approved","summary":"<summary>","findings":[]}"#))
 
         let reviewerWorkflow = try XCTUnwrap(afterDeveloper.first)
         await hermes.setDetail(detail(for: reviewerWorkflow, stage: .reviewer, handoff: .reviewerApproved))
@@ -1474,6 +1477,8 @@ private func developerPromptBody(for workflow: KanbanWorkflow, handoff: String) 
     Do not create, assign, reassign, or unblock another Hermes task for a later role. OpsHub will create the next stage after reconciling this handoff.
     Do not use the review-required convention or call kanban_block for a stage outcome. Report approval_required, blocked, failed, and changes_requested as structured outcomes so OpsHub can apply the matching logical transition.
     Call kanban_complete exactly once with a concise summary and metadata JSON schemaVersion=1 before returning your final response.
+    Use this exact payload shape, replacing the example outcome and values when needed:
+    kanban_complete(summary="<summary>", metadata={"schemaVersion":1,"outcome":"completed","summary":"<summary>","changedFiles":[],"verification":[]})
     Architect outcomes: ready | approval_required | blocked; include risks[].
     Developer outcomes: completed | blocked | failed; include changedFiles[] and verification[].
     Reviewer outcomes: approved | changes_requested | blocked; include findings[].
